@@ -1,6 +1,6 @@
 # Colony Dash — Master Memory
 
-**Status:** **M0 shipped, M1 mostly shipped.** Priority: **High.**
+**Status:** **M0 and M1 shipped.** The loop is live and grooming on the hour. Priority: **High.**
 **Created:** 2026-08-15 (as "PO Dashboard"; renamed **Colony Dash** 2026-08-17)
 
 The orchestrator loop and dashboard where Jordan acts as Product Owner over a colony of
@@ -17,7 +17,9 @@ Jordan's integration with Claude as a whole** — not a side tool.
 ```
 python -m colony init                 create + seed the ledger, scan the roster
 python -m colony status               sprint, board, colony, inbox, pulse log
-python -m colony pulse                one heartbeat — zero tokens
+python -m colony pulse                one heartbeat — free unless it wakes to groom
+python -m colony pulse --no-wake      tick only, guaranteed zero tokens
+python -m colony pulse --dry-run      preview; writes nothing, spends nothing
 python -m colony roster "database"    search all 270 personas
 python -m colony agents               who is on the books and what they may touch
 python -m colony sql "SELECT ..."     SELECT-only console
@@ -135,12 +137,29 @@ M4 Skill forge → M5 Two-way Notion. Details in `ARCHITECTURE.md` §10.
 **M0 is done and verified:** 11 tables plus an FTS5 roster index, hash-checked append-only
 migrations, structural agents seeded, 270 personas scanned, the CLI, and the MySQL mirror.
 
-**M1 is done except dispatch:** the tick runs, samples usage, syncs Notion, infers projects,
-raises needs-info escalations, writes the `story_events` timeline, and decides tick-vs-wake.
-Every pulse so far has cost **0 tokens**. The wake tier records its reasons but does not yet
-spawn Ordis or an investigator — held deliberately until a week of logs calibrates the bar.
+**M1 is done.** The tick samples usage, syncs Notion, infers projects, writes the
+`story_events` timeline and decides tick-vs-wake — all at **0 tokens**. The wake tier now
+spawns a real read-only agent to groom a story: it either drafts acceptance criteria and
+parks the story at `po-review` for your approval, or names the one decision only you can
+make. Guards: HALT, the 35% weekly allowance, a per-run ceiling, 2 stories per wake, and a
+2-attempt cap per story. `--no-wake` forces a free tick; `--dry-run` writes nothing.
 
-## To finish M1
+**Live cost, measured:** one grooming run ≈ **50k chargeable tokens ≈ $0.50**. See
+`ARCHITECTURE.md` §10.2 — the first wake found a genuine bug in `job-radar/score.py`
+unprompted, and cost about half a dollar to do it.
+
+## Next
+
+- [ ] Answer the Inbox. Five stories are parked on "which project folder?" and
+      "15 Part Job Search" is parked on a real decision: should the manual *Job & Internship
+      Tracker* and the auto-written *Job Radar Tracker* merge, coexist with a defined
+      handoff, or one retire?
+- [ ] Let it run a week, then tune the escalation bar (§4.6) against real logs.
+- [ ] **M2** — the pywebview dashboard. Every panel it needs is already backed by a table.
+- [ ] **M3** — staffing, worktree isolation, and the Inbox write-approval gate. Held on
+      purpose: no write-capable dispatch before the gate that governs it exists.
+
+## Finished 2026-08-17
 
 - [x] Notion integration connected 2026-08-17. The board reads: **6 rows, 6 stories** —
       3 backlog (In Progress), 3 needs-criteria (Exploring), 5 Inbox cards awaiting a project.
@@ -149,8 +168,10 @@ spawn Ordis or an investigator — held deliberately until a week of logs calibr
 - [x] Hourly Task Scheduler job **"Colony Dash Pulse"** registered 2026-08-17. Runs
       `pulse.cmd` (interactive user, on battery too, `StartWhenAvailable` so a missed hour
       fires on wake), appending to `.colony/pulse.log`. Verified: exit code 0.
-- [ ] Run a week, then tune the escalation bar (§4.6) against real logs.
-- [ ] Then: wake-tier dispatch (Ordis + investigator), which is where the first tokens go.
+- [x] Wake-tier dispatch built and run live 2026-08-17. Four bugs it exposed — the token
+      ceiling counting cache reads, a budget breach discarding paid-for work, the wake never
+      firing for work already in the ledger, and duplicate structural agents — are written up
+      in `ARCHITECTURE.md` §10.2 and migrations 002/003.
 
 ### Bug fixed 2026-08-17: inference matched source folders, not projects
 

@@ -245,11 +245,20 @@ def sync_notion(conn: sqlite3.Connection) -> dict:
 
 
 def collect_finished_runs(conn: sqlite3.Connection) -> list[sqlite3.Row]:
-    """Runs that ended since the last pulse. Empty until M3 dispatches anything."""
+    """Runs that ended without their ticket being closed out.
+
+    Not "ended since the last pulse" — that version counted the wake's own
+    grooming run, which the wake had already harvested inline, so every wake
+    manufactured a reason for the next one. An open ticket behind a finished run
+    is the real signal: it means a run's result was never recorded, which is what
+    a crash mid-harvest looks like.
+    """
     return list(
         conn.execute(
-            "SELECT * FROM runs WHERE status != 'running' AND ended_at IS NOT NULL "
-            "AND ended_at > COALESCE((SELECT MAX(pulse_at) FROM pulses), '1970-01-01')"
+            """
+            SELECT r.* FROM runs r JOIN tickets t ON t.id = r.ticket_id
+             WHERE r.status != 'running' AND r.ended_at IS NOT NULL AND t.status = 'running'
+            """
         )
     )
 
@@ -264,26 +273,42 @@ def open_po_decisions(conn: sqlite3.Connection) -> int:
 # ── the pulse ─────────────────────────────────────────────────────────────────
 
 
-def run(conn: sqlite3.Connection, *, dry_run: bool = False) -> int:
+def run(conn: sqlite3.Connection, *, dry_run: bool = False, allow_wake: bool = True) -> int:
     """One heartbeat. Zero tokens: everything here is pure Python.
 
-    The whole pulse is one transaction, so `dry_run` can roll it back and mean
-    what it says. The connection is in autocommit, so without this the dry run's
-    own `sample_usage` and `sync_notion` writes landed anyway — and the *next*
-    real pulse then reported "0 new", hiding the six stories the dry run had
-    quietly ingested. A preview that changes what it previews is worse than none.
+    The *tick* is one transaction, so `dry_run` can roll it back and mean what it
+    says. The connection is in autocommit, so without this the dry run's own
+    `sample_usage` and `sync_notion` writes landed anyway — and the next real
+    pulse then reported "0 new", hiding the six stories the dry run had quietly
+    ingested. A preview that changes what it previews is worse than none.
+
+    The **wake runs outside that transaction, deliberately.** It spawns agents
+    that spend real tokens, and a rollback cannot un-spend them. If the machine
+    dies mid-wake, the ledger must still show the run and what it cost. Evidence
+    of spending is never allowed to be provisional.
     """
     conn.execute("BEGIN")
     try:
-        code = _run(conn, dry_run=dry_run)
+        ctx = _tick(conn)
     except BaseException:
         conn.execute("ROLLBACK")
         raise
     conn.execute("ROLLBACK" if dry_run else "COMMIT")
-    return code
+
+    wake_report = None
+    if ctx["tier"] == "wake" and not dry_run and allow_wake:
+        from . import wake as wake_mod  # local: wake imports us back
+
+        wake_report = wake_mod.run(conn, ctx["usage"])
+
+    if not dry_run:
+        _write_pulse_row(conn, ctx, wake_report)
+    _report(ctx, wake_report, dry_run=dry_run)
+    return 0
 
 
-def _run(conn: sqlite3.Connection, *, dry_run: bool) -> int:
+def _tick(conn: sqlite3.Connection) -> dict:
+    """The free part: look at the world, decide whether it's worth a model."""
     started = time.monotonic()
     last = conn.execute("SELECT MAX(pulse_at) AS at FROM pulses").fetchone()["at"]
     window_start = last or (datetime.now() - PULSE_INTERVAL).strftime("%Y-%m-%d %H:%M:%S")
@@ -307,6 +332,15 @@ def _run(conn: sqlite3.Connection, *, dry_run: bool) -> int:
     if decisions:
         reasons.append(f"{decisions} PO decision(s) to act on")
 
+    # Work already sitting in the ledger counts too, not just news from Notion.
+    # Without this the loop would only ever wake on the hour a story arrived, and
+    # anything it couldn't finish that hour would wait forever.
+    from . import wake as wake_mod  # local: wake imports us back
+
+    pending = wake_mod.groomable_count(conn)
+    if pending:
+        reasons.append(f"{pending} stor{'y' if pending == 1 else 'ies'} to groom")
+
     anomalies = 0
     notes: list[str] = []
     if halted:
@@ -327,27 +361,55 @@ def _run(conn: sqlite3.Connection, *, dry_run: bool) -> int:
     tier = "wake" if (reasons and not halted) else "tick"
     finding = "; ".join(reasons + notes) if (reasons or notes) else "clean"
 
-    if not dry_run:
-        conn.execute(
-            """
-            INSERT INTO pulses (pulse_at, tier, window_start, window_end, actions,
-                                finding, anomalies, tokens, duration_ms, next_pulse_at)
-            VALUES (?,?,?,?,?,?,?,0,?,?)
-            """,
-            (
-                window_end, tier, window_start, window_end,
-                json.dumps({
-                    "notion": {k: board[k] for k in ("configured", "seen", "new", "changed", "error")},
-                    "usage": usage,
-                    "finished_runs": len(finished),
-                    "halted": halted,
-                    "wake_reasons": reasons,
-                }),
-                finding, anomalies,
-                int((time.monotonic() - started) * 1000),
-                (datetime.now() + PULSE_INTERVAL).strftime("%Y-%m-%d %H:%M:%S"),
-            ),
-        )
+    return {
+        "started": started, "window_start": window_start, "window_end": window_end,
+        "tier": tier, "finding": finding, "anomalies": anomalies,
+        "usage": usage, "board": board, "reasons": reasons, "notes": notes,
+        "finished": len(finished), "halted": halted,
+    }
+
+
+def _write_pulse_row(conn: sqlite3.Connection, ctx: dict, wake_report: dict | None) -> None:
+    """Close the hour. Written after the wake so `tokens` is what was really spent."""
+    board, usage = ctx["board"], ctx["usage"]
+    finding = ctx["finding"]
+    if wake_report:
+        if wake_report["groomed"]:
+            finding += f"; groomed {len(wake_report['groomed'])}"
+        elif wake_report["skipped"]:
+            finding += f"; wake skipped: {wake_report['skipped']}"
+
+    conn.execute(
+        """
+        INSERT INTO pulses (pulse_at, tier, window_start, window_end, actions,
+                            finding, anomalies, tokens, duration_ms, next_pulse_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?)
+        """,
+        (
+            # Stamped now, not at tick time: a wake takes minutes, and a pulse_at
+            # from before its own runs finished makes the next pulse think those
+            # runs are still outstanding.
+            now(), ctx["tier"], ctx["window_start"], ctx["window_end"],
+            json.dumps({
+                "notion": {k: board[k] for k in ("configured", "seen", "new", "changed", "error")},
+                "usage": usage,
+                "finished_runs": ctx["finished"],
+                "halted": ctx["halted"],
+                "wake_reasons": ctx["reasons"],
+                "wake": wake_report,
+            }),
+            finding[:1000], ctx["anomalies"],
+            (wake_report or {}).get("tokens", 0),
+            int((time.monotonic() - ctx["started"]) * 1000),
+            (datetime.now() + PULSE_INTERVAL).strftime("%Y-%m-%d %H:%M:%S"),
+        ),
+    )
+
+
+def _report(ctx: dict, wake_report: dict | None, *, dry_run: bool) -> None:
+    board, usage = ctx["board"], ctx["usage"]
+    tier, finding, reasons = ctx["tier"], ctx["finding"], ctx["reasons"]
+    window_start, window_end = ctx["window_start"], ctx["window_end"]
 
     if board["configured"]:
         board_line = (
@@ -368,7 +430,19 @@ def _run(conn: sqlite3.Connection, *, dry_run: bool) -> int:
     print(f"  notion    {board_line}")
     print(f"  usage     {usage_line}")
     print(f"  finding   {finding}")
-    print("  tokens    0   (the heartbeat is free; only the work costs)")
-    if tier == "wake":
-        print(f"  wake      queued — dispatch lands in M3: {', '.join(reasons)}")
-    return 0
+
+    if wake_report is None:
+        print("  tokens    0   (the heartbeat is free; only the work costs)")
+        if tier == "wake" and dry_run:
+            print(f"  wake      would wake: {', '.join(reasons)}")
+        return
+
+    if wake_report["skipped"]:
+        print(f"  wake      stood down — {wake_report['skipped']}")
+    for item in wake_report["groomed"]:
+        flag = "  ⚠ over ceiling" if item.get("over_budget") else ""
+        print(f"  groomed   #{item['story_id']} \"{item['title'][:40]}\" → {item['verdict']}"
+              f"  ({item['tokens']:,} tok{flag})")
+    raw = sum(i.get("raw_tokens", 0) for i in wake_report["groomed"])
+    print(f"  tokens    {wake_report['tokens']:,} chargeable"
+          + (f"  ·  {raw:,} incl. cache reads" if raw else ""))

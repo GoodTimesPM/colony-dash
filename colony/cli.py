@@ -70,14 +70,18 @@ def cmd_status(conn: sqlite3.Connection, args) -> int:
     ).fetchone()
 
     if sprint:
+        # By run date inside the sprint window, not by story.sprint_id: stories
+        # come from Notion without a sprint attached, so the join version summed
+        # nothing and the sprint always read as "— tok" no matter what was spent.
+        # Every token the colony burns in the window belongs to the window.
         spent = conn.execute(
             """
-            SELECT COALESCE(SUM(r.total_tokens), 0) AS tok, COALESCE(SUM(r.cost_usd), 0) AS usd
-            FROM runs r JOIN tickets t ON t.id = r.ticket_id
-            JOIN stories s ON s.id = t.story_id
-            WHERE s.sprint_id = ?
+            SELECT COALESCE(SUM(COALESCE(chargeable_tokens, total_tokens)), 0) AS tok,
+                   COALESCE(SUM(cost_usd), 0) AS usd
+              FROM runs
+             WHERE date(started_at) BETWEEN ? AND ?
             """,
-            (sprint["id"],),
+            (sprint["starts_on"], sprint["ends_on"]),
         ).fetchone()
         rule(f"{sprint['name']} — {sprint['goal'] or 'no goal set'}")
         print(f"  {sprint['starts_on']} → {sprint['ends_on']}   allowance {sprint['budget_pct']:.0f}% of week")
@@ -208,7 +212,7 @@ def cmd_mirror(conn: sqlite3.Connection, args) -> int:
 def cmd_pulse(conn: sqlite3.Connection, args) -> int:
     from . import pulse as pulse_mod
 
-    return pulse_mod.run(conn, dry_run=args.dry_run)
+    return pulse_mod.run(conn, dry_run=args.dry_run, allow_wake=not args.no_wake)
 
 
 # ── wiring ────────────────────────────────────────────────────────────────────
@@ -247,6 +251,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     pul = sub.add_parser("pulse", help="run one pulse (tick, escalating to wake)")
     pul.add_argument("--dry-run", action="store_true", help="report, write nothing")
+    pul.add_argument("--no-wake", action="store_true",
+                     help="tick only — never spawn an agent, guaranteeing zero tokens")
     pul.set_defaults(func=cmd_pulse)
 
     return p
