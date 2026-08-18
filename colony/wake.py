@@ -93,11 +93,19 @@ def budget_state(conn: sqlite3.Connection, usage: dict | None) -> dict:
 # hour, forever, at full price.
 MAX_ATTEMPTS = 2
 
+# `t.status <> 'wontfix'` is how the attempt budget resets. When a story's brief
+# changes under an open question, M5 marks that story's old groom tickets
+# wontfix — they answered a question about a version of the story that no longer
+# exists — and the count drops back to zero. Without it, a story groomed twice
+# early on could never be re-read no matter how much Jordan rewrote it, which is
+# the same stale-prose failure the rest of M5 exists to fix, one layer down.
 GROOMABLE_WHERE = """
     status IN ('backlog','needs-criteria')
+    AND dropped_at IS NULL
     AND (acceptance_criteria IS NULL OR acceptance_criteria = '')
     AND (SELECT COUNT(*) FROM tickets t
-          WHERE t.story_id = stories.id AND t.title LIKE 'Groom:%') < :max_attempts
+          WHERE t.story_id = stories.id AND t.title LIKE 'Groom:%'
+            AND t.status <> 'wontfix') < :max_attempts
 """
 
 
@@ -116,6 +124,44 @@ def stories_to_groom(conn: sqlite3.Connection, limit: int) -> list[sqlite3.Row]:
     ).fetchall()
 
 
+def _checklist(story: sqlite3.Row, column: str) -> list[str]:
+    """One half of the story's checklist, or nothing if the column predates M5."""
+    try:
+        raw = story[column]
+    except (IndexError, KeyError):
+        return []
+    try:
+        items = json.loads(raw or "[]")
+    except (TypeError, ValueError):
+        return []
+    return [str(i) for i in items if str(i).strip()]
+
+
+def _progress_section(story: sqlite3.Row) -> str:
+    """What is already inside the story, stated before what is left of it.
+
+    The single most expensive mistake this loop made in its first week was
+    re-raising work Jordan had already finished, because the brief and the
+    checkboxes were flattened into the same wall of text. Naming the finished
+    items separately, and telling the agent in one blunt sentence that they are
+    closed, costs about forty tokens and buys back a whole class of stale Inbox
+    cards.
+    """
+    done, todo = _checklist(story, "done_items"), _checklist(story, "open_items")
+    if not done and not todo:
+        return ""
+    out = ["", "--- progress, as of the last Notion sync ---"]
+    if done:
+        out.append(f"ALREADY DONE ({len(done)}) — treat these as closed. Do not"
+                   " re-raise them, do not ask about them, do not put them in criteria:")
+        out += [f"  [x] {i}" for i in done[:40]]
+    if todo:
+        out.append(f"STILL OPEN ({len(todo)}) — this is the actual scope:")
+        out += [f"  [ ] {i}" for i in todo[:40]]
+    out.append("--- end progress ---")
+    return "\n".join(out)
+
+
 def groom_prompt(story: sqlite3.Row, projects: list[str]) -> str:
     """The work order. Explicit about the gate, so the agent can't overstep it."""
     body = (story["description"] or "").strip() or "(the Notion page body is empty)"
@@ -130,6 +176,7 @@ Current guess at project folder: {story['project'] or 'none — unknown'}
 --- brief from the Notion page body ---
 {body[:6000]}
 --- end brief ---
+{_progress_section(story)}
 
 Project folders that exist under D:\\ALL STUFF\\PROJECTS (a story belongs to one
 of these, or to none if it is new work):
@@ -271,13 +318,16 @@ def groom_story(conn: sqlite3.Connection, story: sqlite3.Row, terms: dict,
                 WHERE id = ?""",
             (criteria, story["id"]),
         )
-        # Gate 1. Ordis drafts; only the PO marks a story ready.
+        # Gate 1. Ordis drafts; only the PO marks a story ready. `raised_hash`
+        # stamps the version of the story this was drafted against, so the next
+        # sync can tell whether it is still an answer to a live question.
         conn.execute(
-            """INSERT INTO escalations (story_id, ticket_id, kind, reason, recommendation, est_tokens)
-               VALUES (?,?,'decision',?,?,?)""",
+            """INSERT INTO escalations (story_id, ticket_id, kind, reason, recommendation,
+                                        est_tokens, raised_hash)
+               VALUES (?,?,'decision',?,?,?,?)""",
             (story["id"], ticket_id,
              f'"{story["title"]}" has draft acceptance criteria awaiting your approval.',
-             criteria[:1000], result.chargeable_tokens),
+             criteria[:1000], result.chargeable_tokens, story["notion_hash"]),
         )
         _event(conn, story["id"], "groomed",
                answer.get("summary") or "acceptance criteria drafted",
@@ -291,17 +341,29 @@ def groom_story(conn: sqlite3.Connection, story: sqlite3.Row, terms: dict,
                 WHERE id = ?""",
             (missing[:1000], story["id"]),
         )
+        # `stale_at IS NULL` matters here. A stale card is an open row that is
+        # explicitly no longer trusted, and letting it suppress a fresh question
+        # would mean the Inbox keeps showing the outdated wording forever.
         already = conn.execute(
             "SELECT 1 FROM escalations WHERE story_id = ? AND kind = 'needs-info' "
-            "AND resolved_at IS NULL",
+            "AND resolved_at IS NULL AND stale_at IS NULL",
             (story["id"],),
         ).fetchone()
         if not already:
             conn.execute(
-                """INSERT INTO escalations (story_id, ticket_id, kind, reason, recommendation, est_tokens)
-                   VALUES (?,?,'needs-info',?,?,?)""",
+                """INSERT INTO escalations (story_id, ticket_id, kind, reason, recommendation,
+                                            est_tokens, raised_hash)
+                   VALUES (?,?,'needs-info',?,?,?,?)""",
                 (story["id"], ticket_id, f'"{story["title"]}" cannot start yet.',
-                 missing[:1000], result.chargeable_tokens),
+                 missing[:1000], result.chargeable_tokens, story["notion_hash"]),
+            )
+            # The old wording is superseded, not merely accompanied.
+            conn.execute(
+                """UPDATE escalations SET resolved_at = datetime('now','localtime'),
+                          po_decision = 'amend'
+                    WHERE story_id = ? AND kind = 'needs-info' AND resolved_at IS NULL
+                      AND stale_at IS NOT NULL""",
+                (story["id"],),
             )
         _event(conn, story["id"], "blocked", missing[:400], None, ticket_id, result.chargeable_tokens)
         outcome["verdict"] = "needs info"

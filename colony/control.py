@@ -334,6 +334,194 @@ def confirm_project(conn: sqlite3.Connection, story_id: int, project: str) -> di
     return {"ok": True, "project": project, "note": note}
 
 
+# ── dropping things ───────────────────────────────────────────────────────────
+#
+# A backlog you cannot take things off is not a backlog, it is a guilt trip. The
+# PO asked for this in exactly those terms: some rows arrive from Notion, get
+# looked at, and are simply not going to happen — and until now the only way to
+# say so was to change the row in Notion and wait an hour for the sync.
+#
+# Dropping is local, reversible, and honest about being a decision: the story
+# goes to 'archived' with a timestamp and a reason, every open question about it
+# closes as 'reject', and the Notion side is *offered* rather than assumed. A PO
+# who drops a story from the dashboard has not necessarily decided to change what
+# his own board says.
+
+
+def drop_story(conn: sqlite3.Connection, story_id: int, *, reason: str = "",
+               notion_status: str | None = None) -> dict[str, Any]:
+    """Take a story off the board. Reversible; `restore_story` is the undo."""
+    story = conn.execute("SELECT * FROM stories WHERE id = ?", (story_id,)).fetchone()
+    if not story:
+        raise Refused("no such story")
+    if story["dropped_at"]:
+        raise Refused("already dropped")
+    if story["status"] == "in-progress":
+        # Not a rule about tidiness: a running ticket has a worktree and a budget
+        # attached, and archiving the story out from under it would leave both
+        # orphaned. Cancel the ticket first and the drop goes through.
+        raise Refused("a ticket is running on this story — cancel it first")
+
+    reason = (reason or "").strip()
+    _record(conn, "drop", "story", story_id, reason or "(no reason given)")
+    conn.execute(
+        """UPDATE stories SET status = 'archived', dropped_at = datetime('now','localtime'),
+                  drop_reason = ?, updated_at = datetime('now','localtime')
+            WHERE id = ?""",
+        (reason or None, story_id),
+    )
+    closed = conn.execute(
+        """UPDATE escalations SET resolved_at = datetime('now','localtime'),
+                  po_decision = 'reject'
+            WHERE story_id = ? AND resolved_at IS NULL""",
+        (story_id,),
+    ).rowcount
+    # Open tickets die with it. They exist to serve a story that no longer wants
+    # doing, and leaving them 'open' would keep the colony offering to staff them.
+    orphaned = conn.execute(
+        """UPDATE tickets SET status = 'wontfix', closed_at = datetime('now','localtime')
+            WHERE story_id = ? AND status IN ('open','staffed','blocked')""",
+        (story_id,),
+    ).rowcount
+    _event(conn, story_id, "decided",
+           "PO dropped this story" + (f": {reason}" if reason else ""))
+
+    pushed = None
+    if notion_status and story["notion_page_id"]:
+        pushed = queue_notion(conn, story_id=story_id, kind="status",
+                              payload={"status": notion_status}, record=False)
+    return {"ok": True, "closed": closed, "tickets": orphaned, "queued": pushed,
+            "message": f"dropped · {closed} question(s) closed · {orphaned} ticket(s) wontfix"}
+
+
+def restore_story(conn: sqlite3.Connection, story_id: int) -> dict[str, Any]:
+    """Undo a drop. Back to the backlog, ungroomed, as if it had just arrived.
+
+    Criteria are cleared on the way back in. The drop may have been the right
+    call for a week and wrong today, and criteria drafted against the old
+    reading of the story are exactly the stale prose M5 exists to stop.
+    """
+    story = conn.execute("SELECT * FROM stories WHERE id = ?", (story_id,)).fetchone()
+    if not story:
+        raise Refused("no such story")
+    if not story["dropped_at"]:
+        raise Refused("that story was not dropped")
+
+    _record(conn, "restore", "story", story_id, story["drop_reason"])
+    conn.execute(
+        """UPDATE stories SET status = 'backlog', dropped_at = NULL, drop_reason = NULL,
+                  acceptance_criteria = NULL, updated_at = datetime('now','localtime')
+            WHERE id = ?""",
+        (story_id,),
+    )
+    _event(conn, story_id, "decided", "PO put this story back on the board")
+    return {"ok": True, "message": "back on the board, ungroomed"}
+
+
+# ── talking back to Notion ────────────────────────────────────────────────────
+
+
+def queue_notion(conn: sqlite3.Connection, *, story_id: int, kind: str,
+                 payload: dict, record: bool = True) -> int:
+    """Queue one upward write. Nothing here touches the network — see outbox.py.
+
+    The button is instant and transactional; the tick does the HTTP an hour
+    later, or sooner if Jordan runs `python -m colony pulse` himself. Same shape
+    as the skill-draft request in 007, for the same reason.
+    """
+    from . import notion as notion_mod
+    from . import outbox
+
+    story = conn.execute("SELECT * FROM stories WHERE id = ?", (story_id,)).fetchone()
+    if not story:
+        raise Refused("no such story")
+    if not story["notion_page_id"]:
+        raise Refused("this story was written by the loop — it has no Notion page")
+
+    if kind == "status":
+        status = (payload or {}).get("status")
+        if status not in notion_mod.WRITABLE_STATUS:
+            raise Refused(
+                f"the colony may only set {', '.join(notion_mod.WRITABLE_STATUS)} — "
+                f"starting work is yours"
+            )
+        detail = f"Status -> {status}"
+    elif kind == "comment":
+        text = ((payload or {}).get("text") or "").strip()
+        if not text:
+            raise Refused("write something first")
+        payload = {"text": text[:1800]}
+        detail = text[:120]
+    elif kind == "check":
+        item = ((payload or {}).get("item") or "").strip()
+        if not item:
+            raise Refused("name the checklist item to tick")
+        payload = {"item": item, "checked": bool((payload or {}).get("checked", True))}
+        detail = f"tick: {item[:100]}"
+    else:
+        raise Refused(f"the colony cannot do {kind!r} to a Notion page")
+
+    if record:
+        _record(conn, "notion", "story", story_id, detail)
+    row_id = outbox.queue(conn, story_id=story_id, page_id=story["notion_page_id"],
+                          kind=kind, payload=payload)
+    _event(conn, story_id, "note", f"queued for Notion: {detail}")
+    return row_id
+
+
+def set_notion_write(conn: sqlite3.Connection, on: bool) -> dict[str, Any]:
+    """The kill switch for the whole upward direction.
+
+    Off does not drop the queue — it holds it. Turning the colony's voice off
+    for an afternoon should not lose the three things it was going to say.
+    """
+    _record(conn, "note", "colony", None, f"notion_write -> {'on' if on else 'off'}")
+    set_control(conn, "notion_write", "1" if on else "0",
+                "the colony may push status, comments and checkboxes back to Notion")
+    return {"ok": True, "on": bool(on),
+            "message": "Notion writes on" if on else "Notion writes held — nothing is lost"}
+
+
+def reask(conn: sqlite3.Connection, esc_id: int) -> dict[str, Any]:
+    """Throw a stale question back to Ordis instead of answering it.
+
+    The card said something true about a version of the story that no longer
+    exists. Answering it would be answering the wrong question; rejecting it
+    would lose the fact that something here still needs a look. So it resolves
+    as 'amend' and the story goes back in the groom queue, where the next wake
+    reads it as it is now — the one path where free detection turns into a
+    deliberate, budgeted re-read.
+    """
+    esc = conn.execute("SELECT * FROM escalations WHERE id = ?", (esc_id,)).fetchone()
+    if not esc:
+        raise Refused("no such escalation")
+    if esc["resolved_at"]:
+        raise Refused("already decided")
+    if not esc["story_id"]:
+        raise Refused("nothing to re-read — this question is not about a story")
+
+    _record(conn, "note", "escalation", esc_id, "re-ask: brief changed under the question")
+    conn.execute(
+        """UPDATE escalations SET resolved_at = datetime('now','localtime'),
+                  po_decision = 'amend' WHERE id = ?""",
+        (esc_id,),
+    )
+    conn.execute(
+        """UPDATE stories SET status = 'backlog', acceptance_criteria = NULL,
+                  updated_at = datetime('now','localtime')
+            WHERE id = ?""",
+        (esc["story_id"],),
+    )
+    conn.execute(
+        """UPDATE tickets SET status = 'wontfix', closed_at = datetime('now','localtime')
+            WHERE story_id = ? AND title LIKE 'Groom:%' AND status <> 'wontfix'""",
+        (esc["story_id"],),
+    )
+    _event(conn, esc["story_id"], "decided",
+           "PO sent this back to Ordis — the brief changed after the question was written")
+    return {"ok": True, "message": "back in the groom queue — Ordis re-reads it on the next wake"}
+
+
 def _project_dirs() -> list[str]:
     from . import projects
     return projects.project_dirs()

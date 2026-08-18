@@ -27,7 +27,8 @@ import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from . import db, forge as forge_mod, notion, projects as projects_mod
+from . import (control, db, forge as forge_mod, notion, outbox,
+               projects as projects_mod)
 from .mirror import load_env
 
 HALT_FILE = db.RUNTIME_DIR / "HALT"
@@ -159,10 +160,56 @@ def infer_project(title: str, description: str | None) -> tuple[str | None, bool
     return None, False
 
 
+def stale_escalations(conn: sqlite3.Connection, story_id: int, new_hash: str) -> int:
+    """Flag every open question that was asked about an older version of a story.
+
+    This is the fix for the Inbox's worst habit. An escalation is prose written
+    at a moment — "this cannot start until you decide X" — and it stays on the
+    page unchanged while Jordan goes away and decides X. The card kept asking
+    for things that were already done, which teaches you to stop reading the
+    Inbox, which is the only failure mode that actually matters here.
+
+    Stale is a flag and not a delete. The question was genuinely asked, and
+    erasing it would erase the fact that the colony was confused about this
+    story once. A flagged card sorts to the back, says out loud that the brief
+    moved under it, and can be re-asked for free — because clearing
+    `acceptance_criteria` is what puts the story back in the groom queue.
+    """
+    marked = conn.execute(
+        """UPDATE escalations
+              SET stale_at = datetime('now','localtime')
+            WHERE story_id = ? AND resolved_at IS NULL AND stale_at IS NULL
+              AND kind IN ('needs-info','decision')
+              AND (raised_hash IS NULL OR raised_hash <> ?)""",
+        (story_id, new_hash),
+    ).rowcount
+    if not marked:
+        return 0
+    # A `needs-info` story is parked: GROOMABLE_WHERE excludes it on purpose, so
+    # the loop does not re-derive an answer it already has. But the whole reason
+    # it was parked has just changed, so un-park it and let the next wake read
+    # the story as it is now rather than as it was.
+    conn.execute(
+        """UPDATE stories SET status = 'backlog', acceptance_criteria = NULL
+            WHERE id = ? AND status = 'needs-info'""",
+        (story_id,),
+    )
+    # And give it its grooming attempts back. Those runs answered a question
+    # about a version of the story that no longer exists; counting them against
+    # the new version would park the story permanently on its second edit.
+    conn.execute(
+        """UPDATE tickets SET status = 'wontfix', closed_at = datetime('now','localtime')
+            WHERE story_id = ? AND title LIKE 'Groom:%' AND status <> 'wontfix'""",
+        (story_id,),
+    )
+    return marked
+
+
 def sync_notion(conn: sqlite3.Connection) -> dict:
     """Upsert the board into `stories`. Returns what actually changed."""
     load_env()
-    result = {"configured": True, "seen": 0, "new": [], "changed": [], "error": None}
+    result = {"configured": True, "seen": 0, "new": [], "changed": [], "error": None,
+              "staled": 0, "ticked": []}
     try:
         rows = notion.fetch_board()
     except notion.NotionUnconfigured as exc:
@@ -173,7 +220,7 @@ def sync_notion(conn: sqlite3.Connection) -> dict:
     existing = {
         r["notion_page_id"]: r
         for r in conn.execute(
-            "SELECT notion_page_id, notion_hash, id, project FROM stories "
+            "SELECT notion_page_id, notion_hash, id, project, done_items FROM stories "
             "WHERE notion_page_id IS NOT NULL"
         )
     }
@@ -198,26 +245,45 @@ def sync_notion(conn: sqlite3.Connection) -> dict:
                 """
                 UPDATE stories SET title=?, description=?, notion_status=?, category=?,
                        related_link=?, priority=?, notion_hash=?, notion_synced_at=?,
-                       updated_at=?
+                       updated_at=?, done_items=?, open_items=?
                 WHERE id = ?
                 """,
                 (row["title"], row["description"], row["notion_status"], row["category"],
-                 row["related_link"], row["priority"], row["hash"], now(), now(), prev["id"]),
+                 row["related_link"], row["priority"], row["hash"], now(), now(),
+                 row["done_items"], row["open_items"], prev["id"]),
             )
             story_id = prev["id"]
             result["changed"].append(row["title"])
             kind, summary = "synced", "Notion row changed"
+
+            # Boxes ticked in Notion since the last sync. Worth naming in the
+            # log on their own: "Jordan finished three things" is the single
+            # most useful sentence an idle hour can produce.
+            was = set(json.loads(prev["done_items"] or "[]"))
+            newly = [i for i in json.loads(row["done_items"] or "[]") if i not in was]
+            if newly:
+                result["ticked"].extend(newly)
+                conn.execute(
+                    """INSERT INTO story_events (story_id, kind, summary, detail)
+                       VALUES (?, 'note', ?, ?)""",
+                    (story_id, f"{len(newly)} item(s) ticked off in Notion",
+                     "\n".join(f"- [x] {i}" for i in newly)),
+                )
+
+            result["staled"] += stale_escalations(conn, story_id, row["hash"])
         else:
             cur = conn.execute(
                 """
                 INSERT INTO stories (notion_page_id, title, description, notion_status,
                                      category, related_link, priority, project,
-                                     project_source, status, notion_hash, notion_synced_at)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+                                     project_source, status, notion_hash, notion_synced_at,
+                                     done_items, open_items)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (row["notion_page_id"], row["title"], row["description"], row["notion_status"],
                  row["category"], row["related_link"], row["priority"], project,
-                 "inferred", status, row["hash"], now()),
+                 "inferred", status, row["hash"], now(),
+                 row["done_items"], row["open_items"]),
             )
             story_id = cur.lastrowid
             result["new"].append(row["title"])
@@ -226,22 +292,24 @@ def sync_notion(conn: sqlite3.Connection) -> dict:
             if project and not confident:
                 conn.execute(
                     """
-                    INSERT INTO escalations (story_id, kind, reason, recommendation)
-                    VALUES (?, 'decision', ?, ?)
+                    INSERT INTO escalations (story_id, kind, reason, recommendation, raised_hash)
+                    VALUES (?, 'decision', ?, ?, ?)
                     """,
                     (story_id,
                      f'"{row["title"]}" — I think this belongs to {project}/, but I am guessing.',
-                     f"Confirm {project}/ so write scope is unambiguous before any ticket is staffed."),
+                     f"Confirm {project}/ so write scope is unambiguous before any ticket is staffed.",
+                     row["hash"]),
                 )
             elif not project:
                 conn.execute(
                     """
-                    INSERT INTO escalations (story_id, kind, reason, recommendation)
-                    VALUES (?, 'needs-info', ?, ?)
+                    INSERT INTO escalations (story_id, kind, reason, recommendation, raised_hash)
+                    VALUES (?, 'needs-info', ?, ?, ?)
                     """,
                     (story_id,
                      f'"{row["title"]}" — I cannot tell which project folder this belongs to.',
-                     "Name the folder under D:\\ALL STUFF\\PROJECTS, or say it is a new project."),
+                     "Name the folder under D:\\ALL STUFF\\PROJECTS, or say it is a new project.",
+                     row["hash"]),
                 )
 
         conn.execute(
@@ -395,6 +463,19 @@ def _tick(conn: sqlite3.Connection) -> dict:
     halted = check_halt()
     usage = sample_usage(conn)
     board = sync_notion(conn)
+
+    # Push before pull would be tidier, but sync first is deliberate: a status
+    # the PO set on his phone should land in the ledger before the colony
+    # overwrites it with one queued yesterday. The outbox drains after the read
+    # for the same reason a merge takes the newer side.
+    #
+    # HALT does not stop this. HALT means "spend nothing", and a comment is not
+    # a token — a halted colony that also stops answering on Notion looks broken
+    # rather than paused. `controls.notion_write` is the switch for this one.
+    outbox_result = outbox.flush(
+        conn, enabled=control.get_control(conn, "notion_write", "1") == "1"
+    )
+
     orphans = reap_orphaned_runs(conn)
     finished = collect_finished_runs(conn)
     decisions = open_po_decisions(conn)
@@ -480,6 +561,20 @@ def _tick(conn: sqlite3.Connection) -> dict:
         notes.append(f"projects: {len(changed)} moved"
                      + (f", {moved} committed" if moved else ""))
 
+    # The two halves of M5, both free, both worth a line. Ticked boxes and
+    # staled questions are the colony noticing that Jordan moved ahead of it.
+    if board.get("ticked"):
+        notes.append(f"notion: {len(board['ticked'])} item(s) ticked off")
+    if board.get("staled"):
+        notes.append(f"inbox: {board['staled']} question(s) went stale")
+    if outbox_result["sent"]:
+        notes.append(f"notion: pushed {outbox_result['sent']}")
+    if outbox_result["failed"]:
+        notes.append(f"notion: {outbox_result['failed']} push(es) failed")
+        anomalies += outbox_result["failed"]
+    if outbox_result["held"]:
+        notes.append(f"notion: {outbox_result['held']} push(es) held")
+
     tier = "wake" if (reasons and not halted) else "tick"
     finding = "; ".join(reasons + notes) if (reasons or notes) else "clean"
 
@@ -490,7 +585,7 @@ def _tick(conn: sqlite3.Connection) -> dict:
         "finished": len(finished), "halted": halted, "changed": changed,
         "orphans": len(orphans), "dispatched": dispatched, "groomable": pending,
         "decisions": decisions, "candidates": candidates, "queued_drafts": queued_drafts,
-        "decaying": [dict(r) for r in decayed],
+        "decaying": [dict(r) for r in decayed], "outbox": outbox_result,
     }
     ctx["detail"] = _detail(ctx)
     return ctx
@@ -517,6 +612,17 @@ def _detail(ctx: dict) -> str:
             lines.append(f"         + {title}")
         for title in board["changed"]:
             lines.append(f"         ~ {title}")
+        for item in (board.get("ticked") or [])[:10]:
+            lines.append(f"         [x] {item[:90]}")
+        if board.get("staled"):
+            lines.append(f"         {board['staled']} open question(s) marked stale — "
+                         f"the brief moved under them")
+
+    ob = ctx.get("outbox") or {}
+    if any(ob.get(k) for k in ("sent", "failed", "held")):
+        lines.append(f"outbox   {ob.get('sent', 0)} sent · {ob.get('failed', 0)} failed · "
+                     f"{ob.get('held', 0)} held"
+                     + (f"  ({ob['error']})" if ob.get("error") else ""))
 
     if usage:
         lines.append(f"usage    5h {usage['five_hour']}% · 7d {usage['seven_day']}%"
