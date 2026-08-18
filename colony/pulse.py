@@ -27,7 +27,7 @@ import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from . import db, notion, projects as projects_mod
+from . import db, forge as forge_mod, notion, projects as projects_mod
 from .mirror import load_env
 
 HALT_FILE = db.RUNTIME_DIR / "HALT"
@@ -435,8 +435,26 @@ def _tick(conn: sqlite3.Connection) -> dict:
     if unanswered:
         reasons.append(f"{unanswered} PO repl{'y' if unanswered == 1 else 'ies'} to answer")
 
+    # The forge notices for free (§7 step 1). It runs in the tick rather than the
+    # wake on purpose: detection reads runs the colony has already paid for, so
+    # it costs nothing, and noticing is not doing — a HALTed colony should still
+    # be able to see that a procedure is emerging. Nothing here spends, and a new
+    # candidate is not a reason to wake: it waits for the PO to ask for a draft.
+    candidates = forge_mod.detect(conn)
+
+    # A drafted skill *is* worth waking for — the PO asked for it by hand.
+    queued_drafts = len(forge_mod.pending_drafts(conn))
+    if queued_drafts:
+        reasons.append(f"{queued_drafts} skill draft(s) requested")
+
     anomalies = 0
     notes: list[str] = []
+    if candidates:
+        notes.append(f"forge: {len(candidates)} new candidate(s)")
+    decayed = forge_mod.decaying(conn)
+    if decayed:
+        notes.append(f"forge: {len(decayed)} skill(s) below win rate")
+        anomalies += len(decayed)
     if orphans:
         # An anomaly, not a reason to wake: the run is already over, and paying a
         # model to look at a process that no longer exists buys nothing.
@@ -471,7 +489,8 @@ def _tick(conn: sqlite3.Connection) -> dict:
         "usage": usage, "board": board, "reasons": reasons, "notes": notes,
         "finished": len(finished), "halted": halted, "changed": changed,
         "orphans": len(orphans), "dispatched": dispatched, "groomable": pending,
-        "decisions": decisions,
+        "decisions": decisions, "candidates": candidates, "queued_drafts": queued_drafts,
+        "decaying": [dict(r) for r in decayed],
     }
     ctx["detail"] = _detail(ctx)
     return ctx
@@ -517,6 +536,15 @@ def _detail(ctx: dict) -> str:
     else:
         lines.append("projects nothing moved on disk")
 
+    if ctx.get("candidates") or ctx.get("queued_drafts") or ctx.get("decaying"):
+        lines.append(f"forge    {len(ctx.get('candidates') or [])} new candidate(s) · "
+                     f"{ctx.get('queued_drafts', 0)} draft(s) queued")
+        for cand in (ctx.get("candidates") or [])[:6]:
+            lines.append(f"         + {cand['slug']:<38} [{cand['detector']}]")
+        for row in (ctx.get("decaying") or [])[:6]:
+            lines.append(f"         ! {row['slug']:<38} win rate "
+                         f"{row['wins']}/{row['wins'] + row['losses']}")
+
     if ctx["halted"]:
         lines.append("HALT     present — dispatch disabled, heartbeat still logging")
     lines.append("decision " + ("wake: " + "; ".join(ctx["reasons"]) if ctx["reasons"]
@@ -538,8 +566,11 @@ def _write_pulse_row(conn: sqlite3.Connection, ctx: dict, wake_report: dict | No
             finding += f"; groomed {len(wake_report['groomed'])}"
         if wake_report.get("built"):
             finding += f"; built {len(wake_report['built'])}"
+        if wake_report.get("forged"):
+            finding += f"; drafted {len(wake_report['forged'])} skill(s)"
         if wake_report["skipped"] and not (wake_report["groomed"] or wake_report.get("built")
-                                           or wake_report.get("answered")):
+                                           or wake_report.get("answered")
+                                           or wake_report.get("forged")):
             finding += f"; wake skipped: {wake_report['skipped']}"
         detail += nl + nl + "WAKE"
         if wake_report["skipped"]:
@@ -552,6 +583,9 @@ def _write_pulse_row(conn: sqlite3.Connection, ctx: dict, wake_report: dict | No
                        f"{item['verdict']} ({item['tokens']:,} tok)")
         for item in wake_report.get("built", []):
             detail += (nl + f"  build  #{item['story_id']} {item['title'][:44]} -> "
+                       f"{item['verdict']} ({item['tokens']:,} tok)")
+        for item in wake_report.get("forged", []):
+            detail += (nl + f"  forge  {item.get('slug', '?')[:44]} -> "
                        f"{item['verdict']} ({item['tokens']:,} tok)")
 
     cur = conn.execute(
@@ -633,8 +667,11 @@ def _report(ctx: dict, wake_report: dict | None, *, dry_run: bool) -> None:
     for item in wake_report.get("built", []):
         print(f"  built     #{item['story_id']} \"{item['title'][:40]}\" -> {item['verdict']}"
               f"  ({item['tokens']:,} tok)")
+    for item in wake_report.get("forged", []):
+        print(f"  forged    {item.get('slug', '?')} -> {item['verdict']}"
+              f"  ({item['tokens']:,} tok)")
     raw = sum(i.get("raw_tokens", 0)
               for i in (wake_report["groomed"] + wake_report.get("built", [])
-                        + wake_report.get("answered", [])))
+                        + wake_report.get("answered", []) + wake_report.get("forged", [])))
     print(f"  tokens    {wake_report['tokens']:,} chargeable"
           + (f"  ·  {raw:,} incl. cache reads" if raw else ""))

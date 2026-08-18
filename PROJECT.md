@@ -140,7 +140,7 @@ proposal, not a decision. The Colony panel is a direct descendant of Lloyd's Ses
 ## Build order
 
 **M0 Ledger ✅** → **M1 Pulse ✅** → **M2 Dashboard ✅** → **M3 Hiring + gates ✅** →
-M4 Skill forge → M5 Two-way Notion. Details in `ARCHITECTURE.md` §10.
+**M4 Skill forge ✅** → M5 Two-way Notion. Details in `ARCHITECTURE.md` §10.
 
 **M0 is done and verified:** 11 tables plus an FTS5 roster index, hash-checked append-only
 migrations, structural agents seeded, 270 personas scanned, the CLI, and the MySQL mirror.
@@ -217,10 +217,57 @@ names the state and the next move.
       Tracker* and the auto-written *Job Radar Tracker* merge, coexist with a defined
       handoff, or one retire?
 - [ ] Let it run a week, then tune the escalation bar (§4.6) against real logs.
+- [ ] **Promote the first real skill.** Three candidates are waiting in the FORGE panel;
+      none has been drafted yet, because drafting costs tokens and that is the PO's call.
 - [ ] **First live write-capable ticket.** M3 is verified against a copy of the ledger; it
       has not yet been pointed at a real story end-to-end.
-- [ ] **M4** — the skill forge. The compounding loop.
 - [ ] Update the published artifact — it still shows the pre-M1 design.
+
+## Finished 2026-08-18 — M4, the skill forge
+
+The compounding loop. A memory is a fact; a skill is a procedure — the forge only makes the
+second kind, and only when the ledger already proves the procedure exists.
+
+- [x] **Detection is free, so it runs on every tick.** `forge.detect()` is pure SQL over runs
+      already paid for, so it lives in the free tier rather than the wake: a HALTed colony
+      should still notice that a procedure is emerging, because noticing is not doing. Four
+      signals — the same ticket class solved 3+ times, a ticket that failed and then succeeded
+      (the recovery path *is* the lesson), a run that came in at or under half its class
+      median, and the PO correcting the same kind of thing 3+ times. A ticket class is
+      (intent, role), not title: a skill is a procedure for a kind of work.
+- [x] **It found three real ones on the first pass** against the live ledger:
+      `research-investigator-procedure` (5 clean runs, 31,944-token median),
+      `research-investigator-shortcut` (run #10 came in under half that), and
+      `po-correction-defer` (double-digit defers — the colony keeps raising something the PO keeps
+      putting off, which is a procedure problem).
+- [x] **Drafting is queued, not clicked.** `control.py` never spends tokens, so "ask for a
+      draft" writes `draft_requested_at` and the next wake pays, behind the same budget guard
+      as grooming. The draft may come back `worth_it: false`, which retires the candidate with
+      its reason — the cheapest place a bad idea can die is before a file exists.
+- [x] **Promotion is the third human gate**, and the only path in the whole system that writes
+      a file to disk: `PROJECTS/.claude/skills/<slug>/SKILL.md`, plus an attachment to named
+      roles. `ordis` is a legal role with no `agents` row — that is the "learned from the
+      colony, handed to the Scrum Master" path. The drawer shows the entire draft before the
+      button, because approving a procedure you have not read is what a gate exists to prevent.
+- [x] **Measured in the budget's own currency.** `skill_uses` records one row per run that
+      loaded a skill, with the baseline it was judged against, so `tokens_saved` can always be
+      taken apart into the runs behind it. Savings may be negative. A skill loaded into a run
+      that then failed counts as a loss, recorded before the early returns.
+- [x] **Decay is flagged, never auto-retired.** Active skills under a 50% win rate on 5+ uses
+      surface as `decaying`; the PO retires them. Retiring detaches the slug from every
+      contract and keeps the row, because the long-run question is which *detector* keeps
+      proposing failures.
+- [x] `python -m colony forge --detect / --draft ID`, four gated API routes, and a real FORGE
+      panel: status-coloured cards, the detector that proposed each one in plain words
+      ("seen 3+ times", "you kept fixing it"), and what the active ones have earned.
+
+Verified end-to-end on a **copy** of the ledger with the skills directory redirected into a
+scratch tree: promote wrote the file and attached to `ordis` + `investigator`, the preamble
+reached the work order, one run recorded **19,944 tokens saved** against a 31,944 baseline,
+retire detached the slug everywhere, and `skill_path("../../evil")` raised. On the live
+server: no `X-Colony` header → 403; promoting a candidate → 409 *"only a drafted skill can be
+promoted"*; queueing the same draft twice → 409. Test residue was cleared from the live ledger
+afterwards, so no wake spends tokens on a request the PO did not make.
 
 ## Finished 2026-08-18 — M3.1, the PO's own quality-of-life pass
 
