@@ -1118,9 +1118,20 @@ story out from under it orphans both.
 
 **Colour was doing no work.** Every panel title was `--ink-dim`, which made eleven sections read
 as one grey mumble; finding STANDBY meant reading the words. The section hues are derived from
-the four accent tokens with `color-mix` rather than written per theme, so all thirty-six
-palettes get them without any of them drifting out of key with its own ground — and the 3px bar
-down the left of each title is the part that actually carries at 11px mono.
+the four accent tokens with `color-mix` rather than written per theme, so every palette gets
+them without any of them drifting out of key with its own ground — and the 3px bar down the left
+of each title is the part that actually carries at 11px mono.
+
+**A theme has to be nameable from its colours alone.** The first pass shipped thirty-six, and
+reading them side by side the PO could see that eleven were one of three palettes with a
+different comment above it: deco, cold war and grunge were moss; harvest, clay, paper, rivendell
+and outer rim were parchment; spice, frontier and mordor were ember. Writing a *theme* and
+writing a *mood board entry* are different jobs, and it is the reference — chrome, tintype,
+avocado — that makes them feel distinct while the hex values quietly converge on the same warm
+neutral. Eleven were deleted and four rebuilt from the thing itself rather than its era: a diner
+is neon red and blue at 1am, not beige at noon; Y2K is a rave flyer, not the white plastic the
+flyer was advertising. The test that survives: if you cannot name the theme from a strip of its
+own swatches, it is a duplicate wearing a costume.
 
 **A picker sorted by change recency is a picker you cannot use.** The folder dropdown fell back
 to the working-tree scan when `/api/projects` had not arrived, and that list is ordered by what

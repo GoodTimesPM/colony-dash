@@ -270,15 +270,25 @@ anything from a phone, and a story you had decided against sat on the board fore
       cancels the waiting tickets, optionally sets the Notion page to Archived, and stays
       restorable. It refuses outright on an `in-progress` story: a running ticket has a worktree
       and a budget attached, and archiving out from under it orphans both.
-- [x] **Twenty-eight more themes**, in three families — eras (deco, diner, cold war, harvest,
-      miami, grunge, y2k, frontier), worlds (cyberpunk, neon noir, spice, grid, vault, outer
-      rim, imperial, nostromo, bridge, mordor, rivendell, meadow) and terminals (phosphor,
-      ochre crt, dusk, fjord, kiln, paper, blueprint, ink wash). Thirty-six in total, grouped in
-      the picker. Every one keeps the same four jobs for the same four accents — amber is the
-      Inbox, mint is live work, coral is an anomaly, violet is Ordis — because that rationing is
-      what lets a glance mean something.
+- [x] **Eighteen more themes**, in three families — eras (diner, miami, y2k), worlds
+      (cyberpunk, neon noir, grid, vault, imperial, nostromo, bridge, meadow) and terminals
+      (phosphor, ochre crt, dusk, fjord, kiln, blueprint, ink wash). Twenty-four in total,
+      grouped in the picker. Every one keeps the same four jobs for the same four accents —
+      amber is the Inbox, mint is live work, coral is an anomaly, violet is Ordis — because that
+      rationing is what lets a glance mean something.
+      **Trimmed the same day, after the PO looked at them together:** the first pass shipped
+      thirty-six, and eleven of them were the same theme. Deco, cold war and grunge were all
+      moss with a different comment; harvest, clay, paper, rivendell and outer rim were all
+      parchment; spice, frontier and mordor were all ember. They are gone, because a picker with
+      three of everything is a picker you scroll rather than choose from. Four more were rebuilt
+      rather than removed — **diner** is now the sign at 1am (neon red tubing, blue gas, black
+      glass) instead of a beige lunch counter, **y2k** is the rave flyer (violet, lime, orange,
+      hot pink on black) instead of frosted chrome on white, **imperial** is black, white and
+      red with no hue anywhere else, and **meadow** got its sage mixed at pigment strength. The
+      rule the trim taught: a theme has to be *nameable from its colours alone*, or it is a
+      duplicate wearing a costume.
 - [x] **Section titles have colour.** Eleven headings in `--ink-dim` read as one grey mumble.
-      The hues are derived from the four accents with `color-mix`, so all thirty-six palettes
+      The hues are derived from the four accents with `color-mix`, so every palette
       get them without drifting out of key, and the 3px bar down the left of each title is the
       part that actually carries at 11px mono.
 - [x] **A view menu.** Every panel can be hidden, stale questions and dropped stories toggled,
