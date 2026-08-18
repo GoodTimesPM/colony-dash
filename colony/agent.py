@@ -20,7 +20,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import db
+from . import db, proc as proc_mod
 
 CLAUDE_BIN = "claude"
 
@@ -138,7 +138,7 @@ def invoke(
     ]
 
     try:
-        proc = subprocess.run(
+        proc = proc_mod.run(
             cmd,
             input=prompt,
             cwd=str(cwd or db.PROJECTS_ROOT),

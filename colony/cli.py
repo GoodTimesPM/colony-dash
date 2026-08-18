@@ -11,6 +11,7 @@ import json
 import os
 import sqlite3
 import sys
+from datetime import datetime
 from pathlib import Path
 
 from . import db, roster as roster_mod, seed as seed_mod
@@ -297,13 +298,56 @@ def cmd_pulse(conn: sqlite3.Connection, args) -> int:
     return pulse_mod.run(conn, dry_run=args.dry_run, allow_wake=not args.no_wake)
 
 
+def cmd_schedule(conn: sqlite3.Connection, args) -> int:
+    """Install, inspect or remove the hourly heartbeat."""
+    from . import schedule as sched
+
+    conn.close()
+    if args.remove:
+        sched._run_ps(
+            f"Unregister-ScheduledTask -TaskName {sched._ps(sched.TASK_NAME)} "
+            f"-Confirm:$false -ErrorAction SilentlyContinue"
+        )
+        print(f"removed  {sched.TASK_NAME}")
+        return 0
+
+    if not args.show:
+        print(f"installed {sched.install()}")
+    task = sched.describe()
+    if not task:
+        print("no task registered")
+        return 1
+    rule(sched.TASK_NAME)
+    for key in ("execute", "arguments", "hidden", "last_run", "next_run", "last_result"):
+        print(f"  {key:<12}{task.get(key, '')}")
+    print()
+    print("  windowless" if sched.windowless() else
+          "  ⚠ still runs a console app — re-run without --show to fix it")
+    return 0
+
+
 # ── wiring ────────────────────────────────────────────────────────────────────
 
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="colony", description="Colony Dash ledger")
     p.add_argument("--ledger", default=str(db.LEDGER_PATH), help="path to ledger.db")
+    p.add_argument("--log", metavar="PATH",
+                   help="append all output to PATH instead of the console — this is how "
+                        "the scheduled pulse gets a log without needing a shell to "
+                        "redirect one, and therefore without needing a console at all")
+    # `--log` is accepted on either side of the subcommand. The scheduled task
+    # writes `-m colony pulse --log <path>`, which reads the way a person would
+    # write it; argparse only allows that if every subparser inherits the flag,
+    # and only SUPPRESS stops an absent subcommand copy from clobbering the
+    # top-level one with None.
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument("--log", metavar="PATH", default=argparse.SUPPRESS,
+                        help=argparse.SUPPRESS)
+
     sub = p.add_subparsers(dest="command", required=True)
+    _add = sub.add_parser
+    sub.add_parser = lambda name, **kw: _add(name, parents=[common], **kw)
 
     init = sub.add_parser("init", help="create/upgrade the ledger and seed it")
     init.add_argument("--roster-dir")
@@ -364,6 +408,11 @@ def build_parser() -> argparse.ArgumentParser:
                      help="tick only — never spawn an agent, guaranteeing zero tokens")
     pul.set_defaults(func=cmd_pulse)
 
+    sch = sub.add_parser("schedule", help="install the hourly pulse as a hidden task")
+    sch.add_argument("--show", action="store_true", help="report the task, change nothing")
+    sch.add_argument("--remove", action="store_true", help="unregister it")
+    sch.set_defaults(func=cmd_schedule)
+
     return p
 
 
@@ -399,9 +448,21 @@ def _force_utf8() -> None:
             setattr(sys, name, open(os.devnull, "w", encoding="utf-8"))
 
 
+def _redirect(path: str) -> None:
+    """Send both streams to a file, appending, with a banner per invocation."""
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    stream = open(target, "a", encoding="utf-8", errors="replace", buffering=1)
+    sys.stdout = sys.stderr = stream
+    print()
+    print(f"===== {datetime.now():%Y-%m-%d %H:%M:%S} =====")
+
+
 def main(argv: list[str] | None = None) -> int:
     _force_utf8()
     args = build_parser().parse_args(argv)
+    if getattr(args, "log", None):
+        _redirect(args.log)
     conn = db.connect(args.ledger)
     try:
         if args.command != "init":

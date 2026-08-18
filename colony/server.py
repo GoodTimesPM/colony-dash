@@ -244,12 +244,25 @@ def _inbox(conn: sqlite3.Connection) -> list[dict[str, Any]]:
         conn,
         """
         SELECT e.*, s.title AS story_title, s.project, s.project_source, s.status AS story_status,
-               t.title AS ticket_title
+               t.title AS ticket_title,
+               (SELECT COUNT(*) FROM po_messages m WHERE m.escalation_id = e.id)  AS messages,
+               (SELECT COUNT(*) FROM po_messages m WHERE m.escalation_id = e.id
+                  AND m.author = 'po' AND m.status = 'unread')                    AS awaiting_ordis,
+               (SELECT m.body FROM po_messages m WHERE m.escalation_id = e.id
+                  AND m.author = 'ordis' ORDER BY m.id DESC LIMIT 1)              AS last_reply,
+               (SELECT m.at FROM po_messages m WHERE m.escalation_id = e.id
+                  ORDER BY m.id DESC LIMIT 1)                                     AS last_message_at,
+               CASE WHEN e.snoozed_until IS NOT NULL
+                     AND e.snoozed_until > datetime('now','localtime')
+                    THEN 1 ELSE 0 END                                             AS snoozed
           FROM escalations e
           LEFT JOIN stories s ON s.id = e.story_id
           LEFT JOIN tickets t ON t.id = e.ticket_id
          WHERE e.resolved_at IS NULL
-         ORDER BY CASE e.kind WHEN 'write-approval' THEN 0 WHEN 'hire' THEN 1
+         -- A snoozed item sorts to the back whatever its kind: "later" has to
+         -- move something, or it is a button that does nothing but log.
+         ORDER BY snoozed,
+                  CASE e.kind WHEN 'write-approval' THEN 0 WHEN 'hire' THEN 1
                               WHEN 'decision' THEN 2 ELSE 3 END,
                   e.raised_at DESC
         """,
@@ -564,6 +577,30 @@ def api_projects() -> dict[str, Any]:
             "all": projects_mod.project_dirs()}
 
 
+@app.get("/api/tree")
+def api_tree(path: str = Query("", max_length=400)) -> dict[str, Any]:
+    """One folder's children. The browsable half of the file panel.
+
+    Lazy by design — the caller asks for the folder it is about to draw, and
+    nothing else. `projects_mod.safe_path` is the only thing standing between a
+    query string and the filesystem, so every refusal it raises becomes a 400
+    rather than a stack trace.
+    """
+    try:
+        return projects_mod.tree(path)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+
+
+@app.get("/api/file")
+def api_file(path: str = Query(..., max_length=400)) -> dict[str, Any]:
+    """One file's text. Read-only, size-capped, secrets excluded by name."""
+    try:
+        return projects_mod.read_file(path)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+
+
 @app.get("/api/project")
 def api_project(name: str = Query(..., max_length=200)) -> dict[str, Any]:
     """One project: what is dirty in it, what landed recently, and the diff."""
@@ -652,13 +689,45 @@ def api_agent(agent_id: int) -> dict[str, Any]:
 def act_decide(body: dict = Body(...), x_colony: str | None = Header(None)) -> dict[str, Any]:
     _guard(x_colony)
     return _act(control.decide, int(body["escalation_id"]), str(body["decision"]),
-                str(body.get("note") or ""))
+                str(body.get("note") or ""),
+                # `or 8` would be wrong here: 0 hours is what "un-snooze" sends,
+                # and it is falsy.
+                float(8 if body.get("snooze_hours") is None else body["snooze_hours"]))
 
 
 @app.post("/api/act/confirm-project")
 def act_confirm(body: dict = Body(...), x_colony: str | None = Header(None)) -> dict[str, Any]:
+    """Name the folder. Optionally create it first — see `control.create_project`."""
     _guard(x_colony)
+    if body.get("create"):
+        made = _act(control.create_project, str(body["project"]),
+                    why=str(body.get("why") or ""))
+        _project_cache["at"] = 0.0
+        if not body.get("story_id"):
+            return made
     return _act(control.confirm_project, int(body["story_id"]), str(body["project"]))
+
+
+@app.post("/api/act/reply")
+def act_reply(body: dict = Body(...), x_colony: str | None = Header(None)) -> dict[str, Any]:
+    """Say something to Ordis about an Inbox item. Queued for the next wake."""
+    _guard(x_colony)
+    return _act(
+        control.reply,
+        escalation_id=int(body["escalation_id"]) if body.get("escalation_id") else None,
+        story_id=int(body["story_id"]) if body.get("story_id") else None,
+        body=str(body.get("body") or ""),
+    )
+
+
+@app.get("/api/thread")
+def thread(escalation_id: int | None = None, story_id: int | None = None) -> dict[str, Any]:
+    """The conversation about one item. Read-only, like everything on this side."""
+    conn = _conn()
+    try:
+        return {"messages": control.thread(conn, escalation_id, story_id)}
+    finally:
+        conn.close()
 
 
 @app.post("/api/act/halt")

@@ -23,7 +23,7 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-from . import db
+from . import db, proc as proc_mod
 
 ROOT = db.PROJECTS_ROOT
 GIT_TIMEOUT_S = 25
@@ -43,7 +43,7 @@ def _git(*args: str, cwd: Path | None = None) -> str:
     degrade the panel — never take the pulse down with it.
     """
     try:
-        proc = subprocess.run(
+        proc = proc_mod.run(
             ["git", *args],
             cwd=str(cwd or ROOT),
             capture_output=True, text=True, encoding="utf-8", errors="replace",
@@ -218,6 +218,131 @@ def diff(project: str, path: str | None = None) -> str:
         lines = lines[:DIFF_LIMIT_LINES]
         lines.append(f"\n… truncated at {DIFF_LIMIT_LINES} lines. Full diff: git diff -- {target}")
     return (stat + "\n" if stat else "") + "\n".join(lines)
+
+
+# ── the file tree ─────────────────────────────────────────────────────────────
+#
+# `scan()` answers "what moved", which is the right question for the pulse log
+# and the wrong one for a file manager: a project with nothing uncommitted
+# vanishes from it entirely, so a panel built on it looks empty exactly when the
+# tree is tidy. This half answers "what is there", and hangs the change state off
+# it as decoration rather than as the reason a row exists.
+#
+# It is a lazy tree — one directory per request — because the root has sixty
+# projects under it and some of those have `node_modules`. Walking eagerly to
+# render a collapsed row is how a file panel becomes the slowest thing on a page.
+
+# Never listed, never read, at any depth. `.git` because its internals are not
+# files anybody browses and one of them is a credential store; `.env` and its
+# neighbours because the read scope in §8 excludes secrets from *every* tier,
+# and a dashboard is a tier.
+HIDDEN_NAMES = {".git", "node_modules", "__pycache__", ".venv", "venv",
+                ".mypy_cache", ".pytest_cache", ".ruff_cache"}
+SECRET_NAMES = {".env", ".env.local", ".env.production", "credentials.json",
+                "token.json", "secrets.json", ".npmrc", ".netrc", "id_rsa"}
+READ_LIMIT_BYTES = 400_000
+TEXT_SUFFIXES = {".md", ".txt", ".py", ".js", ".ts", ".tsx", ".jsx", ".json", ".html",
+                 ".css", ".yml", ".yaml", ".toml", ".ini", ".cfg", ".sql", ".sh",
+                 ".ps1", ".cmd", ".bat", ".xml", ".csv", ".lua", ".c", ".h", ".cpp",
+                 ".cs", ".java", ".rb", ".go", ".rs", ".gitignore", ".env.example"}
+
+
+def is_secret(name: str) -> bool:
+    low = name.lower()
+    return low in SECRET_NAMES or low.startswith(".env")
+
+
+def safe_path(rel: str) -> Path:
+    """Resolve a browser-supplied path inside the root, or refuse.
+
+    Everything the tree endpoints touch comes through here. The check is on the
+    *resolved* path, so a symlink that points out of the tree fails the same way
+    a `..` does.
+    """
+    rel = (rel or "").replace("\\", "/").strip("/")
+    full = (ROOT / rel).resolve() if rel else ROOT.resolve()
+    root = ROOT.resolve()
+    if full != root and root not in full.parents:
+        raise ValueError("outside the projects root")
+    parts = [p for p in rel.split("/") if p]
+    if any(p in HIDDEN_NAMES or is_secret(p) for p in parts):
+        raise ValueError("not a path this dashboard will open")
+    return full
+
+
+def _status_map() -> dict[str, str]:
+    """Every changed path in the repo, forward-slashed, keyed to its git code."""
+    return {path.replace("\\", "/"): (xy.strip() or "?")
+            for xy, path in _status_porcelain()}
+
+
+def _state_for(xy: str) -> str:
+    if xy == "??":
+        return "untracked"
+    if "D" in xy:
+        return "deleted"
+    if "A" in xy:
+        return "added"
+    return "modified"
+
+
+def tree(rel: str = "", *, status: dict[str, str] | None = None) -> dict:
+    """One directory's children, folders first, with change state attached.
+
+    A folder's `changed` count is how many changed files are anywhere beneath
+    it, which is the number that makes a collapsed row worth expanding.
+    """
+    full = safe_path(rel)
+    if not full.is_dir():
+        raise ValueError("not a folder")
+    status = _status_map() if status is None else status
+    prefix = (rel.replace("\\", "/").strip("/") + "/") if rel else ""
+
+    dirs, files = [], []
+    for child in sorted(full.iterdir(), key=lambda c: c.name.lower()):
+        name = child.name
+        if name in HIDDEN_NAMES or is_secret(name):
+            continue
+        path = prefix + name
+        if child.is_dir():
+            beneath = sum(1 for p in status if p.startswith(path + "/"))
+            dirs.append({
+                "name": name, "path": path, "kind": "dir", "changed": beneath,
+                "project": (child / "PROJECT.md").is_file(),
+            })
+        else:
+            try:
+                size = child.stat().st_size
+            except OSError:
+                size = 0
+            xy = status.get(path)
+            files.append({
+                "name": name, "path": path, "kind": "file", "size": size,
+                "state": _state_for(xy) if xy else None,
+                "readable": child.suffix.lower() in TEXT_SUFFIXES or not child.suffix,
+            })
+    return {"path": rel, "dirs": dirs, "files": files,
+            "changed": sum(1 for p in status if p.startswith(prefix)) if prefix else len(status)}
+
+
+def read_file(rel: str) -> dict:
+    """A file's text, for the drawer. Read-only, capped, text only."""
+    full = safe_path(rel)
+    if not full.is_file():
+        raise ValueError("not a file")
+    size = full.stat().st_size
+    if size > READ_LIMIT_BYTES:
+        return {"path": rel, "size": size, "text": None,
+                "why": f"{size:,} bytes — too big to open here. It is on disk at {full}."}
+    try:
+        raw = full.read_bytes()
+    except OSError as exc:
+        return {"path": rel, "size": size, "text": None, "why": str(exc)}
+    if b"\x00" in raw[:4096]:
+        return {"path": rel, "size": size, "text": None,
+                "why": "binary — nothing useful to show as text."}
+    return {"path": rel, "size": size,
+            "text": raw.decode("utf-8", errors="replace"), "why": None}
 
 
 def record(conn, pulse_id: int | None, rows: list[dict]) -> int:

@@ -22,7 +22,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from . import icon as icon_mod
+from . import icon as icon_mod, proc as proc_mod
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 NAME = "Colony Dash"
@@ -76,7 +76,7 @@ $sc.Description = 'The colony: sprint, board, PO inbox, and the halt switch.'
 $sc.WindowStyle = 1
 $sc.Save()
 """
-    result = subprocess.run(
+    result = proc_mod.run(
         ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
         capture_output=True, text=True, timeout=60,
     )

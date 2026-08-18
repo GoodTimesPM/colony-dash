@@ -26,7 +26,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from . import db
+from . import db, proc as proc_mod
 
 ROOT = db.PROJECTS_ROOT
 WORKTREE_DIR = db.RUNTIME_DIR / "worktrees"
@@ -39,7 +39,7 @@ class WorktreeError(RuntimeError):
 
 
 def _git(*args: str, cwd: Path | None = None) -> str:
-    proc = subprocess.run(
+    proc = proc_mod.run(
         ["git", *args],
         cwd=str(cwd or ROOT),
         capture_output=True, text=True, encoding="utf-8", errors="replace",

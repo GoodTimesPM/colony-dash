@@ -764,6 +764,7 @@ colony-dash/
   colony/
     migrations/  001 schema · 002 chargeable tokens · 003 structural uniqueness
                  004 M3 control — po_actions, controls, project_changes, tickets
+                 005 PO replies — po_messages, escalations.snoozed_until
     db.py        WAL, foreign keys, hash-checked append-only migrations
     seed.py      investigator + reviewer contracts, sprint 1
     roster.py    scans ~/.agency-agents into `roster`; FTS search
@@ -783,8 +784,9 @@ colony-dash/
     ui/index.html  the whole front end — one file, no build step
     ui/colony.ico  generated; the taskbar mark
     cli.py       init / status / roster / agents / sql / pulse / mirror / dash
-                 halt / resume / allowance / projects / shortcut
-  pulse.cmd                     what Task Scheduler runs; logs to .colony/pulse.log
+                 halt / resume / allowance / projects / shortcut / schedule
+    proc.py      every subprocess goes through here; no console window ever
+    schedule.py  installs the hourly task under pythonw.exe, hidden
   .colony/ledger.db             gitignored; the ledger
   .colony/HALT                  present ⇒ the colony spends nothing
   .colony/worktrees/            gitignored; one per in-flight ticket
@@ -938,3 +940,51 @@ divisions; the drawer reads the actual `.md` file when you click. 270 persona bo
 every snapshot would be megabytes down the SSE feed to answer a question asked once — and
 reading the file means what you see is what the agent will be handed, not a copy that
 drifted.
+
+
+### 10.5 What a day of living with it taught us
+
+**A console window has two parents and you must kill both.** The dash flashed a terminal
+2-3 times a minute and popped an hourly one that never closed. These looked like one bug
+and were two. The flashing was `PROJECT_TTL_S = 30.0`: every 30 seconds the SSE snapshot
+re-ran `projects.scan()`, which shells out to `git` — a console child spawned from a GUI
+process gets a console. The hourly window was the scheduled task itself running through
+`cmd.exe`. `colony/proc.py` fixes the children (`CREATE_NO_WINDOW` plus a hidden
+`STARTUPINFO`, applied at every call site); `colony/schedule.py` fixes the parent (the task
+runs `pythonw.exe`, `-Hidden`). Fix one and the other is still on screen, which is why the
+first attempt looked like it had failed.
+
+**A reply is not a decision.** The PO can now type a free-form answer into any Inbox card,
+the way you would type into Claude Code. It queues a `po_messages` row, spends nothing, and
+**leaves the escalation open** — the next wake reads it and answers. Ordis may *suggest* a
+project folder from a reply but never confirm one: `project_source` stays `inferred`, so no
+reply can authorize a write. That keeps §8.2's three gates intact while removing the thing
+that actually blocked work — a dropdown with no right answer in it. A reply that resolves
+an item closes it as `amend`, never as an approval nobody gave. And if the agent produces
+no parseable JSON, the message stays `unread`: an unanswered question survives.
+
+**`scan()` answers "what moved"; `tree()` answers "what is there".** The file panel was
+built on `scan()`, so it was empty exactly when the working tree was clean — it looked
+unimplemented because a tidy tree and a broken panel render identically. They are two
+different questions and the panel needs both: the change list on top, the browsable tree
+below. The tree is lazy, one directory per request, because the root holds ~60 projects and
+some carry `node_modules`.
+
+**Validate the resolved path, not the string.** `safe_path()` resolves first and then checks
+containment, so a symlink pointing out of the tree fails the same way `..` does. It also
+rejects any segment that is hidden or matches `is_secret()` — `.env*`, `credentials.json`,
+`id_rsa`. `create_project()` goes further and whitelists each segment with a regex, because
+it creates rather than reads: it must fail closed.
+
+**Specificity beat intent in the theme CSS.** Four of the eight themes did nothing on a dark
+OS. `@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]):not(...) }` scores
+0,4,0 and outranks `:root[data-theme="ember"]` at 0,2,0 — system-dark won every time. The
+guard is now `:root:not([data-theme])`. A theme that was chosen is never "system", so the
+absence of the attribute is the entire condition, and the chain grows no longer as themes
+are added.
+
+**"Later" has to move something.** A button that only re-timestamps a card is indistinguish-
+able from a button that does nothing. It now writes `snoozed_until`, the tile dims, and it
+sorts to the bottom — the state is visible, and un-snooze is the same call with
+`snooze_hours: 0`. (Which is why the server reads it with an explicit `is None` check:
+`or 8` would silently turn un-snooze back into a snooze.)

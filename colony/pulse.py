@@ -429,6 +429,12 @@ def _tick(conn: sqlite3.Connection) -> dict:
     if dispatched:
         reasons.append(f"{dispatched} dispatched ticket(s) to build")
 
+    # A reply the PO typed into the Inbox is the highest-value reason to wake:
+    # it is the one input that arrived because a person deliberately sent it.
+    unanswered = wake_mod.unanswered_count(conn)
+    if unanswered:
+        reasons.append(f"{unanswered} PO repl{'y' if unanswered == 1 else 'ies'} to answer")
+
     anomalies = 0
     notes: list[str] = []
     if orphans:
@@ -525,15 +531,22 @@ def _write_pulse_row(conn: sqlite3.Connection, ctx: dict, wake_report: dict | No
     detail = ctx["detail"]
     nl = chr(10)
     if wake_report:
+        if wake_report.get("answered"):
+            finding += f"; answered {len(wake_report['answered'])} PO repl" + (
+                "y" if len(wake_report["answered"]) == 1 else "ies")
         if wake_report["groomed"]:
             finding += f"; groomed {len(wake_report['groomed'])}"
         if wake_report.get("built"):
             finding += f"; built {len(wake_report['built'])}"
-        if wake_report["skipped"] and not (wake_report["groomed"] or wake_report.get("built")):
+        if wake_report["skipped"] and not (wake_report["groomed"] or wake_report.get("built")
+                                           or wake_report.get("answered")):
             finding += f"; wake skipped: {wake_report['skipped']}"
         detail += nl + nl + "WAKE"
         if wake_report["skipped"]:
             detail += nl + f"         stood down — {wake_report['skipped']}"
+        for item in wake_report.get("answered", []):
+            detail += (nl + f"  reply  msg #{item['message_id']} -> {item['verdict']}"
+                       f" ({item['tokens']:,} tok)")
         for item in wake_report["groomed"]:
             detail += (nl + f"  groom  #{item['story_id']} {item['title'][:44]} -> "
                        f"{item['verdict']} ({item['tokens']:,} tok)")
@@ -608,6 +621,11 @@ def _report(ctx: dict, wake_report: dict | None, *, dry_run: bool) -> None:
 
     if wake_report["skipped"]:
         print(f"  wake      stood down — {wake_report['skipped']}")
+    for item in wake_report.get("answered", []):
+        print(f"  answered  msg #{item['message_id']} → {item['verdict']}"
+              f"  ({item['tokens']:,} tok)")
+        if item.get("answer"):
+            print(f"            {item['answer']}")
     for item in wake_report["groomed"]:
         flag = "  ⚠ over ceiling" if item.get("over_budget") else ""
         print(f"  groomed   #{item['story_id']} \"{item['title'][:40]}\" → {item['verdict']}"
@@ -616,6 +634,7 @@ def _report(ctx: dict, wake_report: dict | None, *, dry_run: bool) -> None:
         print(f"  built     #{item['story_id']} \"{item['title'][:40]}\" -> {item['verdict']}"
               f"  ({item['tokens']:,} tok)")
     raw = sum(i.get("raw_tokens", 0)
-              for i in wake_report["groomed"] + wake_report.get("built", []))
+              for i in (wake_report["groomed"] + wake_report.get("built", [])
+                        + wake_report.get("answered", [])))
     print(f"  tokens    {wake_report['tokens']:,} chargeable"
           + (f"  ·  {raw:,} incl. cache reads" if raw else ""))
