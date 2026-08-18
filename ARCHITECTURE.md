@@ -747,7 +747,7 @@ the next piece.
 | # | Milestone | Ships | Useful on its own because |
 | --- | --- | --- | --- |
 | M0 ✅ | **Ledger** | Schema, migrations, seed, roster scan, CLI, MySQL mirror | A queryable record of project work exists |
-| M1 ◐ | **Pulse, read-only** | `pulse.py`, tick/wake tiers, Notion sync, investigator dispatch | Daily automated status, zero write risk, near-zero tokens |
+| M1 ✅ | **Pulse, read-only** | `pulse.py`, tick/wake tiers, Notion sync, grooming dispatch | Daily automated status, zero write risk, near-zero tokens |
 | M2 | **Dashboard, read view** | FastAPI + SSE + pywebview, all panels except approvals | The always-open window; the thing you actually wanted |
 | M3 | **Hiring + gates** | Roster import, agent definitions, worktree isolation, Inbox approvals, budget kill | Real autonomous work with a safety rail |
 | M4 | **Skill forge** | Detection, drafting, promotion, tokens-saved tracking | The compounding loop turns on |
@@ -762,32 +762,67 @@ calibrations everything downstream depends on.
 ```
 colony-dash/
   colony/
-    migrations/001_initial.sql   11 tables + FTS5 roster index
+    migrations/  001 schema · 002 chargeable tokens · 003 structural uniqueness
     db.py        WAL, foreign keys, hash-checked append-only migrations
     seed.py      investigator + reviewer contracts, sprint 1
     roster.py    scans ~/.agency-agents into `roster`; FTS search
     notion.py    stdlib REST client for the intake board (read-only)
     pulse.py     the two-tier heartbeat
+    wake.py      the wake tier — grooming, budget guard, retry cap
+    agent.py     the only code that spends tokens: one `claude -p` invocation
     mirror.py    full-refresh ledger → MySQL
     cli.py       init / status / roster / agents / sql / pulse / mirror
+  pulse.cmd                     what Task Scheduler runs; logs to .colony/pulse.log
   .colony/ledger.db             gitignored; the ledger
 ```
 
 ```
 python -m colony init                 create + seed + scan the roster
 python -m colony status               the dashboard, in text
-python -m colony pulse                one heartbeat (zero tokens)
+python -m colony pulse                one heartbeat (free unless it wakes)
+python -m colony pulse --dry-run      preview, writes nothing, spends nothing
+python -m colony pulse --no-wake      tick only — guaranteed zero tokens
 python -m colony roster "database"    search the hiring pool
 python -m colony sql "SELECT ..."     SELECT-only console
 ```
 
 **Verified working:** migrations, seeding, a 270-persona scan across 17 divisions, FTS
-search, project inference against the real directory tree, story upsert with change
-detection, needs-info escalation, `story_events` timeline, tick-vs-wake tiering, and usage
-sampling from the shared cache. Every pulse so far: **0 tokens.**
+search, project inference, story upsert with change detection, needs-info escalation, the
+`story_events` timeline, tick-vs-wake tiering, usage sampling from the shared cache, the
+hourly scheduled task, and — since 2026-08-17 — **a wake that actually spawns an agent,
+grooms a story, and records what it cost.**
 
-**Not yet done in M1:** the wake tier records its reasons but does not spawn Ordis, and no
-investigator is dispatched — deliberately, so the escalation bar gets calibrated against a
-week of real logs before anything runs. Notion sync needs `NOTION_TOKEN` in
-`colony-dash/.env`; without it the tick reports `notion: unconfigured` and keeps beating.
-The tray app must be restarted once to start publishing the usage cache.
+### 10.2 What the first real wake taught us
+
+The first grooming run is worth recording in full, because three of the four things it
+proved were things the design had wrong.
+
+**It worked.** Given "15 Part Job Search" it read the Job Radar source, decided the story
+was not buildable yet, and named exactly why: whether the manual *Job & Internship Tracker*
+and the auto-written *Job Radar Tracker* should merge, coexist with a defined handoff, or
+one retire. That is a data-model decision only the PO can make — precisely the §4.2 contract.
+It also returned a `learning` nobody asked for: a real bug in `score.py`, where
+`seniority_block()` disarms every title disqualifier if an entry-level marker appears
+anywhere in the same title, so "Associate Manager" survives a filter meant to drop it.
+
+**The ceiling was measuring the wrong number.** 394,844 tokens against a 60,000 ceiling —
+but 333,382 of those were cache *reads*: the same context re-read each turn, already paid
+for when written. Counting them makes any ceiling unreachable. `runs` now stores both
+`total_tokens` (the honest sum) and `chargeable_tokens` (input + output + cache writes),
+and budgets, ceilings and the sprint line all use the chargeable figure. Real cost of that
+run: **~50k chargeable, $0.50.**
+
+**A breach is not a failure.** The first version overwrote the run's status with
+`killed-over-budget`, and the caller's "did it succeed?" check then discarded a completed,
+correct answer we had already paid for. Over-budget is now a separate flag: the breach
+raises a `cost` escalation, and the work is harvested either way. **Never pay twice for the
+same question.**
+
+**Waking has to include work already in the ledger.** The tick only woke on *change* from
+Notion, so six ungroomed stories would have sat untouched forever. Groomable backlog is now
+itself a reason to wake, capped at `MAX_ATTEMPTS = 2` per story so a story the agent keeps
+failing on can't bill for the same failure every hour.
+
+**Still deliberately not built:** staffing and write-capable dispatch (§4.3–4.4). They need
+the Inbox approval gate, and building the spawner before the gate that governs it is the
+wrong order. That is M3.

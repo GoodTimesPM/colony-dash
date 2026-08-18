@@ -28,7 +28,9 @@ STRUCTURAL_AGENTS = [
         "read_scope": READ_SCOPE,
         "write_scope": None,
         "skills": [],
-        "max_tokens_run": 60000,
+        # Measured, not guessed: grooming one story costs ~61k chargeable tokens
+        # (input + output + cache writes; cache reads are re-reads, see 002).
+        "max_tokens_run": 100000,
         "definition_of_done": [
             "Findings written to the ticket in plain language",
             "Every claim cites a file:line",
@@ -77,7 +79,10 @@ def seed_agents(conn: sqlite3.Connection) -> int:
             VALUES (:role, :project, :roster_slug, :model, :write_capable,
                     :tools_allowed, :tools_denied, :read_scope, :write_scope,
                     :skills, :max_tokens_run, :definition_of_done, :avatar_seed)
-            ON CONFLICT(role, project) DO NOTHING
+            -- No conflict target: structural agents are unique by the partial
+            -- index on role (migration 003), hired agents by (role, project).
+            -- Naming one of those constraints makes `init` crash on the other.
+            ON CONFLICT DO NOTHING
             """,
             row,
         )
