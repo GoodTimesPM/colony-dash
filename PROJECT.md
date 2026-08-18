@@ -1,7 +1,8 @@
 # Colony Dash — Master Memory
 
-**Status:** **M0, M1 and M2 shipped.** The loop is live and grooming on the hour, and there
-is now a window to watch it in. Priority: **High.**
+**Status:** **M0 → M3 shipped.** The loop is live and grooming on the hour, there is a window
+to watch it in, and as of 2026-08-18 that window can also *act*: hire, dispatch, approve a
+patch, halt everything. Priority: **High.**
 **Created:** 2026-08-15 (as "PO Dashboard"; renamed **Colony Dash** 2026-08-17)
 
 The orchestrator loop and dashboard where Jordan acts as Product Owner over a colony of
@@ -27,6 +28,10 @@ python -m colony roster "database"    search all 270 personas
 python -m colony agents               who is on the books and what they may touch
 python -m colony sql "SELECT ..."     SELECT-only console
 python -m colony mirror               full refresh into MySQL (needs .env + PyMySQL)
+python -m colony halt "reason"        stop all spending now; resume lifts it
+python -m colony allowance 10         +10 points of week for a high-volume sprint (0 clears)
+python -m colony projects             what moved across the whole tree (--diff PROJECT)
+python -m colony shortcut             (re)write the desktop shortcut + icon
 pulse.cmd                             what the scheduled task runs; logs to .colony/pulse.log
 ```
 
@@ -134,7 +139,7 @@ proposal, not a decision. The Colony panel is a direct descendant of Lloyd's Ses
 
 ## Build order
 
-**M0 Ledger ✅** → **M1 Pulse ✅** → **M2 Dashboard ✅** → M3 Hiring + gates →
+**M0 Ledger ✅** → **M1 Pulse ✅** → **M2 Dashboard ✅** → **M3 Hiring + gates ✅** →
 M4 Skill forge → M5 Two-way Notion. Details in `ARCHITECTURE.md` §10.
 
 **M0 is done and verified:** 11 tables plus an FTS5 roster index, hash-checked append-only
@@ -156,8 +161,54 @@ localhost-only FastAPI server) with every panel from `ARCHITECTURE.md` §9.2: th
 the colony rail with deterministic avatars, the board with click-through story drawers built
 from `story_events`, the PO Inbox, the pulse log, the forge, and spend. Live updates arrive
 by SSE. It is **read-only by construction** — every request opens the ledger with
-`read_only=True`, so the window cannot be the reason state changed. The approve buttons come
+`read_only=True`, so the window cannot be the reason state changed. The approve buttons came
 with the M3 gate.
+
+**M3 is done.** The dashboard can now change state — through exactly one module. Six gates,
+four of them human: groomed → PO accepts the criteria → project confirmed → agent hired with
+a write scope → PO dispatches → build runs in a worktree → **PO approves the patch**. The
+write contract grants Edit/Write inside one throwaway worktree and **denies Bash outright**,
+which is what makes "the colony cannot push" a capability statement rather than a promise.
+Approved work lands **uncommitted** in the real folder — Jordan reads the diff in the drawer
+and commits it himself. Nothing in `control.py` spends tokens: approving marks a story
+dispatchable, and the next wake decides, so a mis-click is free. Every write records a
+`po_actions` row in the same transaction as the effect it authorises.
+
+Also shipped with M3, from the same session's asks:
+
+- **HALT and the allowance boost** as one-click macros in a new side rail. HALT writes both
+  `.colony/HALT` and a `controls` row, never stops the heartbeat (it keeps logging, syncing,
+  reaping), and honestly promises **"no new work"** rather than implying it can kill a run
+  in flight. The boost is stored separately from the sprint baseline and capped at
+  **+25 points**; clearing it is the same call with 0.
+- **The file-manager view.** `projects.py` runs one `git status` for the whole tree and
+  buckets it by longest path prefix; the Projects panel lists what moved and a drawer shows
+  the real diff. The pulse logs **movement, not dirtiness** — only folders whose counts
+  differ from the last sample or that have commits in the window, because a log that repeats
+  "75 untracked" every hour is a log nobody reads.
+- **A broadened pulse log.** Each beat now carries a `detail` blob, and clicking a beat opens
+  what actually happened that hour.
+- **Ordis has a panel.** Beats, wakes, tokens spent, anomalies, what's groomable, what's
+  queued, what's running, and the last thing it said — the loop is now a visible member of
+  the colony instead of an invisible narrator.
+- **Standby is browsable.** 270 personas as collapsible division dropdowns, and clicking one
+  opens the **actual persona file from disk** — description, identity, mission, and every
+  critical rule, parsed into sections. Read on click, never carried in the snapshot: what you
+  see is what the agent gets handed, not a copy that drifted.
+- **Its own face.** `icon.py` draws a lit longhouse with Pillow at nine sizes (no more
+  sharing the Balatro mod manager's Python icon), `shortcut.py` writes a desktop `.lnk`
+  pointing at `pythonw.exe`, and the window sets its taskbar icon via `WM_SETICON` because
+  pywebview's `icon=` is GTK/Qt-only.
+- **Eight themes** in a header dropdown — system, light, dark, ember, moss, slate, parchment,
+  clay — persisted in localStorage.
+- **The PO Inbox is a full-width tile strip**, and each tile now offers only the affordances
+  its kind can actually use: a `needs-info` card asks for a folder and *doesn't* show
+  approve/reject, because naming the folder is the only answer it has.
+
+What guards the write door: every `/api/act/*` POST must carry an `X-Colony: 1` header (a
+cross-origin form can POST to localhost but cannot set a custom header), the server binds
+127.0.0.1 only, and `control.Refused` maps to **409 with the message intact** — every refusal
+names the state and the next move.
 
 ## Next
 
@@ -166,9 +217,10 @@ with the M3 gate.
       Tracker* and the auto-written *Job Radar Tracker* merge, coexist with a defined
       handoff, or one retire?
 - [ ] Let it run a week, then tune the escalation bar (§4.6) against real logs.
-- [ ] **M3** — staffing, worktree isolation, and the Inbox write-approval gate. Held on
-      purpose: no write-capable dispatch before the gate that governs it exists.
-- [ ] Give the dashboard a Start Menu shortcut, so opening it isn't a terminal command.
+- [ ] **First live write-capable ticket.** M3 is verified against a copy of the ledger; it
+      has not yet been pointed at a real story end-to-end.
+- [ ] **M4** — the skill forge. The compounding loop.
+- [ ] Update the published artifact — it still shows the pre-M1 design.
 
 ## Finished 2026-08-17
 

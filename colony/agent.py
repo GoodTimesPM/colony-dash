@@ -24,10 +24,21 @@ from . import db
 
 CLAUDE_BIN = "claude"
 
-# Anything a run may never do, regardless of what its contract allows. This list
-# is belt-and-braces: the allowlist already excludes them. It exists so that a
-# mistake in a contract cannot become a write.
-ALWAYS_DENIED = ["Edit", "Write", "NotebookEdit", "Bash", "WebFetch", "WebSearch"]
+# Anything a run may never do, whatever its contract says. Belt-and-braces: the
+# allowlist already excludes these. This list exists so a mistake in one row of
+# the `agents` table cannot become a capability.
+#
+# Bash stays here even for write-capable runs, and that is the load-bearing
+# entry. Edit and Write are bounded — they touch files inside a throwaway
+# worktree. Bash is unbounded: it is `git push`, `rm -rf`, `curl | sh`, and the
+# whole class of things §8.3 says the colony must never be able to do. Denying
+# the shell is what makes "the colony cannot push" a capability statement rather
+# than a promise the agents are asked to keep.
+ALWAYS_DENIED = ["Bash", "WebFetch", "WebSearch", "Task", "KillShell", "BashOutput"]
+
+# Additionally denied unless the contract is write-capable *and* the caller has
+# opened a worktree for the run to write in.
+WRITE_TOOLS = ["Edit", "Write", "NotebookEdit"]
 
 
 @dataclass
@@ -105,9 +116,19 @@ def invoke(
     tools_denied: list[str] | None = None,
     cwd: Path | str | None = None,
     timeout_s: int = 600,
+    allow_writes: bool = False,
 ) -> RunResult:
-    """Run one agent to completion. Never raises for an agent-side failure."""
-    denied = sorted(set(ALWAYS_DENIED) | set(tools_denied or []))
+    """Run one agent to completion. Never raises for an agent-side failure.
+
+    `allow_writes` is the M3 addition and the only way Edit/Write reach an
+    agent. The caller must have opened a worktree first: the flag says "this run
+    may write", the `cwd` says where, and nothing in the contract alone can
+    produce both.
+    """
+    denied = set(ALWAYS_DENIED) | set(tools_denied or [])
+    if not allow_writes:
+        denied |= set(WRITE_TOOLS)
+    denied = sorted(denied)
     cmd = [
         CLAUDE_BIN, "-p",
         "--output-format", "json",
@@ -163,6 +184,8 @@ def run_ticket(
     cwd: Path | str | None = None,
     timeout_s: int = 600,
     max_tokens: int | None = None,
+    allow_writes: bool = False,
+    worktree_path: str | None = None,
 ) -> RunResult:
     """Spawn for a ticket and record the run, whatever the outcome.
 
@@ -172,8 +195,9 @@ def run_ticket(
     happened.
     """
     cur = conn.execute(
-        "INSERT INTO runs (ticket_id, agent_role, model, status) VALUES (?,?,?,'running')",
-        (ticket_id, role, model),
+        "INSERT INTO runs (ticket_id, agent_role, model, status, worktree_path) "
+        "VALUES (?,?,?,'running',?)",
+        (ticket_id, role, model, worktree_path),
     )
     run_id = cur.lastrowid
     conn.execute("UPDATE tickets SET status = 'running' WHERE id = ?", (ticket_id,))
@@ -186,6 +210,7 @@ def run_ticket(
         tools_denied=tools_denied,
         cwd=cwd,
         timeout_s=timeout_s,
+        allow_writes=allow_writes,
     )
 
     status = result.status

@@ -18,7 +18,7 @@ import time
 import traceback
 from datetime import datetime
 
-from . import db
+from . import db, icon as icon_mod
 
 HOST = "127.0.0.1"
 DEFAULT_PORT = 8787
@@ -53,6 +53,48 @@ def _port_is_free(host: str, port: int) -> bool:
     with socket.socket() as s:
         s.settimeout(0.4)
         return s.connect_ex((host, port)) != 0
+
+
+def _set_window_icon(title: str, tries: int = 40) -> None:
+    """Hang the colony's mark on the window frame.
+
+    pywebview only accepts an `icon=` on its GTK and Qt backends; on Windows the
+    frame takes whatever icon the host process has, which is `pythonw.exe` — the
+    same generic snake as every other Python program on this machine, which is
+    the collision that started this. So the icon is set the Windows way, by
+    finding the window once it exists and sending it WM_SETICON.
+
+    Entirely cosmetic, and it runs on its own thread polling for the window,
+    because `webview.start()` blocks and the window does not exist until it
+    does. Every failure path is a silent return: a dashboard that will not open
+    because its icon did not load would be a much worse bug than a plain icon.
+    """
+    path = icon_mod.ensure()
+    if not path:
+        return
+    try:
+        import ctypes
+        from ctypes import wintypes
+    except Exception:
+        return
+
+    IMAGE_ICON, LR_LOADFROMFILE, LR_DEFAULTSIZE = 1, 0x0010, 0x0040
+    WM_SETICON, ICON_SMALL, ICON_BIG = 0x0080, 0, 1
+    try:
+        user32 = ctypes.windll.user32
+        user32.FindWindowW.restype = wintypes.HWND
+        for _ in range(tries):
+            hwnd = user32.FindWindowW(None, title)
+            if hwnd:
+                for which, size in ((ICON_SMALL, 16), (ICON_BIG, 32)):
+                    handle = user32.LoadImageW(None, str(path), IMAGE_ICON, size, size,
+                                               LR_LOADFROMFILE | LR_DEFAULTSIZE)
+                    if handle:
+                        user32.SendMessageW(hwnd, WM_SETICON, which, handle)
+                return
+            time.sleep(0.25)
+    except Exception:
+        pass
 
 
 def launch(port: int = DEFAULT_PORT, *, window: bool = True) -> int:
@@ -98,6 +140,7 @@ def launch(port: int = DEFAULT_PORT, *, window: bool = True) -> int:
         min_size=(960, 640),
         background_color="#0B0F14",
     )
+    threading.Thread(target=_set_window_icon, args=("Colony Dash",), daemon=True).start()
     try:
         webview.start()
     except Exception:  # no WebView2 runtime, no display, etc.

@@ -11,9 +11,11 @@ criteria `ready` — so the loop cannot run away with the backlog. And it exerci
 the whole spawn → harvest → record path that staffing and dispatch will reuse, on
 work whose worst failure is a bad paragraph.
 
-Staffing and write-capable dispatch (§4.3, §4.4) are M3. They need the PO
-approval gate on the dashboard, which does not exist yet, and building the
-spawner before the gate that governs it would be the wrong order.
+Since M3 it has a second job: **build**. A story the PO accepted and dispatched
+runs here too, in a git worktree, and comes back as a patch nobody has applied.
+That path lives in `build.py`; this module decides whether the hour can afford
+it and in what order the two jobs run. Grooming goes first — it is cheaper, and
+a story groomed this hour can be dispatched before the next one.
 """
 
 from __future__ import annotations
@@ -22,7 +24,7 @@ import json
 import os
 import sqlite3
 
-from . import agent, db, pulse as pulse_mod
+from . import agent, build as build_mod, control, db, pulse as pulse_mod
 
 # How many stories one wake may groom. A wake is coalescing — an hour with six
 # new stories is one wake — so this is the throttle that keeps a bulk Notion
@@ -55,19 +57,23 @@ def budget_state(conn: sqlite3.Connection, usage: dict | None) -> dict:
     sample we decline to dispatch: spending blind is the one thing the budget
     model exists to prevent.
     """
-    sprint = conn.execute(
-        "SELECT id, budget_pct FROM sprints WHERE status = 'active' ORDER BY id DESC"
-    ).fetchone()
-    allowance = float(sprint["budget_pct"]) if sprint else 35.0
+    # base + whatever the PO boosted it to for a heavy sprint (§6.1). The boost
+    # is stored separately from the sprint so the baseline the colony was
+    # designed around stays visible next to the exception.
+    band = control.effective_allowance(conn)
+    allowance = band["effective"]
 
     if not usage or usage.get("seven_day") is None:
         return {"ok": False, "allowance": allowance, "used": None,
                 "why": "no usage sample — refusing to dispatch blind"}
     used = float(usage["seven_day"])
     if used >= allowance:
+        boosted = f" (35% + {band['boost']:.0f} boost)" if band["boost"] else ""
         return {"ok": False, "allowance": allowance, "used": used,
-                "why": f"week at {used:.0f}% is at or past the {allowance:.0f}% colony allowance"}
-    return {"ok": True, "allowance": allowance, "used": used, "why": None}
+                "why": f"week at {used:.0f}% is at or past the {allowance:.0f}% "
+                       f"colony allowance{boosted}"}
+    return {"ok": True, "allowance": allowance, "used": used, "why": None,
+            "boost": band["boost"]}
 
 
 # Which stories are waiting to be groomed. Kept as one string because the tick
@@ -290,27 +296,40 @@ def groom_story(conn: sqlite3.Connection, story: sqlite3.Row, terms: dict,
 
 def run(conn: sqlite3.Connection, usage: dict | None) -> dict:
     """Do the wake. Returns what happened, for the pulse row and the printout."""
-    report = {"groomed": [], "tokens": 0, "skipped": None}
+    report = {"groomed": [], "built": [], "tokens": 0, "skipped": None}
+
+    if control.is_halted():
+        # Belt-and-braces: the tick already refuses to escalate to a wake while
+        # HALT is present. This is the second reader of the same file, because
+        # the one control that must never fail open is the stop switch.
+        report["skipped"] = "HALT — dispatch disabled"
+        return report
 
     budget = budget_state(conn, usage)
     if not budget["ok"]:
         report["skipped"] = budget["why"]
         return report
 
+    # Grooming first: it is the cheaper of the two jobs, and a story groomed in
+    # this hour can be dispatched before the next one comes round.
     terms = contract(conn, "investigator")
-    if not terms:
+    stories = stories_to_groom(conn, GROOM_LIMIT) if terms else []
+    if terms is None:
         report["skipped"] = "no active investigator contract — run `python -m colony init`"
-        return report
+    elif stories:
+        projects = pulse_mod.candidate_projects()
+        for story in stories:
+            outcome = groom_story(conn, story, terms, projects)
+            report["groomed"].append(outcome)
+            report["tokens"] += outcome["tokens"]
 
-    stories = stories_to_groom(conn, GROOM_LIMIT)
-    if not stories:
-        report["skipped"] = "nothing to groom"
-        return report
-
-    projects = pulse_mod.candidate_projects()
-    for story in stories:
-        outcome = groom_story(conn, story, terms, projects)
-        report["groomed"].append(outcome)
+    # Then whatever the PO dispatched. `build.pending` is already narrowed to
+    # tickets on a *confirmed* project, so nothing reaches a worktree on the
+    # strength of an inference.
+    for outcome in build_mod.run(conn):
+        report["built"].append(outcome)
         report["tokens"] += outcome["tokens"]
 
+    if not report["groomed"] and not report["built"] and not report["skipped"]:
+        report["skipped"] = "nothing to groom and nothing dispatched"
     return report

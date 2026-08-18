@@ -749,7 +749,7 @@ the next piece.
 | M0 ✅ | **Ledger** | Schema, migrations, seed, roster scan, CLI, MySQL mirror | A queryable record of project work exists |
 | M1 ✅ | **Pulse, read-only** | `pulse.py`, tick/wake tiers, Notion sync, grooming dispatch | Daily automated status, zero write risk, near-zero tokens |
 | M2 ✅ | **Dashboard, read view** | FastAPI + SSE + pywebview, all panels except approvals | The always-open window; the thing you actually wanted |
-| M3 | **Hiring + gates** | Roster import, agent definitions, worktree isolation, Inbox approvals, budget kill | Real autonomous work with a safety rail |
+| M3 ✅ | **Hiring + gates** | Staffing from the roster, worktree isolation, write-capable dispatch, Inbox approvals, HALT + allowance | Real autonomous work with a safety rail |
 | M4 | **Skill forge** | Detection, drafting, promotion, tokens-saved tracking | The compounding loop turns on |
 | M5 | **Two-way Notion** | Loop-authored stories and questions push up as comments | The backlog stops being two places |
 
@@ -763,6 +763,7 @@ calibrations everything downstream depends on.
 colony-dash/
   colony/
     migrations/  001 schema · 002 chargeable tokens · 003 structural uniqueness
+                 004 M3 control — po_actions, controls, project_changes, tickets
     db.py        WAL, foreign keys, hash-checked append-only migrations
     seed.py      investigator + reviewer contracts, sprint 1
     roster.py    scans ~/.agency-agents into `roster`; FTS search
@@ -770,13 +771,23 @@ colony-dash/
     pulse.py     the two-tier heartbeat
     wake.py      the wake tier — grooming, budget guard, retry cap
     agent.py     the only code that spends tokens: one `claude -p` invocation
+    control.py   every PO decision; the only module allowed to change state
+    worktree.py  a throwaway git worktree per ticket; the write blast radius
+    build.py     a staffed ticket → a patch waiting for approval
+    projects.py  one `git status` for the whole tree, bucketed by path
     mirror.py    full-refresh ledger → MySQL
-    server.py    FastAPI, read-only connections, SSE change feed
-    desktop.py   pywebview shell; logs to .colony/dash.log
+    server.py    FastAPI, read-only connections, SSE change feed, /api/act/*
+    desktop.py   pywebview shell; logs to .colony/dash.log; sets the window icon
+    icon.py      the longhouse, drawn with Pillow → ui/colony.ico
+    shortcut.py  writes the desktop .lnk through WScript.Shell
     ui/index.html  the whole front end — one file, no build step
+    ui/colony.ico  generated; the taskbar mark
     cli.py       init / status / roster / agents / sql / pulse / mirror / dash
+                 halt / resume / allowance / projects / shortcut
   pulse.cmd                     what Task Scheduler runs; logs to .colony/pulse.log
   .colony/ledger.db             gitignored; the ledger
+  .colony/HALT                  present ⇒ the colony spends nothing
+  .colony/worktrees/            gitignored; one per in-flight ticket
 ```
 
 ```
@@ -789,14 +800,25 @@ python -m colony roster "database"    search the hiring pool
 python -m colony sql "SELECT ..."     SELECT-only console
 python -m colony dash                 open the dashboard window
 python -m colony dash --serve         server only, no window (browse to :8787)
+python -m colony halt "reason"        stop all spending; the pulse keeps logging
+python -m colony resume               lift the halt
+python -m colony allowance            what the sprint may spend, base + boost
+python -m colony allowance 10         +10 points for a high-volume sprint (0 clears)
+python -m colony projects             what moved across the whole tree
+python -m colony projects --diff X    the actual diff for one project
+python -m colony shortcut             (re)write the desktop shortcut
 ```
 
 **Verified working:** migrations, seeding, a 270-persona scan across 17 divisions, FTS
 search, project inference, story upsert with change detection, needs-info escalation, the
 `story_events` timeline, tick-vs-wake tiering, usage sampling from the shared cache, the
 hourly scheduled task, **a wake that actually spawns an agent, grooms a story, and records
-what it cost**, and — since 2026-08-18 — **the dashboard window itself: every panel in §9
-except approvals, live over SSE.**
+what it cost**, and — since 2026-08-18 — **the dashboard window itself: every panel in §9,
+live over SSE, approvals included.** Also verified on M3 day: a POST without the
+`X-Colony` header refused with 403; an over-cap allowance refused with 409 and a sentence
+a person can read; a dispatch of a `needs-info` story refused by name; hire, dispatch,
+cancel, retire, confirm-project and halt/resume all round-tripped against a **copy** of the
+ledger, so the live board was never a test fixture.
 
 ### 10.2 What the first real wake taught us
 
@@ -858,6 +880,61 @@ colour detection, and under `pythonw.exe` `sys.stdout` is `None`. Fixed with a N
 check, a hardened `_force_utf8()`, and `.colony/dash.log` — because a GUI that dies
 silently is a GUI you debug by guessing.
 
-**Still deliberately not built:** staffing and write-capable dispatch (§4.3–4.4). They need
-the Inbox approval gate, and building the spawner before the gate that governs it is the
-wrong order. That is M3.
+**Still deliberately not built at the end of M2:** staffing and write-capable dispatch
+(§4.3–4.4). They need the Inbox approval gate, and building the spawner before the gate
+that governs it is the wrong order. That is M3.
+
+### 10.4 What building the write view taught us
+
+**The gate chain is the product.** M3 is not "the colony can now edit files" — it is six
+gates, four of them human: groomed → the PO accepts the acceptance criteria → the project
+folder is confirmed → an agent is hired with a write scope → the PO dispatches → the build
+runs in a worktree → the PO approves the patch. Every one of those can be refused, and a
+refusal costs nothing. The feature is the number of places a person can say no.
+
+**Record the decision before it takes effect.** Every write inserts a `po_actions` row
+first, in the same transaction as the thing it authorises. If the effect fails the record
+rolls back with it, and if it succeeds there is no ordering in which the ledger shows a
+state change nobody asked for. "What changed and who said so" is one query, always.
+
+**Nothing in `control.py` spends tokens.** Approving a story marks it dispatchable; the
+next wake decides whether to act. That single indirection is why a mis-click is free — the
+dashboard hands out permission, and only `agent.py` ever converts permission into money.
+
+**Denying Bash is the load-bearing guarantee.** Edit and Write are bounded: the worst case
+is a wrecked throwaway worktree, thrown away. Bash is unbounded — one line reaches the
+network, the credential store, or `git push`. So the write contract grants Edit/Write
+inside one worktree and denies Bash outright. "The colony cannot push" stops being a policy
+we intend to follow and becomes a capability the process does not have.
+
+**The handoff is a patch, not a merge.** An approved build lands uncommitted in the real
+project folder. Jordan reads the diff in the drawer and commits it himself, in his own
+words. The colony never commits, never pushes, never rewrites history — which also means
+the recovery from a bad approval is `git checkout .`, not archaeology.
+
+**HALT is deliberately asymmetric.** It writes both `.colony/HALT` and a `controls` row, so
+a running pulse and a cold-started one reach the same conclusion. It does *not* stop the
+heartbeat: a halted colony still logs, still syncs, still reaps orphans. And it cannot kill
+an in-flight run — the honest promise is **"no new work"**, and the panel says exactly that
+rather than implying a kill switch we don't have.
+
+**Movement, not dirtiness.** The first project scan reported "75 untracked" every hour
+forever, because `git status` reports a folder as dirty for as long as it stays dirty. The
+pulse now logs only projects whose counts differ from the last sample or that have commits
+in the window. A log that repeats an unchanging fact is a log nobody reads.
+
+**A custom header is the whole CSRF story.** Every `/api/act/*` POST must carry
+`X-Colony: 1`. A cross-origin form can POST to localhost; it cannot set a custom header
+without a preflight the browser will refuse to send. One header, one `_guard`, done — and
+the server is bound to 127.0.0.1 regardless.
+
+**Refusals are written to be read.** `control.Refused` maps to 409 with its message intact,
+and every message names the state and the next move: *"story is needs-info, not ready.
+Accept its acceptance criteria in the Inbox first."* An error that tells you which button
+to press next is the difference between a gate and an obstacle.
+
+**Personas are read from disk, not from the ledger.** The roster table carries names and
+divisions; the drawer reads the actual `.md` file when you click. 270 persona bodies in
+every snapshot would be megabytes down the SSE feed to answer a question asked once — and
+reading the file means what you see is what the agent will be handed, not a copy that
+drifted.

@@ -9,6 +9,12 @@ can be calibrated against a week of real logs before anything is dispatched.
 
 Every path writes a `pulses` row. A pulse that finds nothing writes
 `finding = 'clean'` with `tokens = 0`; a *missing* row is the alarm.
+
+Since M3 each row also carries a `detail` field: the long-form account of
+everything the tick looked at, not just the one-line verdict. "clean" is a fine
+summary and a useless log entry. The detail is what makes an hour worth reading
+back a week later, and it includes the project folders that moved — the part of
+the colony's world that changes most and that the log used to be blind to.
 """
 
 from __future__ import annotations
@@ -21,7 +27,7 @@ import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from . import db, notion
+from . import db, notion, projects as projects_mod
 from .mirror import load_env
 
 HALT_FILE = db.RUNTIME_DIR / "HALT"
@@ -246,6 +252,39 @@ def sync_notion(conn: sqlite3.Connection) -> dict:
     return result
 
 
+def _moved_since_last(conn: sqlite3.Connection, rows: list[dict]) -> list[dict]:
+    """Keep only the projects whose state is different from the last time we looked.
+
+    `git status` reports a folder as dirty for as long as it stays dirty, so the
+    raw scan says "75 untracked" every hour forever and the log fills with an
+    unchanging fact. What the pulse should report is *movement*: a file count
+    that differs from the last recorded sample, or any commit inside the window.
+
+    A project seen for the first time counts as movement — the first sample is
+    news precisely because there is nothing to compare it against.
+    """
+    out = []
+    for r in rows:
+        prev = conn.execute(
+            "SELECT dirty_files, added, modified, deleted, untracked FROM project_changes "
+            "WHERE project = ? ORDER BY seen_at DESC, id DESC LIMIT 1",
+            (r["project"],),
+        ).fetchone()
+        if r["commits_since"] or prev is None:
+            out.append(r)
+            continue
+        if any(r[k] != prev[k] for k in ("dirty_files", "added", "modified", "deleted", "untracked")):
+            out.append(r)
+    return out
+
+
+def pending_builds(conn: sqlite3.Connection) -> int:
+    """Tickets the PO dispatched that no wake has run yet."""
+    return conn.execute(
+        "SELECT COUNT(*) n FROM tickets WHERE intent = 'implement' AND status = 'staffed'"
+    ).fetchone()["n"]
+
+
 def collect_finished_runs(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     """Runs that ended without their ticket being closed out.
 
@@ -359,6 +398,13 @@ def _tick(conn: sqlite3.Connection) -> dict:
     orphans = reap_orphaned_runs(conn)
     finished = collect_finished_runs(conn)
     decisions = open_po_decisions(conn)
+    dispatched = pending_builds(conn)
+
+    # What moved on disk since the last beat. Pure `git status` — free, and the
+    # only part of the tick that watches the thing the colony exists to work on.
+    # An hour where Notion was silent but three projects changed is not a quiet
+    # hour, and before M3 the log called it "clean".
+    changed = _moved_since_last(conn, projects_mod.scan(since=window_start))
 
     # What makes this hour worth spending tokens on. Anything in this list means
     # a wake; an empty list means the tick already did the whole job for free.
@@ -380,6 +426,8 @@ def _tick(conn: sqlite3.Connection) -> dict:
     pending = wake_mod.groomable_count(conn)
     if pending:
         reasons.append(f"{pending} stor{'y' if pending == 1 else 'ies'} to groom")
+    if dispatched:
+        reasons.append(f"{dispatched} dispatched ticket(s) to build")
 
     anomalies = 0
     notes: list[str] = []
@@ -403,32 +451,101 @@ def _tick(conn: sqlite3.Connection) -> dict:
     elif usage["seven_day"] is not None and usage["seven_day"] >= 80:
         notes.append(f"usage: week at {usage['seven_day']}%")
 
+    if changed:
+        moved = sum(1 for c in changed if c["commits_since"])
+        notes.append(f"projects: {len(changed)} moved"
+                     + (f", {moved} committed" if moved else ""))
+
     tier = "wake" if (reasons and not halted) else "tick"
     finding = "; ".join(reasons + notes) if (reasons or notes) else "clean"
 
-    return {
+    ctx = {
         "started": started, "window_start": window_start, "window_end": window_end,
         "tier": tier, "finding": finding, "anomalies": anomalies,
         "usage": usage, "board": board, "reasons": reasons, "notes": notes,
-        "finished": len(finished), "halted": halted,
+        "finished": len(finished), "halted": halted, "changed": changed,
+        "orphans": len(orphans), "dispatched": dispatched, "groomable": pending,
+        "decisions": decisions,
     }
+    ctx["detail"] = _detail(ctx)
+    return ctx
+
+
+def _detail(ctx: dict) -> str:
+    """The long form of one heartbeat.
+
+    Plain text rather than more JSON, because it is read by a person in the
+    pulse drawer and `actions` already holds the machine-readable copy. Two
+    formats, two audiences, one tick.
+    """
+    board, usage, changed = ctx["board"], ctx["usage"], ctx["changed"]
+    lines = [f"window   {ctx['window_start']} -> {ctx['window_end']}"]
+
+    if not board["configured"]:
+        lines.append("notion   unconfigured (no NOTION_TOKEN)")
+    elif board["error"]:
+        lines.append(f"notion   ERROR {board['error']}")
+    else:
+        lines.append(f"notion   {board['seen']} rows · {len(board['new'])} new · "
+                     f"{len(board['changed'])} changed")
+        for title in board["new"]:
+            lines.append(f"         + {title}")
+        for title in board["changed"]:
+            lines.append(f"         ~ {title}")
+
+    if usage:
+        lines.append(f"usage    5h {usage['five_hour']}% · 7d {usage['seven_day']}%"
+                     + ("  (STALE cache)" if usage["stale"] else ""))
+    else:
+        lines.append("usage    no cache — is the tray app running?")
+
+    lines.append(f"ledger   {ctx['groomable']} groomable · {ctx['dispatched']} dispatched · "
+                 f"{ctx['finished']} unharvested run(s) · {ctx['orphans']} orphan(s) reaped")
+
+    if changed:
+        lines.append(f"projects {len(changed)} folder(s) moved since the last sample")
+        for c in changed[:14]:
+            lines.append(f"         {c['project']:<38} {c['summary']}")
+        if len(changed) > 14:
+            lines.append(f"         ... and {len(changed) - 14} more")
+    else:
+        lines.append("projects nothing moved on disk")
+
+    if ctx["halted"]:
+        lines.append("HALT     present — dispatch disabled, heartbeat still logging")
+    lines.append("decision " + ("wake: " + "; ".join(ctx["reasons"]) if ctx["reasons"]
+                                else "tick — nothing worth a model this hour"))
+    return chr(10).join(lines)
 
 
 def _write_pulse_row(conn: sqlite3.Connection, ctx: dict, wake_report: dict | None) -> None:
     """Close the hour. Written after the wake so `tokens` is what was really spent."""
     board, usage = ctx["board"], ctx["usage"]
     finding = ctx["finding"]
+    detail = ctx["detail"]
+    nl = chr(10)
     if wake_report:
         if wake_report["groomed"]:
             finding += f"; groomed {len(wake_report['groomed'])}"
-        elif wake_report["skipped"]:
+        if wake_report.get("built"):
+            finding += f"; built {len(wake_report['built'])}"
+        if wake_report["skipped"] and not (wake_report["groomed"] or wake_report.get("built")):
             finding += f"; wake skipped: {wake_report['skipped']}"
+        detail += nl + nl + "WAKE"
+        if wake_report["skipped"]:
+            detail += nl + f"         stood down — {wake_report['skipped']}"
+        for item in wake_report["groomed"]:
+            detail += (nl + f"  groom  #{item['story_id']} {item['title'][:44]} -> "
+                       f"{item['verdict']} ({item['tokens']:,} tok)")
+        for item in wake_report.get("built", []):
+            detail += (nl + f"  build  #{item['story_id']} {item['title'][:44]} -> "
+                       f"{item['verdict']} ({item['tokens']:,} tok)")
 
-    conn.execute(
+    cur = conn.execute(
         """
         INSERT INTO pulses (pulse_at, tier, window_start, window_end, actions,
-                            finding, anomalies, tokens, duration_ms, next_pulse_at)
-        VALUES (?,?,?,?,?,?,?,?,?,?)
+                            finding, anomalies, tokens, duration_ms, next_pulse_at, detail)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?)
         """,
         (
             # Stamped now, not at tick time: a wake takes minutes, and a pulse_at
@@ -441,14 +558,19 @@ def _write_pulse_row(conn: sqlite3.Connection, ctx: dict, wake_report: dict | No
                 "finished_runs": ctx["finished"],
                 "halted": ctx["halted"],
                 "wake_reasons": ctx["reasons"],
+                "projects": ctx["changed"],
                 "wake": wake_report,
             }),
             finding[:1000], ctx["anomalies"],
             (wake_report or {}).get("tokens", 0),
             int((time.monotonic() - ctx["started"]) * 1000),
             (datetime.now() + PULSE_INTERVAL).strftime("%Y-%m-%d %H:%M:%S"),
+            detail,
         ),
     )
+    # Attributed to the pulse that saw them, so the Projects panel can answer
+    # "when did this start moving?" and not merely "is it dirty right now?".
+    projects_mod.record(conn, cur.lastrowid, ctx["changed"])
 
 
 def _report(ctx: dict, wake_report: dict | None, *, dry_run: bool) -> None:
@@ -474,6 +596,8 @@ def _report(ctx: dict, wake_report: dict | None, *, dry_run: bool) -> None:
     print(f"{prefix}PULSE {window_end}  ·  {tier}  ·  window {window_start} → {window_end}")
     print(f"  notion    {board_line}")
     print(f"  usage     {usage_line}")
+    for row in (ctx.get("changed") or [])[:6]:
+        print(f"  project   {row['project']:<38} {row['summary']}")
     print(f"  finding   {finding}")
 
     if wake_report is None:
@@ -488,6 +612,10 @@ def _report(ctx: dict, wake_report: dict | None, *, dry_run: bool) -> None:
         flag = "  ⚠ over ceiling" if item.get("over_budget") else ""
         print(f"  groomed   #{item['story_id']} \"{item['title'][:40]}\" → {item['verdict']}"
               f"  ({item['tokens']:,} tok{flag})")
-    raw = sum(i.get("raw_tokens", 0) for i in wake_report["groomed"])
+    for item in wake_report.get("built", []):
+        print(f"  built     #{item['story_id']} \"{item['title'][:40]}\" -> {item['verdict']}"
+              f"  ({item['tokens']:,} tok)")
+    raw = sum(i.get("raw_tokens", 0)
+              for i in wake_report["groomed"] + wake_report.get("built", []))
     print(f"  tokens    {wake_report['tokens']:,} chargeable"
           + (f"  ·  {raw:,} incl. cache reads" if raw else ""))

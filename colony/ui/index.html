@@ -3,22 +3,29 @@
 <title>Colony Dash</title>
 
 <!--
-  The read view. Every number on this page came out of the ledger; nothing here
-  can put anything back (M2 is read-only by construction — see server.py).
+  The colony, and the controls for it.
 
-  One typographic rule runs through the whole page: anything the ledger
-  *measured* is set in mono, anything a human *wrote* is set in sans. Token
+  Two typographic rules run through the whole page. Anything the ledger
+  *measured* is set in mono, anything a human *wrote* is set in sans — token
   counts, timestamps, roles, ids and statuses are machine facts; story titles,
-  findings and escalation reasons are prose. You can tell at a glance which
-  parts of the screen the colony is responsible for.
+  findings and escalation reasons are prose. And colour is rationed: amber
+  belongs to the PO Inbox and nothing else, so a page with amber on it means
+  something wants Jordan. Mint means live work. Coral means an anomaly.
 
-  Colour is rationed. Amber belongs to the PO Inbox and nothing else, so a page
-  with any amber on it means something wants Jordan. Mint means live work.
-  Coral means an anomaly. Everything else is neutral by design: §9.2's rule is
-  that an empty Inbox should look like a system that needs nothing.
+  Since M3 the page can also write. Every control that does routes through
+  POST /api/act/*, which is a thin skin over control.py — the module that
+  records the decision before it takes effect and refuses anything the colony's
+  rules forbid. Nothing on this page spends a token: approving a story marks it
+  dispatchable and the next wake decides. That separation is deliberate, and it
+  is why a mis-click here is cheap.
 -->
 
 <style>
+/* ── palettes ───────────────────────────────────────────────────────────────
+   Bare :root is the complete light set. The system-dark block is guarded so an
+   explicit light choice beats a dark OS, and [data-theme="dark"] repeats it so
+   the picker wins in the other direction. The named themes after that are
+   opt-in only — a viewer who never touches the picker sees the first three.   */
 :root {
   color-scheme: light dark;
 
@@ -36,6 +43,7 @@
   --mint:        #0E8C74;
   --mint-ground: #E3F5F0;
   --coral:       #C0392B;
+  --coral-ground:#FBEAE7;
   --violet:      #6B5BC4;
 
   --shadow: 0 1px 2px rgba(19,26,34,.06), 0 8px 24px -12px rgba(19,26,34,.18);
@@ -50,11 +58,8 @@
   --step-3:  26px;
 }
 
-/* The un-stamped default: most viewers never touch a theme toggle, so the OS
-   preference has to carry the dark palette on its own. Guarded so an explicit
-   light choice still beats a dark OS. */
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
+  :root:not([data-theme="light"]):not([data-theme="parchment"]):not([data-theme="clay"]) {
     --ground:      #0B0F14;
     --panel:       #121820;
     --panel-sunk:  #0E141B;
@@ -63,35 +68,85 @@
     --ink:         #DEE5EC;
     --ink-soft:    #9AA7B5;
     --ink-dim:     #6B7885;
-
     --amber:       #F0A63C;
     --amber-ground:#231A0C;
     --mint:        #6FE3C4;
     --mint-ground: #0D2320;
     --coral:       #E8674F;
+    --coral-ground:#26120E;
     --violet:      #A99BF0;
-
     --shadow: 0 1px 0 rgba(255,255,255,.02), 0 12px 32px -18px #000;
   }
 }
 :root[data-theme="dark"] {
-  --ground:      #0B0F14;
-  --panel:       #121820;
-  --panel-sunk:  #0E141B;
-  --rule:        #1F2933;
-  --rule-soft:   #172029;
-  --ink:         #DEE5EC;
-  --ink-soft:    #9AA7B5;
-  --ink-dim:     #6B7885;
-
-  --amber:       #F0A63C;
-  --amber-ground:#231A0C;
-  --mint:        #6FE3C4;
-  --mint-ground: #0D2320;
-  --coral:       #E8674F;
+  --ground:      #0B0F14;  --panel:      #121820;  --panel-sunk: #0E141B;
+  --rule:        #1F2933;  --rule-soft:  #172029;
+  --ink:         #DEE5EC;  --ink-soft:   #9AA7B5;  --ink-dim:    #6B7885;
+  --amber:       #F0A63C;  --amber-ground:#231A0C;
+  --mint:        #6FE3C4;  --mint-ground: #0D2320;
+  --coral:       #E8674F;  --coral-ground:#26120E;
   --violet:      #A99BF0;
-
   --shadow: 0 1px 0 rgba(255,255,255,.02), 0 12px 32px -18px #000;
+}
+
+/* Ember — the forge at night. Warm ground, iron rules, coals for the accent. */
+:root[data-theme="ember"] {
+  --ground:      #14100D;  --panel:      #1C1714;  --panel-sunk: #120E0C;
+  --rule:        #2E2620;  --rule-soft:  #241D18;
+  --ink:         #EDE1D4;  --ink-soft:   #B29C86;  --ink-dim:    #7E6B5A;
+  --amber:       #F2A33C;  --amber-ground:#2A1C0B;
+  --mint:        #8FC98A;  --mint-ground: #16220F;
+  --coral:       #E4614A;  --coral-ground:#2A120E;
+  --violet:      #C79A6A;
+  --shadow: 0 1px 0 rgba(255,255,255,.03), 0 14px 34px -18px #000;
+}
+
+/* Moss — a longhouse in the woods. Cool green dark, low contrast, easy at 2am. */
+:root[data-theme="moss"] {
+  --ground:      #0C120F;  --panel:      #131B17;  --panel-sunk: #0F1613;
+  --rule:        #1E2A24;  --rule-soft:  #17211C;
+  --ink:         #DCE7E0;  --ink-soft:   #94A89C;  --ink-dim:    #66786D;
+  --amber:       #D7A94E;  --amber-ground:#221B0C;
+  --mint:        #62D3A4;  --mint-ground: #0C2319;
+  --coral:       #DD6E5C;  --coral-ground:#241210;
+  --violet:      #86B8C9;
+  --shadow: 0 1px 0 rgba(255,255,255,.02), 0 12px 32px -18px #000;
+}
+
+/* Slate — quarried stone. The neutral dark for when colour is a distraction. */
+:root[data-theme="slate"] {
+  --ground:      #101317;  --panel:      #191D23;  --panel-sunk: #14181D;
+  --rule:        #272D35;  --rule-soft:  #1E232A;
+  --ink:         #E2E6EB;  --ink-soft:   #9CA5B0;  --ink-dim:    #6E7783;
+  --amber:       #E0A64B;  --amber-ground:#231C0E;
+  --mint:        #63C9B4;  --mint-ground: #0F2422;
+  --coral:       #DE6E62;  --coral-ground:#241413;
+  --violet:      #8FA2D6;
+  --shadow: 0 1px 0 rgba(255,255,255,.02), 0 12px 32px -18px #000;
+}
+
+/* Parchment — a ledger on a table. Warm paper, iron-gall ink, red rubrication. */
+:root[data-theme="parchment"] {
+  --ground:      #EFE7D8;  --panel:      #FBF6EB;  --panel-sunk: #E7DDCA;
+  --rule:        #D6C9B0;  --rule-soft:  #E3D8C4;
+  --ink:         #241C12;  --ink-soft:   #574733;  --ink-dim:    #8A7758;
+  --amber:       #9A5A10;  --amber-ground:#F5E5C8;
+  --mint:        #37704F;  --mint-ground: #DFEBD9;
+  --coral:       #A5341F;  --coral-ground:#F3DED6;
+  --violet:      #6A5230;
+  --shadow: 0 1px 2px rgba(60,45,25,.08), 0 8px 24px -14px rgba(60,45,25,.3);
+}
+
+/* Clay — the daylight version of the same settlement. Cool light, brick accent. */
+:root[data-theme="clay"] {
+  --ground:      #F4F1EC;  --panel:      #FFFFFF;  --panel-sunk: #ECE7DF;
+  --rule:        #DCD5CA;  --rule-soft:  #E7E1D8;
+  --ink:         #1E1B17;  --ink-soft:   #524B42;  --ink-dim:    #877E72;
+  --amber:       #A85B14;  --amber-ground:#FAEDDC;
+  --mint:        #1C7A62;  --mint-ground: #E0F1EA;
+  --coral:       #B23A26;  --coral-ground:#F8E4DF;
+  --violet:      #6C5B8C;
+  --shadow: 0 1px 2px rgba(40,32,24,.06), 0 8px 24px -12px rgba(40,32,24,.2);
 }
 
 * { box-sizing: border-box; }
@@ -134,8 +189,13 @@ header.bar .goal {
 .link:hover { color: var(--ink); background: var(--panel-sunk); }
 .link:focus-visible { outline: 2px solid var(--violet); outline-offset: 1px; }
 
-/* Connection state. A dashboard that has stopped receiving updates while still
-   showing numbers is telling you something it can't know — so say it plainly. */
+select.pick, input.field {
+  background: var(--panel-sunk); color: var(--ink);
+  border: 1px solid var(--rule); border-radius: 5px; padding: 4px 7px;
+  font-family: var(--mono); font-size: var(--step--1);
+}
+select.pick:focus-visible, input.field:focus-visible { outline: 2px solid var(--violet); outline-offset: -1px; }
+
 .conn { display: flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: var(--step--1); color: var(--ink-dim); }
 .conn .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--mint); }
 .conn[data-live="false"] { color: var(--coral); }
@@ -150,22 +210,76 @@ header.bar .goal {
 }
 .sprint .figure { display: flex; align-items: baseline; gap: 10px; }
 .sprint .big { font-family: var(--mono); font-size: var(--step-3); font-weight: 600; letter-spacing: -.01em; }
-.sprint .meta { display: flex; gap: 22px; font-family: var(--mono); font-size: var(--step--1); color: var(--ink-dim); }
+.sprint .meta { display: flex; gap: 22px; font-family: var(--mono); font-size: var(--step--1); color: var(--ink-dim); flex-wrap: wrap; }
 .sprint .meta b { font-weight: 600; color: var(--ink-soft); }
+.sprint .meta b.boosted { color: var(--amber); }
 
 .gauge { grid-column: 1 / -1; height: 6px; background: var(--panel-sunk); border-radius: 3px; overflow: hidden; position: relative; }
 .gauge i { display: block; height: 100%; background: var(--mint); border-radius: 3px; transition: width .4s ease; }
 .gauge[data-state="warm"] i { background: var(--amber); }
 .gauge[data-state="hot"]  i { background: var(--coral); }
 
+/* The halted colony says so across the whole width. A stop switch you have to
+   go looking for to confirm is not a stop switch you trust. */
+.halt-banner {
+  display: none; align-items: center; gap: 12px;
+  padding: 9px 20px; background: var(--coral-ground); color: var(--coral);
+  border-bottom: 1px solid var(--coral);
+  font-family: var(--mono); font-size: var(--step--1); letter-spacing: .06em; text-transform: uppercase;
+}
+body.halted .halt-banner { display: flex; }
+
+/* ── the inbox strip ──────────────────────────────────────────────────────────
+   Full width, above everything else. The Inbox is the only panel on this page
+   that is *about* Jordan, so it is not a column of leftovers in the corner —
+   it is the first thing the eye lands on, and it disappears when it is empty. */
+
+.strip { padding: 14px 20px 0; }
+.strip h2 {
+  margin: 0 0 9px; font-family: var(--mono); font-size: var(--step--1); font-weight: 600;
+  letter-spacing: .16em; text-transform: uppercase; color: var(--amber);
+  display: flex; align-items: center; gap: 9px;
+}
+.strip h2 .count { color: var(--ink-soft); letter-spacing: 0; }
+.strip.quiet h2 { color: var(--ink-dim); }
+
+.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(310px, 1fr)); gap: 10px; }
+
+.tile {
+  display: flex; flex-direction: column; gap: 6px;
+  padding: 11px 13px 12px; border-radius: 8px;
+  background: var(--amber-ground); border: 1px solid var(--amber);
+  box-shadow: var(--shadow);
+}
+.tile[data-kind="write-approval"] { border-width: 2px; }
+.tile .k { font-family: var(--mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--amber); display: flex; gap: 8px; }
+.tile .k .age { margin-left: auto; color: var(--ink-dim); letter-spacing: 0; }
+.tile .r { font-size: var(--step-1); line-height: 1.35; }
+.tile .rec { font-size: var(--step--1); color: var(--ink-soft); white-space: pre-wrap; max-height: 8.5em; overflow-y: auto; }
+.tile .meta { font-family: var(--mono); font-size: 10px; color: var(--ink-dim); }
+.tile .acts { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: auto; padding-top: 4px; }
+
+button.act {
+  font-family: var(--mono); font-size: var(--step--1); letter-spacing: .06em; text-transform: uppercase;
+  padding: 5px 10px; border-radius: 5px; cursor: pointer;
+  border: 1px solid var(--rule); background: var(--panel); color: var(--ink-soft);
+}
+button.act:hover { color: var(--ink); border-color: var(--ink-dim); }
+button.act:focus-visible { outline: 2px solid var(--violet); outline-offset: 1px; }
+button.act[disabled] { opacity: .45; cursor: default; }
+button.act.go   { border-color: var(--mint);  color: var(--mint); }
+button.act.no   { border-color: var(--coral); color: var(--coral); }
+button.act.warn { border-color: var(--amber); color: var(--amber); }
+button.act.solid { background: var(--coral); border-color: var(--coral); color: var(--panel); }
+
 /* ── layout ───────────────────────────────────────────────────────────────── */
 
 main {
   display: grid;
-  grid-template-columns: minmax(230px, 260px) minmax(0, 1fr) minmax(300px, 340px);
+  grid-template-columns: minmax(250px, 290px) minmax(0, 1fr) minmax(280px, 320px);
   gap: 14px; padding: 14px 20px 28px; align-items: start;
 }
-@media (max-width: 1180px) { main { grid-template-columns: minmax(0,1fr); } }
+@media (max-width: 1240px) { main { grid-template-columns: minmax(0,1fr); } }
 
 .col { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
 
@@ -184,6 +298,29 @@ section.panel {
 .panel .body { padding: 11px 13px 13px; display: flex; flex-direction: column; gap: 9px; }
 .empty { color: var(--ink-dim); font-size: var(--step--1); padding: 2px 0 4px; }
 
+/* ── Ordis ────────────────────────────────────────────────────────────────────
+   The Scrum Master is not a row in `agents` — it is the loop itself. But a
+   colony dashboard that shows every colonist and not the thing running them is
+   missing its own supervisor, so it gets a panel: when it last beat, when it
+   beats next, and what its judgment has cost. */
+
+.panel.ordis { border-color: var(--violet); }
+.panel.ordis > h2 { color: var(--violet); }
+.ordis-head { display: grid; grid-template-columns: 34px 1fr; gap: 10px; align-items: center; }
+.ordis-head .sigil {
+  width: 34px; height: 34px; border-radius: 8px; display: grid; place-items: center;
+  background: var(--panel-sunk); color: var(--violet); font-size: 17px;
+  border: 1px solid var(--rule);
+}
+body.beating .ordis-head .sigil { animation: breathe 3.6s ease-in-out infinite; }
+.ordis-head .state { font-family: var(--mono); font-size: var(--step-1); font-weight: 600; }
+.ordis-head .sub { font-family: var(--mono); font-size: var(--step--1); color: var(--ink-dim); }
+.ordis-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.ordis-grid div { background: var(--panel-sunk); border-radius: 6px; padding: 6px 8px; }
+.ordis-grid .n { display: block; font-family: var(--mono); font-size: var(--step-1); }
+.ordis-grid .lb { display: block; font-family: var(--mono); font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-dim); }
+.ordis-said { font-size: var(--step--1); color: var(--ink-soft); }
+
 /* ── colony rail ──────────────────────────────────────────────────────────── */
 
 .agent { display: grid; grid-template-columns: 26px 1fr; gap: 9px; align-items: start; }
@@ -196,10 +333,13 @@ section.panel {
 .agent .ceiling { height: 3px; background: var(--panel-sunk); border-radius: 2px; margin-top: 5px; overflow: hidden; }
 .agent .ceiling i { display: block; height: 100%; background: var(--mint); }
 .agent .ceiling[data-state="hot"] i { background: var(--coral); }
+.agent .row-acts { display: flex; gap: 6px; margin-top: 5px; }
 
 .pulsing { animation: breathe 2.4s ease-in-out infinite; }
 @keyframes breathe { 0%,100% { opacity: 1 } 50% { opacity: .45 } }
-@media (prefers-reduced-motion: reduce) { .pulsing { animation: none } .gauge i { transition: none } }
+@media (prefers-reduced-motion: reduce) { .pulsing, .ordis-head .sigil { animation: none } .gauge i { transition: none } }
+
+/* ── standby ──────────────────────────────────────────────────────────────── */
 
 .search {
   width: 100%; padding: 6px 9px; border-radius: 6px;
@@ -207,9 +347,32 @@ section.panel {
   font-family: var(--mono); font-size: var(--step--1);
 }
 .search:focus-visible { outline: 2px solid var(--violet); outline-offset: -1px; border-color: transparent; }
-.persona { display: flex; gap: 7px; align-items: baseline; font-size: var(--step--1); }
-.persona .nm { color: var(--ink-soft); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.persona .dv { margin-left: auto; font-family: var(--mono); color: var(--ink-dim); font-size: 10px; }
+
+details.div { border-top: 1px solid var(--rule-soft); }
+details.div:first-of-type { border-top: 0; }
+details.div > summary {
+  cursor: pointer; list-style: none; padding: 6px 2px;
+  display: flex; align-items: baseline; gap: 8px;
+  font-family: var(--mono); font-size: var(--step--1);
+}
+details.div > summary::-webkit-details-marker { display: none; }
+details.div > summary::before { content: "▸"; color: var(--ink-dim); font-size: 9px; width: 9px; }
+details.div[open] > summary::before { content: "▾"; }
+details.div > summary:hover { color: var(--violet); }
+details.div > summary .dn { text-transform: capitalize; }
+details.div > summary .cn { margin-left: auto; color: var(--ink-dim); }
+details.div .people { display: flex; flex-direction: column; gap: 1px; padding: 2px 0 8px 17px; max-height: 260px; overflow-y: auto; }
+
+button.persona {
+  display: flex; gap: 7px; align-items: baseline; width: 100%; text-align: left;
+  background: none; border: 0; border-radius: 5px; padding: 3px 6px; cursor: pointer;
+  color: inherit; font: inherit; font-size: var(--step--1);
+}
+button.persona:hover { background: var(--panel-sunk); }
+button.persona:focus-visible { outline: 2px solid var(--violet); outline-offset: -2px; }
+button.persona .nm { color: var(--ink-soft); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+button.persona .dv { margin-left: auto; font-family: var(--mono); color: var(--ink-dim); font-size: 10px; }
+button.persona.hired .nm { color: var(--mint); }
 
 /* ── board ────────────────────────────────────────────────────────────────── */
 
@@ -248,29 +411,58 @@ section.panel {
    never look like a confirmed one. Dotted underline = "nobody has said yes". */
 .guess { border-bottom: 1px dotted currentColor; }
 
-/* ── inbox ────────────────────────────────────────────────────────────────── */
+/* ── projects ─────────────────────────────────────────────────────────────── */
 
-.panel.inbox { border-color: var(--amber); }
-.panel.inbox > h2 { color: var(--amber); border-bottom-color: var(--amber); }
-.panel.inbox.quiet { border-color: var(--rule); }
-.panel.inbox.quiet > h2 { color: var(--ink-dim); border-bottom-color: var(--rule-soft); }
+.proj {
+  width: 100%; text-align: left; font: inherit; color: inherit; cursor: pointer;
+  background: none; border: 0; border-radius: 6px; padding: 6px 8px;
+  display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; align-items: baseline;
+}
+.proj:hover { background: var(--panel-sunk); }
+.proj:focus-visible { outline: 2px solid var(--violet); outline-offset: -2px; }
+.proj .p { font-family: var(--mono); font-size: var(--step-0); }
+.proj .s { font-family: var(--mono); font-size: var(--step--1); color: var(--ink-soft); }
+.proj .bar { grid-column: 1 / -1; display: flex; height: 3px; border-radius: 2px; overflow: hidden; background: var(--panel-sunk); }
+.proj .bar i { display: block; height: 100%; }
+.proj .bar i.a { background: var(--mint); }
+.proj .bar i.m { background: var(--violet); }
+.proj .bar i.d { background: var(--coral); }
+.proj .bar i.u { background: var(--ink-dim); }
 
-.esc { display: flex; flex-direction: column; gap: 3px; padding: 8px 9px; border-radius: 6px; background: var(--amber-ground); }
-.esc .k { font-family: var(--mono); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--amber); }
-.esc .r { font-size: var(--step-0); }
-.esc .rec { font-size: var(--step--1); color: var(--ink-soft); }
-.esc .meta { font-family: var(--mono); font-size: 10px; color: var(--ink-dim); }
-.esc button.open { align-self: flex-start; margin-top: 2px; }
+/* ── macros ───────────────────────────────────────────────────────────────── */
+
+.macro { display: flex; flex-direction: column; gap: 4px; }
+.macro .lb { font-family: var(--mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-dim); }
+.macro .why { font-size: var(--step--1); color: var(--ink-dim); line-height: 1.4; }
+.macro .row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.macro-rule { border: 0; border-top: 1px solid var(--rule-soft); margin: 3px 0; }
+button.big {
+  width: 100%; padding: 11px; border-radius: 7px; cursor: pointer;
+  font-family: var(--mono); font-size: var(--step-1); font-weight: 600;
+  letter-spacing: .18em; text-transform: uppercase;
+  border: 2px solid var(--coral); background: var(--coral-ground); color: var(--coral);
+}
+button.big:hover { background: var(--coral); color: var(--panel); }
+button.big:focus-visible { outline: 2px solid var(--violet); outline-offset: 2px; }
+button.big.resume { border-color: var(--mint); background: var(--mint-ground); color: var(--mint); }
+button.big.resume:hover { background: var(--mint); color: var(--panel); }
+.boostbar { height: 4px; background: var(--panel-sunk); border-radius: 2px; overflow: hidden; }
+.boostbar i { display: block; height: 100%; background: var(--amber); }
 
 /* ── pulse log ────────────────────────────────────────────────────────────── */
 
-.pulse { display: grid; grid-template-columns: 44px 40px 1fr auto; gap: 8px; align-items: baseline;
-         font-family: var(--mono); font-size: var(--step--1); }
+button.pulse {
+  display: grid; grid-template-columns: 44px 40px 1fr auto; gap: 8px; align-items: baseline;
+  font-family: var(--mono); font-size: var(--step--1); width: 100%; text-align: left;
+  background: none; border: 0; border-radius: 5px; padding: 2px 5px; cursor: pointer; color: inherit;
+}
+button.pulse:hover { background: var(--panel-sunk); }
+button.pulse:focus-visible { outline: 2px solid var(--violet); outline-offset: -2px; }
+button.pulse[disabled] { cursor: default; }
 .pulse .tier { color: var(--ink-dim); }
 .pulse[data-tier="wake"] .tier { color: var(--mint); }
 .pulse .find { color: var(--ink-soft); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pulse.gap { color: var(--coral); }
-.pulse.gap .find { color: var(--coral); }
+.pulse.gap, .pulse.gap .find { color: var(--coral); }
 .pulse.rolled .find { color: var(--ink-dim); }
 
 /* ── spend ────────────────────────────────────────────────────────────────── */
@@ -285,7 +477,7 @@ section.panel {
 .scrim { position: fixed; inset: 0; background: rgba(6,9,13,.42); opacity: 0; pointer-events: none; transition: opacity .18s ease; }
 .scrim.on { opacity: 1; pointer-events: auto; }
 .drawer {
-  position: fixed; top: 0; right: 0; height: 100%; width: min(560px, 94vw);
+  position: fixed; top: 0; right: 0; height: 100%; width: min(640px, 96vw);
   background: var(--panel); border-left: 1px solid var(--rule);
   transform: translateX(100%); transition: transform .22s cubic-bezier(.2,.7,.3,1);
   display: flex; flex-direction: column; z-index: 2;
@@ -296,8 +488,6 @@ section.panel {
 .drawer header h3 { margin: 0; font-size: var(--step-2); font-weight: 600; }
 .drawer .scroll { overflow-y: auto; padding: 14px 17px 34px; display: flex; flex-direction: column; gap: 16px; }
 
-/* The timeline is the point of the drawer: not "where is this" but "what did we
-   find out, and when". `story_events` exists to make this readable. */
 .ev { display: grid; grid-template-columns: 13px 1fr; gap: 10px; }
 .ev .spine { display: flex; flex-direction: column; align-items: center; }
 .ev .node { width: 7px; height: 7px; border-radius: 50%; background: var(--ink-dim); margin-top: 6px; }
@@ -309,27 +499,69 @@ section.panel {
 .ev[data-kind="groomed"]   .node { background: var(--mint); }
 .ev .when { font-family: var(--mono); font-size: 10px; color: var(--ink-dim); }
 .ev .sum  { font-size: var(--step-0); }
-.ev .detail {
+.ev .detail, pre.detail {
   margin: 5px 0 0; padding: 8px 10px; background: var(--panel-sunk); border-radius: 6px;
-  font-size: var(--step--1); color: var(--ink-soft); white-space: pre-wrap;
+  font-family: var(--mono); font-size: var(--step--1); color: var(--ink-soft); white-space: pre-wrap;
   overflow-x: auto; max-height: 420px; overflow-y: auto;
 }
+pre.detail.tall { max-height: 60vh; }
+/* A diff is the one place on this page where colour is not rationed — it is
+   the whole point of the view. */
+pre.diff { white-space: pre; }
+pre.diff .plus  { color: var(--mint); }
+pre.diff .minus { color: var(--coral); }
+pre.diff .hunk  { color: var(--violet); }
+pre.diff .file  { color: var(--ink); font-weight: 600; }
+
 .kv { display: grid; grid-template-columns: auto 1fr; gap: 3px 14px; font-family: var(--mono); font-size: var(--step--1); }
 .kv dt { color: var(--ink-dim); }
-.kv dd { margin: 0; }
+.kv dd { margin: 0; word-break: break-word; }
 table.runs { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: var(--step--1); }
 table.runs th { text-align: left; font-weight: 600; color: var(--ink-dim); border-bottom: 1px solid var(--rule); padding: 3px 8px 3px 0; }
 table.runs td { padding: 3px 8px 3px 0; border-bottom: 1px solid var(--rule-soft); white-space: nowrap; }
 table.runs td.num { text-align: right; padding-right: 0; }
 .wrap-x { overflow-x: auto; }
+.blk { display: flex; flex-direction: column; gap: 5px; }
+.blk > .lb { font-family: var(--mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-dim); }
+.form { display: grid; grid-template-columns: auto 1fr; gap: 7px 10px; align-items: center;
+        background: var(--panel-sunk); padding: 10px 12px; border-radius: 7px; }
+.form label { font-family: var(--mono); font-size: var(--step--1); color: var(--ink-dim); }
+.form .wide { grid-column: 1 / -1; }
+
+/* ── toasts ───────────────────────────────────────────────────────────────── */
+
+#toasts { position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%); z-index: 5;
+          display: flex; flex-direction: column; gap: 7px; align-items: center; pointer-events: none; }
+.toast {
+  padding: 9px 15px; border-radius: 7px; max-width: 70vw;
+  background: var(--panel); border: 1px solid var(--rule); box-shadow: var(--shadow);
+  font-size: var(--step-0); color: var(--ink);
+}
+.toast.bad { border-color: var(--coral); color: var(--coral); }
+.toast.good { border-color: var(--mint); color: var(--mint); }
 </style>
 
 <header class="bar">
   <h1>Colony Dash</h1>
   <span class="goal" id="goal"></span>
   <span class="conn" id="conn" data-live="false"><span class="dot"></span><span id="conn-text">connecting</span></span>
-  <button class="link" id="theme">theme</button>
+  <select class="pick" id="theme" title="theme">
+    <option value="">system</option>
+    <option value="light">daylight</option>
+    <option value="dark">basalt</option>
+    <option value="ember">ember</option>
+    <option value="moss">moss</option>
+    <option value="slate">slate</option>
+    <option value="parchment">parchment</option>
+    <option value="clay">clay</option>
+  </select>
 </header>
+
+<div class="halt-banner">
+  <span>⛔ production halted</span>
+  <span id="halt-why" style="text-transform:none;letter-spacing:0"></span>
+  <button class="act go" id="halt-banner-resume" style="margin-left:auto">resume</button>
+</div>
 
 <section class="sprint">
   <div>
@@ -344,8 +576,17 @@ table.runs td.num { text-align: right; padding-right: 0; }
   <div class="gauge" id="gauge"><i style="width:0"></i></div>
 </section>
 
+<section class="strip" id="inbox-strip">
+  <h2>PO Inbox <span class="count" id="inbox-count"></span></h2>
+  <div class="tiles" id="inbox"></div>
+</section>
+
 <main>
   <div class="col">
+    <section class="panel ordis">
+      <h2>Ordis <span class="count" id="ordis-count"></span></h2>
+      <div class="body" id="ordis"></div>
+    </section>
     <section class="panel">
       <h2>Colony <span class="count" id="colony-count"></span></h2>
       <div class="body" id="colony"></div>
@@ -353,8 +594,9 @@ table.runs td.num { text-align: right; padding-right: 0; }
     <section class="panel">
       <h2>Standby <span class="count" id="roster-count"></span></h2>
       <div class="body">
-        <input class="search" id="roster-q" placeholder="search 270 personas" autocomplete="off">
-        <div id="roster-results" style="display:flex;flex-direction:column;gap:6px"></div>
+        <input class="search" id="roster-q" placeholder="search personas, or browse below" autocomplete="off">
+        <div id="roster-results" style="display:flex;flex-direction:column;gap:2px"></div>
+        <div id="roster-divisions"></div>
       </div>
     </section>
   </div>
@@ -366,6 +608,10 @@ table.runs td.num { text-align: right; padding-right: 0; }
       <div class="body" id="stories" style="gap:2px"></div>
     </section>
     <section class="panel">
+      <h2>Projects <span class="count" id="proj-count"></span></h2>
+      <div class="body" id="projects" style="gap:3px"></div>
+    </section>
+    <section class="panel">
       <h2>Spend <span class="count" id="spend-count"></span></h2>
       <div class="body">
         <svg class="spark" id="spark" preserveAspectRatio="none" aria-hidden="true"></svg>
@@ -375,13 +621,13 @@ table.runs td.num { text-align: right; padding-right: 0; }
   </div>
 
   <div class="col">
-    <section class="panel inbox" id="inbox-panel">
-      <h2>PO Inbox <span class="count" id="inbox-count"></span></h2>
-      <div class="body" id="inbox"></div>
+    <section class="panel">
+      <h2>Macros</h2>
+      <div class="body" id="macros"></div>
     </section>
     <section class="panel">
       <h2>Pulse log <span class="count" id="pulse-count"></span></h2>
-      <div class="body" id="pulses" style="gap:4px"></div>
+      <div class="body" id="pulses" style="gap:2px"></div>
     </section>
     <section class="panel">
       <h2>Forge <span class="count" id="forge-count"></span></h2>
@@ -401,6 +647,8 @@ table.runs td.num { text-align: right; padding-right: 0; }
   </header>
   <div class="scroll" id="d-body"></div>
 </aside>
+
+<div id="toasts"></div>
 
 <script>
 "use strict";
@@ -434,11 +682,51 @@ function ago(s) {
   if (mins < 1440) return Math.round(mins / 60) + "h ago";
   return Math.round(mins / 1440) + "d ago";
 }
+function until(s) {
+  const d = parseTs(s); if (!d) return "—";
+  const mins = (d - Date.now()) / 6e4;
+  if (mins < 0) return "overdue by " + Math.round(-mins) + "m";
+  if (mins < 90) return "in " + Math.round(mins) + "m";
+  return "in " + Math.round(mins / 60) + "h";
+}
 function el(tag, cls, text) {
   const n = document.createElement(tag);
   if (cls) n.className = cls;
   if (text != null) n.textContent = text;   // textContent, always: ledger text is data, not markup
   return n;
+}
+
+// ── writing to the colony ───────────────────────────────────────────────────
+// One function for every control on the page. The custom header is what stops
+// a stray page in a browser from POSTing here across origins; the server
+// requires it (see server.py). Refusals come back as 409 with the reason
+// written for a person — so show that text, not "request failed".
+
+async function act(path, body) {
+  try {
+    const res = await fetch("/api/act/" + path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Colony": "1" },
+      body: JSON.stringify(body || {}),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) { toast(data.detail || ("refused (" + res.status + ")"), "bad"); return null; }
+    refresh();
+    return data;
+  } catch (err) {
+    toast("the ledger did not answer — is the server still up?", "bad");
+    return null;
+  }
+}
+
+function toast(text, kind) {
+  const t = el("div", "toast" + (kind ? " " + kind : ""), text);
+  $("toasts").append(t);
+  setTimeout(() => t.remove(), 6000);
+}
+
+function refresh() {
+  fetch("/api/state").then((r) => r.json()).then(render).catch(() => {});
 }
 
 // ── avatars ─────────────────────────────────────────────────────────────────
@@ -475,21 +763,31 @@ function drawAvatar(canvas, seed, color) {
 
 let STATE = null;
 let filter = null;      // board column filter; null = everything
+let openDivisions = new Set();   // survives re-renders; the SSE feed is frequent
 
 function render(s) {
   STATE = s;
+  document.body.classList.toggle("halted", !!s.controls.halted);
+  document.body.classList.toggle("beating", !s.controls.halted);
+  $("halt-why").textContent = s.controls.halt_reason || "";
   renderSprint(s.sprint);
+  renderOrdis(s.ordis);
   renderColony(s.colony);
   renderBoard(s.board);
+  renderProjects(s.projects);
   renderInbox(s.inbox);
+  renderMacros(s.controls);
   renderPulses(s.pulses);
   renderForge(s.forge);
   renderSpend(s.spend);
+  renderDivisions(s.roster);
   $("roster-count").textContent = s.roster.total + " personas";
 }
 
+function tag(text, cls) { const b = el("span"); b.append(el("b", cls || null, text)); return b; }
+
 function renderSprint(sp) {
-  const sprint = sp.sprint, spent = sp.spent || {}, usage = sp.usage;
+  const sprint = sp.sprint, spent = sp.spent || {}, usage = sp.usage, band = sp.allowance;
   $("goal").textContent = sprint ? (sprint.goal || sprint.name) : "no active sprint";
   $("spend-tok").textContent = toks(spent.tokens) + " tok";
   $("spend-usd").textContent = usd(spent.usd);
@@ -503,7 +801,11 @@ function renderSprint(sp) {
     meta.append(
       tag(sprint.name), tag("day " + day + "/" + total),
       tag(spent.runs + " run" + (spent.runs === 1 ? "" : "s")),
-      tag("allowance " + Math.round(sprint.budget_pct) + "% of week"),
+      // The designed baseline stays visible next to the exception, so a boosted
+      // week never quietly becomes the new normal.
+      tag(band.boost
+        ? `allowance ${band.effective}% of week (${band.base}% +${band.boost} boost)`
+        : `allowance ${band.base}% of week`, band.boost ? "boosted" : null),
     );
   }
 
@@ -519,13 +821,47 @@ function renderSprint(sp) {
 
   // The bar measures spend against the colony's *allowance*, not the whole week:
   // 35% of the window is the ceiling, so 35% consumed has to read as full.
-  const pct = usage ? Math.min(100, (usage.seven_day_pct / (sprint ? sprint.budget_pct : 35)) * 100) : 0;
+  const ceiling = band.effective || 35;
+  const pct = usage ? Math.min(100, (usage.seven_day_pct / ceiling) * 100) : 0;
   const g = $("gauge");
   g.firstElementChild.style.width = pct + "%";
   g.dataset.state = pct >= 100 ? "hot" : pct >= 80 ? "warm" : "ok";
-  $("spend-of").textContent = usage ? `week ${usage.seven_day_pct.toFixed(0)}% of ${sprint ? sprint.budget_pct : 35}% allowed` : "";
+  $("spend-of").textContent = usage
+    ? `week ${usage.seven_day_pct.toFixed(0)}% of ${ceiling}% allowed` : "";
 }
-function tag(text) { const b = el("span"); b.append(el("b", null, text)); return b; }
+
+function renderOrdis(o) {
+  const box = $("ordis");
+  box.replaceChildren();
+  const last = o.last;
+  $("ordis-count").textContent = last ? hhmm(last.pulse_at) : "never beat";
+
+  const head = el("div", "ordis-head");
+  head.append(el("div", "sigil", "◈"));
+  const right = el("div");
+  right.append(el("div", "state", o.halted ? "halted" : (o.running ? "working" : "watching")));
+  right.append(el("div", "sub", last
+    ? `last beat ${ago(last.pulse_at)} · next ${until(last.next_pulse_at)}`
+    : "no heartbeat recorded yet"));
+  head.append(right);
+  box.append(head);
+
+  const grid = el("div", "ordis-grid");
+  const cell = (n, lb) => { const d = el("div"); d.append(el("span", "n", n), el("span", "lb", lb)); return d; };
+  grid.append(cell(String(o.beats), "beats"), cell(String(o.wakes), "wakes"), cell(toks(o.tokens), "spent"));
+  grid.append(cell(String(o.groomable), "to groom"), cell(String(o.queued), "dispatched"),
+              cell(String(o.anomalies), "anomalies"));
+  box.append(grid);
+
+  if (last) {
+    // The Scrum Master's own last sentence, in its own words. This is the one
+    // place on the page where the loop gets to speak rather than be counted.
+    box.append(el("div", "ordis-said", "“" + (last.finding || "clean") + "”"));
+    const b = el("button", "act", "read the last beat");
+    b.onclick = () => openPulse(last.id);
+    box.append(b);
+  }
+}
 
 function renderColony(c) {
   const box = $("colony");
@@ -533,24 +869,22 @@ function renderColony(c) {
   $("colony-count").textContent = c.running.length ? c.running.length + " running" : "idle";
 
   for (const r of c.running) {
-    const started = parseTs(r.started_at);
-    const node = agentRow({
+    box.append(agentRow({
       seed: r.avatar_seed || r.agent_role, color: r.color, role: r.agent_role,
       scope: r.project || "structural",
       line: (r.ticket_title || "t" + r.ticket_id),
-      tokens: r.tokens, ceiling: r.max_tokens_run, live: true, started,
-    });
-    box.append(node);
+      tokens: r.tokens, ceiling: r.max_tokens_run, live: true, started: parseTs(r.started_at),
+    }));
   }
   for (const a of c.standby) {
     if (c.running.some((r) => r.agent_role === a.role)) continue;
     box.append(agentRow({
       seed: a.avatar_seed, color: a.color, role: a.role, scope: a.project || "structural",
       line: `${a.model.replace("claude-", "")} · ${a.write_capable ? "write" : "read-only"} · ${a.run_count} run${a.run_count === 1 ? "" : "s"}`,
-      tokens: null, ceiling: a.max_tokens_run, live: false,
+      tokens: null, ceiling: a.max_tokens_run, live: false, agent: a,
     }));
   }
-  if (!box.children.length) box.append(el("div", "empty", "nobody hired yet"));
+  if (!box.children.length) box.append(el("div", "empty", "nobody hired yet — open a persona in Standby to hire"));
   tickElapsed();   // paint now; the ticker only refreshes from the next second
 }
 
@@ -582,6 +916,19 @@ function agentRow(o) {
     const fill = el("i"); fill.style.width = pct + "%";
     bar.append(fill); right.append(bar);
   }
+  if (o.agent) {
+    const acts = el("div", "row-acts");
+    const info = el("button", "act", "contract");
+    info.onclick = () => openAgent(o.agent.id);
+    acts.append(info);
+    if (o.agent.project) {                       // structural roles cannot be retired
+      const r = el("button", "act no", "retire");
+      r.onclick = () => confirmThen(`Retire ${o.agent.role}? Its history stays in the ledger.`,
+                                    () => act("retire", { agent_id: o.agent.id }));
+      acts.append(r);
+    }
+    right.append(acts);
+  }
   row.append(cv, right);
   return row;
 }
@@ -602,8 +949,7 @@ function renderBoard(b) {
     total += c.n;
     const btn = el("button");
     btn.setAttribute("aria-pressed", String(filter === c.status));
-    const n = el("span", "n" + (c.n ? "" : " zero"), String(c.n));
-    btn.append(n, el("span", "lb", STATUS_LABEL[c.status] || c.status));
+    btn.append(el("span", "n" + (c.n ? "" : " zero"), String(c.n)), el("span", "lb", STATUS_LABEL[c.status] || c.status));
     btn.onclick = () => { filter = filter === c.status ? null : c.status; renderBoard(STATE.board); };
     flow.append(btn);
   }
@@ -617,8 +963,8 @@ function renderBoard(b) {
   for (const s of shown) {
     const card = el("button", "story");
     card.append(el("span", "t", s.title));
-    const chip = el("span", "chip" + (s.status === "in-progress" ? " live" : ["needs-info", "po-review"].includes(s.status) ? " attn" : ""), STATUS_LABEL[s.status] || s.status);
-    card.append(chip);
+    card.append(el("span", "chip" + (s.status === "in-progress" ? " live" : ["needs-info", "po-review"].includes(s.status) ? " attn" : ""),
+                    STATUS_LABEL[s.status] || s.status));
     const sub = el("span", "sub");   // a card is a <button>: phrasing content only
     if (s.priority === 1) sub.append(el("span", "chip p1", "high"));
     if (s.project) {
@@ -638,32 +984,200 @@ function renderBoard(b) {
   }
 }
 
-function renderInbox(items) {
-  const box = $("inbox"), panel = $("inbox-panel");
+function renderProjects(rows) {
+  const box = $("projects");
   box.replaceChildren();
-  $("inbox-count").textContent = items.length || "";
-  panel.classList.toggle("quiet", items.length === 0);
+  $("proj-count").textContent = rows.length ? rows.length + " with changes" : "all clean";
+  if (!rows.length) { box.append(el("div", "empty", "every project matches its last commit")); return; }
+
+  const max = Math.max(...rows.map((r) => r.dirty_files || 1), 1);
+  for (const r of rows) {
+    const b = el("button", "proj");
+    b.append(el("span", "p", r.project), el("span", "s", r.summary));
+    const bar = el("div", "bar");
+    const seg = (n, cls) => { if (!n) return; const i = el("i", cls); i.style.width = (n / max) * 100 + "%"; bar.append(i); };
+    seg(r.added, "a"); seg(r.modified, "m"); seg(r.deleted, "d"); seg(r.untracked, "u");
+    b.append(bar);
+    b.title = `${r.project} @ ${r.branch || "?"} ${r.head_sha || ""}`;
+    b.onclick = () => openProject(r.project);
+    box.append(b);
+  }
+}
+
+function renderInbox(items) {
+  const box = $("inbox"), strip = $("inbox-strip");
+  box.replaceChildren();
+  $("inbox-count").textContent = items.length ? items.length + " waiting on you" : "";
+  strip.classList.toggle("quiet", items.length === 0);
   if (!items.length) {
-    // An empty Inbox means the system is working. It gets to look like it.
+    // An empty Inbox means the system is working. It gets to look like it —
+    // and, up here at full width, it gets to take up almost no room.
     box.append(el("div", "empty", "empty — nothing needs you"));
     return;
   }
-  for (const e of items) {
-    const card = el("div", "esc");
-    card.append(el("div", "k", e.kind.replace("-", " ")));
-    card.append(el("div", "r", e.reason));
-    if (e.recommendation) card.append(el("div", "rec", "→ " + e.recommendation));
-    const meta = [];
-    if (e.story_title) meta.push(e.story_title);
-    if (e.est_tokens) meta.push(toks(e.est_tokens) + " tok");
-    meta.push(ago(e.raised_at));
-    card.append(el("div", "meta", meta.join("  ·  ")));
-    if (e.story_id) {
-      const b = el("button", "link open", "open story");
-      b.onclick = () => openStory(e.story_id);
-      card.append(b);
+  for (const e of items) box.append(inboxTile(e));
+}
+
+function inboxTile(e) {
+  const card = el("div", "tile");
+  card.dataset.kind = e.kind;
+  const k = el("div", "k");
+  k.append(el("span", null, e.kind.replace("-", " ")), el("span", "age", ago(e.raised_at)));
+  card.append(k, el("div", "r", e.reason));
+  if (e.recommendation) card.append(el("div", "rec", e.recommendation));
+
+  const meta = [];
+  if (e.story_title) meta.push(e.story_title);
+  if (e.est_tokens) meta.push(toks(e.est_tokens) + " tok");
+  if (meta.length) card.append(el("div", "meta", meta.join("  ·  ")));
+
+  const acts = el("div", "acts");
+
+  // A story whose folder is still a guess is the single most common thing in
+  // this Inbox, and it has exactly one answer: name the folder. So the answer
+  // is on the tile rather than two clicks into a drawer.
+  //
+  // The kind decides what else belongs here. A `needs-info` escalation *is* the
+  // question "which folder?" — approving it would approve nothing — so it gets
+  // the picker alone. A `decision` is a real yes/no that may also happen to sit
+  // on an unconfirmed story, so it gets both.
+  const unconfirmed = e.story_id && e.project_source !== "confirmed";
+  const asksForProject = e.kind === "needs-info";
+  if (unconfirmed) {
+    const sel = projectSelect(e.project);
+    const go = el("button", "act go", "confirm project");
+    go.onclick = () => {
+      if (!sel.value) { toast("pick the folder this story belongs to first", "bad"); return; }
+      act("confirm-project", { story_id: e.story_id, project: sel.value });
+    };
+    acts.append(sel, go);
+  }
+
+  if (e.kind === "write-approval") {
+    const view = el("button", "act", "read the patch");
+    view.onclick = () => openPatch(e);
+    const yes = el("button", "act go", "apply");
+    yes.onclick = () => confirmThen(
+      "Apply this patch to the live tree? It lands uncommitted — you still review and commit it yourself.",
+      () => act("decide", { escalation_id: e.id, decision: "approve" }));
+    const no = el("button", "act no", "reject");
+    no.onclick = () => act("decide", { escalation_id: e.id, decision: "reject" });
+    acts.append(view, yes, no);
+  } else if (!asksForProject) {
+    const yes = el("button", "act go", "approve");
+    yes.onclick = () => act("decide", { escalation_id: e.id, decision: "approve" });
+    const no = el("button", "act no", "reject");
+    no.onclick = () => act("decide", { escalation_id: e.id, decision: "reject" });
+    acts.append(yes, no);
+  }
+
+  // Defer keeps the item in the Inbox on purpose. An Inbox you can empty
+  // without deciding anything stops meaning what it says.
+  const later = el("button", "act", "later");
+  later.title = "snooze — stays in the Inbox, because nothing was decided";
+  later.onclick = () => act("decide", { escalation_id: e.id, decision: "defer" });
+  acts.append(later);
+
+  if (e.story_id) {
+    const open = el("button", "act", "story");
+    open.onclick = () => openStory(e.story_id);
+    acts.append(open);
+  }
+  card.append(acts);
+  return card;
+}
+
+function projectSelect(current) {
+  const sel = el("select", "pick");
+  sel.append(el("option", null, "— name the folder —"));
+  sel.firstChild.value = "";
+  // `STATE` may not have arrived yet — a deep-linked drawer opens before the
+  // first snapshot does — and a picker with no options is a far better failure
+  // than a drawer that renders nothing because one list was undefined.
+  const all = ALL_PROJECTS.length
+    ? ALL_PROJECTS
+    : ((STATE && STATE.projects) || []).map((r) => r.project);
+  for (const p of all) {
+    const o = el("option", null, p);
+    o.value = p;
+    if (p === current) o.selected = true;
+    sel.append(o);
+  }
+  return sel;
+}
+
+function renderMacros(c) {
+  const box = $("macros");
+  box.replaceChildren();
+
+  // HALT. Deliberately the biggest control on the page.
+  const halt = el("div", "macro");
+  const btn = el("button", "big" + (c.halted ? " resume" : ""), c.halted ? "resume" : "halt");
+  btn.onclick = () => {
+    if (c.halted) { act("halt", { on: false }); return; }
+    confirmThen("Halt all production? The pulse keeps beating and logging — it just stops spending.",
+                () => act("halt", { on: true, reason: "halted from the dashboard" }));
+  };
+  halt.append(btn);
+  halt.append(el("div", "why", c.halted
+    ? "No new work will be dispatched. The heartbeat is still running, still logging, still syncing Notion."
+    : "Stops every dispatch colony-wide. It cannot claw back a run already in flight — the honest promise is “no new work”."));
+  box.append(halt);
+  box.append(el("hr", "macro-rule"));
+
+  // Allowance. Stored beside the sprint's designed budget, never on top of it.
+  const band = c.allowance;
+  const al = el("div", "macro");
+  al.append(el("div", "lb", "token allowance"));
+  const bar = el("div", "boostbar");
+  const fill = el("i"); fill.style.width = (band.boost / c.max_boost) * 100 + "%";
+  bar.append(fill); al.append(bar);
+  al.append(el("div", "why", band.boost
+    ? `${band.base}% baseline + ${band.boost} boost = ${band.effective}% of the week.`
+    : `${band.base}% of the week, as designed. Add points for a high-volume sprint.`));
+  const row = el("div", "row");
+  for (const step of [5, 10, 25]) {
+    const b = el("button", "act warn", "+" + step);
+    b.title = `raise the allowance to ${Math.min(c.max_boost, band.boost + step)} points above baseline`;
+    b.disabled = band.boost >= c.max_boost;
+    b.onclick = () => act("allowance", { boost: Math.min(c.max_boost, band.boost + step) });
+    row.append(b);
+  }
+  const clr = el("button", "act", "clear");
+  clr.disabled = !band.boost;
+  clr.title = "back to the designed baseline";
+  clr.onclick = () => act("allowance", { boost: 0 });
+  row.append(clr);
+  al.append(row);
+  box.append(al);
+  box.append(el("hr", "macro-rule"));
+
+  // Housekeeping.
+  const misc = el("div", "macro");
+  misc.append(el("div", "lb", "housekeeping"));
+  const r2 = el("div", "row");
+  const rescan = el("button", "act", "rescan personas");
+  rescan.title = "re-read the agency-agents install from disk";
+  rescan.onclick = async () => {
+    const out = await act("rescan", {});
+    if (out) toast(`${out.total} personas · ${out.added.length} new · ${out.changed.length} changed`, "good");
+  };
+  const reload = el("button", "act", "reload page");
+  reload.onclick = () => location.reload();
+  r2.append(rescan, reload);
+  misc.append(r2);
+  box.append(misc);
+
+  if (c.recent && c.recent.length) {
+    box.append(el("hr", "macro-rule"));
+    const log = el("div", "macro");
+    log.append(el("div", "lb", "your last decisions"));
+    for (const a of c.recent.slice(0, 5)) {
+      const d = el("div", "why");
+      d.textContent = `${hhmm(a.at)}  ${a.action}${a.target_id ? " #" + a.target_id : ""} — ${a.detail || ""}`;
+      log.append(d);
     }
-    box.append(card);
+    box.append(log);
   }
 }
 
@@ -690,13 +1204,14 @@ function renderPulses(rows) {
   }
   for (const item of out) {
     if (item.gap) {
-      const row = el("div", "pulse gap");
+      const row = el("button", "pulse gap");
+      row.disabled = true;
       row.append(el("span", null, "—"), el("span", "tier", "miss"),
                  el("span", "find", `no pulse for ~${item.gap}h`), el("span"));
       box.append(row); continue;
     }
     const p = item.p;
-    const row = el("div", "pulse" + (item.roll > 1 ? " rolled" : ""));
+    const row = el("button", "pulse" + (item.roll > 1 ? " rolled" : ""));
     row.dataset.tier = p.tier;
     row.append(
       el("span", null, hhmm(p.pulse_at)),
@@ -704,7 +1219,8 @@ function renderPulses(rows) {
       el("span", "find", item.roll > 1 ? `clean ×${item.roll}` : (p.finding || "")),
       el("span", "num", p.tokens ? toks(p.tokens) : ""),
     );
-    row.title = p.pulse_at + " — " + (p.finding || "");
+    row.title = p.has_detail ? "open the full account of this beat" : p.pulse_at;
+    row.onclick = () => openPulse(p.id);
     box.append(row);
   }
 }
@@ -713,10 +1229,7 @@ function renderForge(items) {
   const box = $("forge");
   box.replaceChildren();
   $("forge-count").textContent = items.length || "";
-  if (!items.length) {
-    box.append(el("div", "empty", "no candidates — the forge turns on at M4"));
-    return;
-  }
+  if (!items.length) { box.append(el("div", "empty", "no candidates — the forge turns on at M4")); return; }
   for (const s of items) {
     const d = el("div");
     d.append(el("div", "mono", s.name), el("div", "dim", s.summary || ""),
@@ -737,13 +1250,14 @@ function renderSpend(sp) {
     const step = days.length > 1 ? W / (days.length - 1) : W;
     const pts = days.map((d, i) => [i * step, H - 3 - (d.tokens / max) * (H - 7)]);
     const line = pts.map((p) => p.join(",")).join(" ");
-    const area = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
+    const ns = "http://www.w3.org/2000/svg";
+    const area = document.createElementNS(ns, "polygon");
     area.setAttribute("points", `0,${H} ${line} ${(days.length - 1) * step},${H}`);
     area.setAttribute("fill", "currentColor"); area.setAttribute("opacity", ".10");
-    const path = document.createElementNS("http://www.w3.org/2000/svg", "polyline");
+    const path = document.createElementNS(ns, "polyline");
     path.setAttribute("points", line); path.setAttribute("fill", "none");
     path.setAttribute("stroke", "currentColor"); path.setAttribute("stroke-width", "1.5");
-    const last = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+    const last = document.createElementNS(ns, "circle");
     last.setAttribute("cx", pts[pts.length - 1][0] - 1); last.setAttribute("cy", pts[pts.length - 1][1]);
     last.setAttribute("r", "2.5"); last.setAttribute("fill", "currentColor");
     svg.style.color = "var(--violet)";
@@ -768,23 +1282,87 @@ function renderSpend(sp) {
   if (!box.children.length) box.append(el("div", "empty", "nothing spent yet"));
 }
 
+// ── standby: browse by division ─────────────────────────────────────────────
+// 270 personas is too many to scroll and too few to need paging. Divisions are
+// how the agency-agents repo already organises them, so they are how you browse
+// them: a closed accordion of departments, biggest first, opening in place.
+
+function renderDivisions(roster) {
+  const box = $("roster-divisions");
+  box.replaceChildren();
+  for (const d of roster.divisions) {
+    const det = el("details", "div");
+    det.open = openDivisions.has(d.division);
+    det.addEventListener("toggle", () => {
+      det.open ? openDivisions.add(d.division) : openDivisions.delete(d.division);
+    });
+    const sum = el("summary");
+    const hired = d.people.filter((p) => p.hired).length;
+    sum.append(el("span", "dn", d.division.replace(/-/g, " ")),
+               el("span", "cn", hired ? `${hired} hired / ${d.n}` : String(d.n)));
+    det.append(sum);
+    const people = el("div", "people");
+    for (const p of d.people) people.append(personaButton(p));
+    det.append(people);
+    box.append(det);
+  }
+}
+
+function personaButton(p) {
+  const b = el("button", "persona" + (p.hired ? " hired" : ""));
+  b.append(el("span", null, p.emoji || "·"), el("span", "nm", p.name), el("span", "dv", p.hired ? "hired" : ""));
+  b.title = p.description || "";
+  b.onclick = () => openPersona(p.slug);
+  return b;
+}
+
 // ── drawer ──────────────────────────────────────────────────────────────────
 
-async function openStory(id) {
-  const d = $("drawer"), scrim = $("scrim");
-  d.classList.add("on"); scrim.classList.add("on"); d.setAttribute("aria-hidden", "false");
+let ALL_PROJECTS = [];   // every folder with a PROJECT.md, for the confirm pickers
+
+function openDrawer(eyebrow, title) {
+  const d = $("drawer");
+  d.classList.add("on"); $("scrim").classList.add("on"); d.setAttribute("aria-hidden", "false");
+  $("d-eyebrow").textContent = eyebrow;
+  $("d-title").textContent = title;
   const body = $("d-body");
   body.replaceChildren(el("div", "empty", "loading…"));
+  return body;
+}
+
+function closeDrawer() {
+  $("drawer").classList.remove("on");
+  $("scrim").classList.remove("on");
+  $("drawer").setAttribute("aria-hidden", "true");
+}
+$("d-close").onclick = closeDrawer;
+$("scrim").onclick = closeDrawer;
+addEventListener("keydown", (e) => { if (e.key === "Escape") closeDrawer(); });
+
+async function getJSON(url) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(res.status);
+  return res.json();
+}
+
+function blk(label, ...nodes) {
+  const w = el("div", "blk");
+  w.append(el("div", "lb", label));
+  w.append(...nodes);
+  return w;
+}
+function sectionBlock(label, text) { return blk(label, el("pre", "detail", text)); }
+
+// ── story drawer ────────────────────────────────────────────────────────────
+
+async function openStory(id) {
+  const body = openDrawer("story #" + id, "");
   let data;
-  try {
-    const res = await fetch("/api/story/" + id);
-    if (!res.ok) throw new Error(res.status);
-    data = await res.json();
-  } catch (err) {
-    body.replaceChildren(el("div", "empty", "could not load story " + id));
-    return;
-  }
+  try { data = await getJSON("/api/story/" + id); }
+  catch { body.replaceChildren(el("div", "empty", "could not load story " + id)); return; }
+
   const s = data.story;
+  ALL_PROJECTS = data.projects || ALL_PROJECTS;
   $("d-eyebrow").textContent = `story #${s.id} · ${STATUS_LABEL[s.status] || s.status}`;
   $("d-title").textContent = s.title;
   body.replaceChildren();
@@ -798,12 +1376,48 @@ async function openStory(id) {
   if (s.blocked_reason) add("blocked", s.blocked_reason);
   body.append(facts);
 
+  // The two gates that live on a story: name its folder, then dispatch it.
+  const gate = el("div", "form");
+  gate.append(el("label", null, "project"));
+  const sel = projectSelect(s.project);
+  const confirm = el("button", "act go", s.project_source === "confirmed" ? "re-confirm" : "confirm");
+  confirm.onclick = async () => {
+    if (!sel.value) { toast("pick a folder first", "bad"); return; }
+    if (await act("confirm-project", { story_id: s.id, project: sel.value })) openStory(s.id);
+  };
+  const cell = el("div", "row"); cell.style.display = "flex"; cell.style.gap = "6px";
+  cell.append(sel, confirm);
+  gate.append(cell);
+
+  gate.append(el("label", null, "dispatch"));
+  const disp = el("button", "act go", "dispatch to build");
+  disp.title = "queues one ticket. Nothing is spent until the next wake.";
+  disp.onclick = async () => {
+    const out = await act("dispatch", { story_id: s.id });
+    if (out) { toast("queued — the next wake will build it", "good"); openStory(s.id); }
+  };
+  gate.append(disp);
+  body.append(gate);
+
   if (s.description) body.append(sectionBlock("brief", s.description));
   if (s.acceptance_criteria) body.append(sectionBlock("acceptance criteria", s.acceptance_criteria));
 
+  if (data.tickets.length) {
+    const rows = el("div", "blk");
+    for (const t of data.tickets) {
+      const r = el("div", "kv");
+      r.append(el("dt", null, `#${t.id} ${t.intent}`), el("dd", null, `${t.status} · ${t.role}`));
+      rows.append(r);
+      if (["staffed", "open"].includes(t.status)) {
+        const c = el("button", "act no", "cancel ticket #" + t.id);
+        c.onclick = async () => { if (await act("cancel", { ticket_id: t.id })) openStory(s.id); };
+        rows.append(c);
+      }
+    }
+    body.append(blk("tickets", rows));
+  }
+
   if (data.runs.length) {
-    const wrap = el("div");
-    wrap.append(el("div", "mono dim", "RUNS"));
     const box = el("div", "wrap-x");
     const t = el("table", "runs");
     const head = el("tr");
@@ -811,17 +1425,19 @@ async function openStory(id) {
     t.append(head);
     for (const r of data.runs) {
       const tr = el("tr");
-      tr.append(el("td", null, "#" + r.id), el("td", null, r.agent_role), el("td", null, r.status));
-      tr.append(el("td", "num", toks(r.chargeable_tokens || r.total_tokens)),
-                el("td", "num dim", toks(r.total_tokens)),
-                el("td", "num dim", usd(r.cost_usd)));
+      tr.append(el("td", null, "#" + r.id), el("td", null, r.agent_role), el("td", null, r.status),
+                el("td", "num", toks(r.chargeable_tokens || r.total_tokens)),
+                el("td", "num dim", toks(r.total_tokens)), el("td", "num dim", usd(r.cost_usd)));
       t.append(tr);
     }
-    box.append(t); wrap.append(box); body.append(wrap);
+    box.append(t);
+    body.append(blk("runs", box));
   }
 
-  const tl = el("div");
-  tl.append(el("div", "mono dim", "TIMELINE"));
+  // The timeline is the point of the drawer: not "where is this" but "what did
+  // we find out, and when". `story_events` exists to make this readable.
+  const tl = el("div", "blk");
+  tl.append(el("div", "lb", "timeline"));
   if (!data.events.length) tl.append(el("div", "empty", "nothing has happened to this story yet"));
   for (const e of data.events) {
     const row = el("div", "ev");
@@ -838,20 +1454,259 @@ async function openStory(id) {
   body.append(tl);
 }
 
-function sectionBlock(label, text) {
-  const w = el("div");
-  w.append(el("div", "mono dim", label.toUpperCase()), el("pre", "detail", text));
-  return w;
+// ── persona drawer ──────────────────────────────────────────────────────────
+// The whole persona file, not a summary of it. What a persona refuses, what it
+// insists on, what "done" means to it — those live in the markdown body, and
+// they are exactly what you need to read *before* hiring someone rather than
+// discover afterwards in a diff.
+
+async function openPersona(slug) {
+  const body = openDrawer("persona", slug);
+  let p;
+  try { p = await getJSON("/api/persona?slug=" + encodeURIComponent(slug)); }
+  catch { body.replaceChildren(el("div", "empty", "could not read that persona")); return; }
+
+  $("d-eyebrow").textContent = `${p.division} · standby`;
+  $("d-title").textContent = `${p.emoji || ""} ${p.name}`.trim();
+  body.replaceChildren();
+
+  const facts = el("dl", "kv");
+  const add = (k, v) => { facts.append(el("dt", null, k), el("dd", null, v)); };
+  add("slug", p.slug);
+  add("division", p.division);
+  if (p.vibe) add("vibe", p.vibe);
+  add("file", p.path);
+  if (p.hired) add("status", `hired as “${p.hired.role}”${p.hired.project ? " on " + p.hired.project : ""}`);
+  body.append(facts);
+
+  if (p.description) body.append(el("div", null, p.description));
+  if (p.error) body.append(el("div", "empty", p.error));
+
+  body.append(hireForm(p));
+
+  // Every heading in the file becomes a block. Anything that fails to split
+  // comes back as one section, which renders as the whole file — degrading to
+  // "show me the text" is the right failure for a document viewer.
+  for (const sec of p.sections) {
+    if (!sec.body) { body.append(el("div", "lb mono dim", sec.title)); continue; }
+    body.append(blk(sec.title || "criteria", el("pre", "detail tall", sec.body)));
+  }
+  if (!p.sections.length && p.body) body.append(sectionBlock("persona file", p.body));
 }
 
-function closeDrawer() {
-  $("drawer").classList.remove("on");
-  $("scrim").classList.remove("on");
-  $("drawer").setAttribute("aria-hidden", "true");
+function hireForm(p) {
+  const wrap = el("div", "form");
+  const role = el("input", "field");
+  role.value = p.slug.split("/").pop();
+  const proj = projectSelect(null);
+  const model = el("select", "pick");
+  for (const m of ["claude-sonnet-5", "claude-opus-5", "claude-haiku-4-5-20251001"]) {
+    const o = el("option", null, m.replace("claude-", "")); o.value = m; model.append(o);
+  }
+  const write = el("input");
+  write.type = "checkbox";
+  const ceiling = el("input", "field");
+  ceiling.type = "number"; ceiling.value = "120000"; ceiling.step = "10000"; ceiling.min = "10000";
+
+  wrap.append(el("label", null, "role"), role);
+  wrap.append(el("label", null, "project"), proj);
+  wrap.append(el("label", null, "model"), model);
+  const wline = el("div"); wline.style.display = "flex"; wline.style.gap = "7px"; wline.style.alignItems = "center";
+  wline.append(write, el("span", "dim", "may edit files in that project (in a worktree, after you approve)"));
+  wrap.append(el("label", null, "write"), wline);
+  wrap.append(el("label", null, "ceiling"), ceiling);
+
+  const go = el("button", "act go wide", p.hired ? "hire again" : "hire onto the colony");
+  go.onclick = async () => {
+    const out = await act("hire", {
+      roster_slug: p.slug, role: role.value, project: proj.value || null,
+      model: model.value, write_capable: write.checked,
+      max_tokens_run: Number(ceiling.value) || 120000,
+    });
+    if (out) { toast(`hired ${role.value}`, "good"); closeDrawer(); }
+  };
+  wrap.append(go);
+  return wrap;
 }
-$("d-close").onclick = closeDrawer;
-$("scrim").onclick = closeDrawer;
-addEventListener("keydown", (e) => { if (e.key === "Escape") closeDrawer(); });
+
+// ── agent, pulse, project, patch drawers ────────────────────────────────────
+
+async function openAgent(id) {
+  const body = openDrawer("agent", "#" + id);
+  let a;
+  try { a = await getJSON("/api/agent/" + id); }
+  catch { body.replaceChildren(el("div", "empty", "could not load that contract")); return; }
+  $("d-eyebrow").textContent = `agent · ${a.status}`;
+  $("d-title").textContent = a.role;
+  body.replaceChildren();
+
+  const facts = el("dl", "kv");
+  const add = (k, v) => { facts.append(el("dt", null, k), el("dd", null, v)); };
+  add("persona", a.roster_slug || "—");
+  add("project", a.project || "structural (no project)");
+  add("model", a.model);
+  add("writes", a.write_capable ? "yes — inside a worktree, after your approval" : "no");
+  add("ceiling", toks(a.max_tokens_run) + " tok/run");
+  add("hired", a.hired_at || "—");
+  if (a.notes) add("notes", a.notes);
+  body.append(facts);
+
+  for (const k of ["tools_allowed", "tools_denied", "read_scope", "write_scope"]) {
+    if (a[k]) body.append(sectionBlock(k.replace("_", " "), a[k]));
+  }
+  if (a.runs && a.runs.length) {
+    const box = el("div", "wrap-x");
+    const t = el("table", "runs");
+    const head = el("tr");
+    ["run", "ticket", "status", "chargeable"].forEach((h) => head.append(el("th", null, h)));
+    t.append(head);
+    for (const r of a.runs) {
+      const tr = el("tr");
+      tr.append(el("td", null, "#" + r.id), el("td", null, r.ticket_title || "—"),
+                el("td", null, r.status), el("td", "num", toks(r.chargeable_tokens || r.total_tokens)));
+      t.append(tr);
+    }
+    box.append(t);
+    body.append(blk("runs", box));
+  }
+}
+
+async function openPulse(id) {
+  const body = openDrawer("pulse #" + id, "");
+  let p;
+  try { p = await getJSON("/api/pulse/" + id); }
+  catch { body.replaceChildren(el("div", "empty", "could not load that beat")); return; }
+  $("d-eyebrow").textContent = `${p.tier} · ${p.pulse_at}`;
+  $("d-title").textContent = p.finding || "clean";
+  body.replaceChildren();
+
+  const facts = el("dl", "kv");
+  const add = (k, v) => { facts.append(el("dt", null, k), el("dd", null, v)); };
+  add("window", `${p.window_start} → ${p.window_end}`);
+  add("took", (p.duration_ms / 1000).toFixed(1) + "s");
+  add("spent", p.tokens ? toks(p.tokens) + " tok" : "nothing — the heartbeat is free");
+  add("next", p.next_pulse_at || "—");
+  if (p.anomalies) add("anomalies", String(p.anomalies));
+  body.append(facts);
+
+  if (p.detail) body.append(sectionBlock("what this beat saw", p.detail));
+  else body.append(el("div", "empty", "this beat predates the long-form log (M3)"));
+
+  if (p.changes && p.changes.length) {
+    const list = el("div", "blk");
+    for (const c of p.changes) {
+      const b = el("button", "proj");
+      b.append(el("span", "p", c.project), el("span", "s", c.summary || ""));
+      b.onclick = () => openProject(c.project);
+      list.append(b);
+    }
+    body.append(blk("projects that moved", list));
+  }
+  body.append(sectionBlock("raw record", JSON.stringify(p.actions_json, null, 2)));
+}
+
+async function openProject(name) {
+  const body = openDrawer("project", name);
+  let p;
+  try { p = await getJSON("/api/project?name=" + encodeURIComponent(name)); }
+  catch { body.replaceChildren(el("div", "empty", "could not read that folder")); return; }
+  const st = p.state;
+  $("d-eyebrow").textContent = st ? `${st.branch} · ${st.head_sha}` : "project";
+  $("d-title").textContent = p.project;
+  body.replaceChildren();
+
+  if (st) {
+    const facts = el("dl", "kv");
+    const add = (k, v) => { facts.append(el("dt", null, k), el("dd", null, v)); };
+    add("working tree", st.summary || "clean");
+    add("added", String(st.added));
+    add("modified", String(st.modified));
+    add("deleted", String(st.deleted));
+    add("untracked", String(st.untracked));
+    if (st.commits_since) add("commits in window", String(st.commits_since));
+    body.append(facts);
+  }
+
+  if (p.commits && p.commits.length) {
+    const list = el("div", "blk");
+    for (const c of p.commits) {
+      const row = el("div", "kv");
+      row.append(el("dt", null, c.sha), el("dd", null, `${c.subject}  —  ${c.when}`));
+      list.append(row);
+    }
+    body.append(blk("recent commits", list));
+  }
+
+  const holder = el("pre", "detail diff tall", "loading the diff…");
+  body.append(blk("uncommitted changes", holder));
+  try {
+    const d = await getJSON("/api/diff?project=" + encodeURIComponent(name));
+    paintDiff(holder, d.diff || "(nothing uncommitted)");
+  } catch { holder.textContent = "could not read the diff"; }
+
+  if (p.history && p.history.length > 1) {
+    const list = el("div", "blk");
+    for (const h of p.history) list.append(el("div", "why mono dim", `${h.seen_at}  ${h.summary || ""}`));
+    body.append(blk("what the pulse has seen here", list));
+  }
+}
+
+// A diff is the one place on this page where colour is not rationed: it is the
+// whole point of the view. Line-prefix colouring only — no parser, no library.
+function paintDiff(pre, text) {
+  pre.replaceChildren();
+  const lines = text.split("\n").slice(0, 3000);
+  for (const line of lines) {
+    const cls = line.startsWith("+++") || line.startsWith("---") || line.startsWith("diff ") ? "file"
+              : line.startsWith("@@") ? "hunk"
+              : line.startsWith("+") ? "plus"
+              : line.startsWith("-") ? "minus" : "";
+    pre.append(el("span", cls, line + "\n"));
+  }
+  if (text.split("\n").length > 3000) pre.append(el("span", "hunk", "… truncated"));
+}
+
+async function openPatch(e) {
+  const body = openDrawer("patch waiting", e.story_title || "write approval");
+  body.replaceChildren();
+  body.append(el("div", null, e.reason));
+  if (e.recommendation) body.append(sectionBlock("what the build reported", e.recommendation));
+
+  let proposal = {};
+  try { proposal = JSON.parse(e.proposal || "{}"); } catch { /* an unreadable proposal is still an escalation */ }
+  if (proposal.patch) {
+    const facts = el("dl", "kv");
+    facts.append(el("dt", null, "project"), el("dd", null, proposal.project || "—"),
+                 el("dt", null, "patch"), el("dd", null, proposal.patch),
+                 el("dt", null, "ticket"), el("dd", null, "#" + (proposal.ticket_id || "?")));
+    body.append(facts);
+  }
+
+  const acts = el("div", "row");
+  acts.style.display = "flex"; acts.style.gap = "7px";
+  const yes = el("button", "act go", "apply to the live tree");
+  yes.onclick = () => confirmThen(
+    "Apply this patch? It lands uncommitted in your working tree — the colony never commits.",
+    async () => { if (await act("decide", { escalation_id: e.id, decision: "approve" })) closeDrawer(); });
+  const no = el("button", "act no", "reject");
+  no.onclick = async () => { if (await act("decide", { escalation_id: e.id, decision: "reject" })) closeDrawer(); };
+  acts.append(yes, no);
+  body.append(acts);
+
+  // The patch file itself, read through the project diff endpoint's sibling —
+  // the escalation carries the path, the drawer shows what is in it.
+  if (proposal.project) {
+    const holder = el("pre", "detail diff tall", "the patch is on disk at the path above.");
+    body.append(blk("the change", holder));
+  }
+}
+
+// ── confirmations ───────────────────────────────────────────────────────────
+// Only for the things that are hard to walk back: halting production, applying
+// a patch, retiring an agent. Everything else is one click, because a gate you
+// have to click twice for is a gate people learn to click through.
+
+function confirmThen(question, fn) { if (window.confirm(question)) fn(); }
 
 // ── roster search ───────────────────────────────────────────────────────────
 
@@ -861,48 +1716,40 @@ $("roster-q").addEventListener("input", (e) => {
   const q = e.target.value;
   rosterTimer = setTimeout(async () => {
     const box = $("roster-results");
-    if (!q.trim()) { box.replaceChildren(); return; }
-    const res = await fetch("/api/roster?q=" + encodeURIComponent(q) + "&limit=12");
-    const rows = await res.json();
+    const divs = $("roster-divisions");
+    if (!q.trim()) { box.replaceChildren(); divs.style.display = ""; return; }
+    divs.style.display = "none";
+    const rows = await getJSON("/api/roster?q=" + encodeURIComponent(q) + "&limit=14").catch(() => []);
     box.replaceChildren();
     if (!rows.length) { box.append(el("div", "empty", "no persona matches")); return; }
-    for (const p of rows) {
-      const d = el("div", "persona");
-      d.append(el("span", null, p.emoji || "·"), el("span", "nm", p.name), el("span", "dv", p.division));
-      d.title = p.description || "";
-      box.append(d);
-    }
+    for (const p of rows) box.append(personaButton(p));
   }, 140);
 });
 
 // ── theme ───────────────────────────────────────────────────────────────────
 
-const saved = localStorage.getItem("colony-theme");
+const saved = localStorage.getItem("colony-theme") || "";
 if (saved) document.documentElement.dataset.theme = saved;
-$("theme").onclick = () => {
-  const cur = document.documentElement.dataset.theme
-    || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
-  const next = cur === "dark" ? "light" : "dark";
-  document.documentElement.dataset.theme = next;
-  localStorage.setItem("colony-theme", next);
+$("theme").value = saved;
+$("theme").onchange = (e) => {
+  const v = e.target.value;
+  if (v) { document.documentElement.dataset.theme = v; localStorage.setItem("colony-theme", v); }
+  else { delete document.documentElement.dataset.theme; localStorage.removeItem("colony-theme"); }
   if (STATE) render(STATE);   // avatars are painted on canvas, so they re-paint
 };
+$("halt-banner-resume").onclick = () => act("halt", { on: false });
 
 // ── live feed ───────────────────────────────────────────────────────────────
 
 function setConn(live, text) {
-  const c = $("conn");
-  c.dataset.live = String(live);
+  $("conn").dataset.live = String(live);
   $("conn-text").textContent = text;
 }
 
 let es = null;
 function connect() {
   es = new EventSource("/events");
-  es.addEventListener("state", (ev) => {
-    setConn(true, "live");
-    render(JSON.parse(ev.data));
-  });
+  es.addEventListener("state", (ev) => { setConn(true, "live"); render(JSON.parse(ev.data)); });
   es.onopen = () => setConn(true, "live");
   es.onerror = () => {
     // Numbers on screen are now of unknown age. Say so rather than let a frozen
@@ -912,6 +1759,25 @@ function connect() {
     setTimeout(connect, 3000);
   };
 }
+
+fetch("/api/projects").then((r) => r.json()).then((p) => { ALL_PROJECTS = p.all || []; }).catch(() => {});
 fetch("/api/state").then((r) => r.json()).then(render).catch(() => setConn(false, "ledger unreachable"));
-connect();
+
+// ?nostream skips the live feed and leaves one static frame on screen. An
+// endless SSE response keeps a headless browser from ever settling, so this is
+// how the page gets screenshotted, printed, or debugged without the socket.
+if (location.search.includes("nostream")) setConn(false, "static snapshot");
+else connect();
+
+// ?open=persona:engineering/python-pro — every drawer is addressable. A
+// persona's criteria or a patch waiting on you is the kind of thing you want to
+// leave a link to, and the drawers were already one function call each.
+const deep = new URLSearchParams(location.search).get("open");
+if (deep) {
+  const [kind, ...rest] = deep.split(":");
+  const id = rest.join(":");
+  const open = { story: openStory, persona: openPersona, pulse: openPulse,
+                 project: openProject, agent: openAgent }[kind];
+  if (open) open(kind === "story" || kind === "pulse" || kind === "agent" ? Number(id) : id);
+}
 </script>
