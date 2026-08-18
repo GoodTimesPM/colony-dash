@@ -223,6 +223,74 @@ def cmd_dash(conn: sqlite3.Connection, args) -> int:
     return desktop.launch(port=args.port, window=not args.serve)
 
 
+def cmd_halt(conn: sqlite3.Connection, args) -> int:
+    """The stop switch, from a terminal.
+
+    It exists here as well as on the dashboard because the moment you most need
+    dispatch stopped is the moment the window is wedged or the server is down.
+    `control.halt` writes a `.colony/HALT` file *and* a `controls` row for the
+    same reason: the one control that must never fail open is this one.
+    """
+    from . import control
+
+    on = args.command == "halt"
+    out = control.halt(conn, on, args.reason if on else "")
+    conn.commit()
+    print("production halted — the pulse keeps beating, it just stops spending"
+          if on else "production resumed")
+    if out.get("flag"):
+        print(f"{DIM}flag: {out['flag']}{RESET}")
+    return 0
+
+
+def cmd_allowance(conn: sqlite3.Connection, args) -> int:
+    from . import control
+
+    if args.points is not None:
+        control.set_allowance(conn, args.points)
+        conn.commit()
+    band = control.effective_allowance(conn)
+    print(f"allowance  {band['effective']}% of the week"
+          + (f"   ({band['base']}% baseline + {band['boost']} boost)" if band["boost"]
+             else "   (the designed baseline)"))
+    return 0
+
+
+def cmd_projects(conn: sqlite3.Connection, args) -> int:
+    """What has moved on disk. The same scan the pulse logs every hour."""
+    from . import projects as projects_mod
+
+    head = projects_mod.head()
+    rows = projects_mod.scan()
+    print(f"{head.get('branch')} @ {head.get('sha')}   "
+          f"{DIM}{len(projects_mod.project_dirs())} projects tracked{RESET}")
+    if not rows:
+        print("  every project matches its last commit")
+        return 0
+    for r in rows:
+        print(f"  {r['project']:<42} {r['summary']}")
+    if args.diff:
+        print()
+        print(projects_mod.diff(args.diff))
+    return 0
+
+
+def cmd_shortcut(conn: sqlite3.Connection, args) -> int:
+    from . import icon as icon_mod, shortcut as shortcut_mod
+
+    conn.close()
+    if args.icon_only:
+        print(icon_mod.build())
+        return 0
+    print(f"icon      {icon_mod.build()}")
+    try:
+        print(f"shortcut  {shortcut_mod.create(port=args.port)}")
+    except Exception as exc:
+        print(f"could not write the shortcut: {exc}")
+        return 1
+    return 0
+
+
 def cmd_pulse(conn: sqlite3.Connection, args) -> int:
     from . import pulse as pulse_mod
 
@@ -268,6 +336,27 @@ def build_parser() -> argparse.ArgumentParser:
     dash.add_argument("--serve", action="store_true",
                       help="serve only, no window — use a browser at 127.0.0.1")
     dash.set_defaults(func=cmd_dash)
+
+    hlt = sub.add_parser("halt", help="stop all dispatch colony-wide")
+    hlt.add_argument("--reason", default="halted from the CLI")
+    hlt.set_defaults(func=cmd_halt)
+
+    res = sub.add_parser("resume", help="let the colony dispatch work again")
+    res.set_defaults(func=cmd_halt)
+
+    alw = sub.add_parser("allowance", help="show or boost the sprint's token allowance")
+    alw.add_argument("points", nargs="?", type=float,
+                     help="percentage points above the baseline; 0 clears the boost")
+    alw.set_defaults(func=cmd_allowance)
+
+    prj = sub.add_parser("projects", help="what has moved in the projects on disk")
+    prj.add_argument("--diff", metavar="PROJECT", help="also print that project's diff")
+    prj.set_defaults(func=cmd_projects)
+
+    sct = sub.add_parser("shortcut", help="build the icon and a Desktop shortcut")
+    sct.add_argument("--port", type=int, default=8787)
+    sct.add_argument("--icon-only", action="store_true")
+    sct.set_defaults(func=cmd_shortcut)
 
     pul = sub.add_parser("pulse", help="run one pulse (tick, escalating to wake)")
     pul.add_argument("--dry-run", action="store_true", help="report, write nothing")

@@ -1,9 +1,26 @@
-"""The dashboard's backend: FastAPI over the ledger, read-only.
+"""The dashboard's backend: FastAPI over the ledger.
 
-M2 is a *read view*. Every endpoint here opens the ledger with `read_only=True`,
-which is not a convention but an enforcement — the dashboard can never be the
-reason state changed (ARCHITECTURE.md §9.2). The approval controls that do write
-arrive in M3, behind the Inbox gate, and they will be the only exception.
+Reads and writes are deliberately asymmetric.
+
+**Reads** open the ledger with `read_only=True` — not a convention but an
+enforcement. Every panel on the page comes through a connection that physically
+cannot change anything, so no read path needs auditing for side effects.
+
+**Writes** exist only under `/api/act/*`, and each one is a thin wrapper around
+a single function in `control.py`. That module records the decision in
+`po_actions` before the change lands and refuses anything the colony's own rules
+forbid. The set of things this dashboard can do to the colony is the list of
+routes in the "PO actions" section below, and it is meant to stay short enough
+to read in one screen.
+
+Two safeguards on the write door, since the server now has one:
+
+  * it is bound to 127.0.0.1 and nothing else (`desktop.py`), so nothing off
+    this machine can reach it at all;
+  * every action requires an `X-Colony` header. A form on a web page can POST
+    across origins without asking; it cannot set a custom header without a
+    preflight the browser will refuse. That turns "any page you visit could
+    click your HALT button" into "no page but this one can".
 
 Live updates are server-sent events. The pulse writes hourly from a separate
 process, so the server polls its own snapshot on a short timer and pushes only
@@ -20,10 +37,10 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import Body, FastAPI, Header, HTTPException, Query
 from fastapi.responses import HTMLResponse, StreamingResponse
 
-from . import db
+from . import control, db, projects as projects_mod, roster as roster_mod
 
 UI_DIR = Path(__file__).resolve().parent / "ui"
 
@@ -41,9 +58,20 @@ BOARD_ORDER = [
 PULSE_LIMIT = 40
 SSE_INTERVAL_S = 2.0
 
+# The project scan shells out to git, so it is cached rather than run on every
+# SSE poll. Thirty seconds is well under how long it takes to notice a change
+# and well over how often two seconds would fire.
+PROJECT_TTL_S = 30.0
+_project_cache: dict[str, Any] = {"at": 0.0, "rows": []}
+
 
 def _conn() -> sqlite3.Connection:
     return db.connect(read_only=True)
+
+
+def _rw() -> sqlite3.Connection:
+    """A write connection. Only `/api/act/*` may call this."""
+    return db.connect()
 
 
 def rows(conn: sqlite3.Connection, sql: str, params: tuple = ()) -> list[dict[str, Any]]:
@@ -55,15 +83,6 @@ def one(conn: sqlite3.Connection, sql: str, params: tuple = ()) -> dict[str, Any
     return dict(r) if r else None
 
 
-def _json_col(value: str | None, default: Any) -> Any:
-    if not value:
-        return default
-    try:
-        return json.loads(value)
-    except (ValueError, TypeError):
-        return default
-
-
 # ── the snapshot ──────────────────────────────────────────────────────────────
 
 
@@ -73,6 +92,7 @@ def snapshot() -> dict[str, Any]:
     try:
         return {
             "sprint": _sprint(conn),
+            "ordis": _ordis(conn),
             "colony": _colony(conn),
             "board": _board(conn),
             "inbox": _inbox(conn),
@@ -80,6 +100,8 @@ def snapshot() -> dict[str, Any]:
             "forge": _forge(conn),
             "spend": _spend(conn),
             "roster": _roster_summary(conn),
+            "controls": _controls(conn),
+            "projects": _projects_cached(),
         }
     finally:
         conn.close()
@@ -106,13 +128,54 @@ def _sprint(conn: sqlite3.Connection) -> dict[str, Any]:
         )
         spent = row or spent
 
+    band = control.effective_allowance(conn)
     return {
         "sprint": sprint,
         "usage": usage,
         "spent": spent,
         # The bar measures the *allowance*, not the week: 35% of the window is
         # the colony's ceiling, so 35% consumed should read as full, not a third.
-        "allowance_pct": (sprint or {}).get("budget_pct", 35.0),
+        "allowance_pct": band["effective"],
+        "allowance": band,
+    }
+
+
+def _ordis(conn: sqlite3.Connection) -> dict[str, Any]:
+    """The Scrum Master's own vitals.
+
+    Ordis is not a row in `agents` — it is the loop itself, and it has no
+    contract because it hires rather than being hired. But a colony dashboard
+    that shows every colonist and not the thing running them is missing its own
+    supervisor, so the loop reports here: when it last beat, when it beats next,
+    what it decided, and what its judgment has cost so far.
+    """
+    last = one(conn, "SELECT * FROM pulses ORDER BY pulse_at DESC, id DESC LIMIT 1")
+    totals = one(
+        conn,
+        "SELECT COUNT(*) beats, COALESCE(SUM(tokens),0) tokens, "
+        "       SUM(CASE WHEN tier='wake' THEN 1 ELSE 0 END) wakes, "
+        "       COALESCE(SUM(anomalies),0) anomalies FROM pulses",
+    ) or {}
+    groom = one(
+        conn,
+        "SELECT COUNT(*) n FROM stories WHERE status IN ('backlog','needs-criteria') "
+        "AND (acceptance_criteria IS NULL OR acceptance_criteria = '')",
+    ) or {}
+    queued = one(
+        conn,
+        "SELECT COUNT(*) n FROM tickets WHERE intent = 'implement' AND status = 'staffed'",
+    ) or {}
+    running = one(conn, "SELECT COUNT(*) n FROM runs WHERE status = 'running'") or {}
+    return {
+        "last": last,
+        "beats": totals.get("beats", 0),
+        "wakes": totals.get("wakes", 0),
+        "tokens": totals.get("tokens", 0),
+        "anomalies": totals.get("anomalies", 0),
+        "groomable": groom.get("n", 0),
+        "queued": queued.get("n", 0),
+        "running": running.get("n", 0),
+        "halted": control.is_halted(),
     }
 
 
@@ -122,9 +185,10 @@ def _colony(conn: sqlite3.Connection) -> dict[str, Any]:
         conn,
         """
         SELECT r.id, r.agent_role, r.model, r.status, r.ticket_id, r.started_at,
+               r.worktree_path,
                COALESCE(r.chargeable_tokens, r.total_tokens) AS tokens,
                t.title AS ticket_title, t.intent,
-               a.max_tokens_run, a.avatar_seed, a.project,
+               a.max_tokens_run, a.avatar_seed, a.project, a.write_capable,
                ro.color, ro.emoji
           FROM runs r
           LEFT JOIN tickets t ON t.id = r.ticket_id
@@ -134,11 +198,12 @@ def _colony(conn: sqlite3.Connection) -> dict[str, Any]:
          ORDER BY r.started_at
         """,
     )
-    standby = rows(
+    hired = rows(
         conn,
         """
         SELECT a.id, a.role, a.project, a.model, a.write_capable, a.max_tokens_run,
-               a.avatar_seed, a.status, ro.color, ro.emoji,
+               a.avatar_seed, a.status, a.roster_slug, a.notes, a.hired_at,
+               ro.color, ro.emoji, ro.name AS persona, ro.description,
                (SELECT COUNT(*) FROM runs r WHERE r.agent_role = a.role) AS run_count,
                (SELECT COALESCE(SUM(COALESCE(r.chargeable_tokens, r.total_tokens)), 0)
                   FROM runs r WHERE r.agent_role = a.role)               AS lifetime_tokens
@@ -148,7 +213,7 @@ def _colony(conn: sqlite3.Connection) -> dict[str, Any]:
          ORDER BY a.project IS NOT NULL, a.role
         """,
     )
-    return {"running": running, "standby": standby}
+    return {"running": running, "standby": hired}
 
 
 def _board(conn: sqlite3.Connection) -> dict[str, Any]:
@@ -178,12 +243,15 @@ def _inbox(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     return rows(
         conn,
         """
-        SELECT e.*, s.title AS story_title, s.project, t.title AS ticket_title
+        SELECT e.*, s.title AS story_title, s.project, s.project_source, s.status AS story_status,
+               t.title AS ticket_title
           FROM escalations e
           LEFT JOIN stories s ON s.id = e.story_id
           LEFT JOIN tickets t ON t.id = e.ticket_id
          WHERE e.resolved_at IS NULL
-         ORDER BY e.raised_at DESC
+         ORDER BY CASE e.kind WHEN 'write-approval' THEN 0 WHEN 'hire' THEN 1
+                              WHEN 'decision' THEN 2 ELSE 3 END,
+                  e.raised_at DESC
         """,
     )
 
@@ -191,7 +259,8 @@ def _inbox(conn: sqlite3.Connection) -> list[dict[str, Any]]:
 def _pulses(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     return rows(
         conn,
-        "SELECT id, pulse_at, tier, finding, anomalies, tokens, duration_ms "
+        "SELECT id, pulse_at, tier, finding, anomalies, tokens, duration_ms, "
+        "       CASE WHEN detail IS NULL OR detail = '' THEN 0 ELSE 1 END AS has_detail "
         "FROM pulses ORDER BY pulse_at DESC, id DESC LIMIT ?",
         (PULSE_LIMIT,),
     )
@@ -232,12 +301,61 @@ def _spend(conn: sqlite3.Connection) -> dict[str, Any]:
 
 
 def _roster_summary(conn: sqlite3.Connection) -> dict[str, Any]:
-    divisions = rows(
+    """Divisions with their personas, so Standby can be browsed and not only searched.
+
+    The whole roster is ~270 rows of short text — small enough to ship in the
+    snapshot and let the browser open a division instantly, which is the point
+    of a dropdown. The persona *body* is not included; that is a per-click read
+    off disk, because 270 markdown files is a different order of payload.
+    """
+    people = rows(
         conn,
-        "SELECT division, COUNT(*) n FROM roster GROUP BY division ORDER BY n DESC",
+        "SELECT slug, name, division, description, emoji, color, vibe FROM roster "
+        "ORDER BY division, name",
     )
-    total = one(conn, "SELECT COUNT(*) n FROM roster")
-    return {"divisions": divisions, "total": (total or {}).get("n", 0)}
+    hired = {r["roster_slug"] for r in rows(
+        conn, "SELECT roster_slug FROM agents WHERE roster_slug IS NOT NULL AND status != 'retired'"
+    )}
+    divisions: dict[str, list] = {}
+    for p in people:
+        p["hired"] = p["slug"] in hired
+        divisions.setdefault(p["division"], []).append(p)
+    return {
+        "total": len(people),
+        "divisions": [
+            {"division": d, "n": len(v), "people": v}
+            for d, v in sorted(divisions.items(), key=lambda kv: (-len(kv[1]), kv[0]))
+        ],
+    }
+
+
+def _controls(conn: sqlite3.Connection) -> dict[str, Any]:
+    band = control.effective_allowance(conn)
+    recent = rows(
+        conn,
+        "SELECT id, at, action, target_kind, target_id, detail FROM po_actions "
+        "ORDER BY at DESC, id DESC LIMIT 8",
+    )
+    return {
+        "halted": control.is_halted(),
+        "halt_reason": control.get_control(conn, "halt_reason", ""),
+        "allowance": band,
+        "max_boost": control.MAX_BOOST_POINTS,
+        "recent": recent,
+    }
+
+
+def _projects_cached() -> list[dict[str, Any]]:
+    import time as _time
+
+    now = _time.monotonic()
+    if now - _project_cache["at"] > PROJECT_TTL_S:
+        try:
+            _project_cache["rows"] = projects_mod.scan()
+        except Exception:
+            _project_cache["rows"] = []
+        _project_cache["at"] = now
+    return _project_cache["rows"]
 
 
 def fingerprint(state: dict[str, Any]) -> str:
@@ -255,6 +373,35 @@ def fingerprint(state: dict[str, Any]) -> str:
 # ── app ───────────────────────────────────────────────────────────────────────
 
 app = FastAPI(title="Colony Dash", docs_url=None, redoc_url=None)
+
+
+def _guard(header: str | None) -> None:
+    """The write door's lock. See the module docstring for why a header is enough."""
+    if header != "1":
+        raise HTTPException(403, "PO actions require the dashboard's own page")
+
+
+def _act(fn, *args, **kwargs) -> dict[str, Any]:
+    """Run one control function in its own transaction.
+
+    `Refused` is a 409 with the reason attached, because every refusal in
+    `control.py` is written to be shown to a person: "this story's project is
+    still a guess" is more useful on screen than "forbidden".
+    """
+    conn = _rw()
+    try:
+        conn.execute("BEGIN")
+        try:
+            out = fn(conn, *args, **kwargs)
+        except BaseException:
+            conn.execute("ROLLBACK")
+            raise
+        conn.execute("COMMIT")
+        return {"ok": True, **(out if isinstance(out, dict) else {"result": out})}
+    except control.Refused as exc:
+        raise HTTPException(409, str(exc))
+    finally:
+        conn.close()
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -281,6 +428,7 @@ def api_story(story_id: int) -> dict[str, Any]:
             raise HTTPException(404, "no such story")
         return {
             "story": story,
+            "projects": projects_mod.project_dirs(),
             "events": rows(
                 conn,
                 "SELECT * FROM story_events WHERE story_id = ? ORDER BY at DESC, id DESC",
@@ -344,6 +492,245 @@ def api_roster(q: str = Query("", max_length=120), limit: int = 40) -> list[dict
                 "FROM roster WHERE name LIKE ? OR description LIKE ? LIMIT ?",
                 (like, like, limit),
             )
+    finally:
+        conn.close()
+
+
+@app.get("/api/persona")
+def api_persona(slug: str = Query(..., max_length=200)) -> dict[str, Any]:
+    """One persona, read straight out of its file.
+
+    The ledger stores the frontmatter; the *criteria* — how this persona works,
+    what it refuses, what "done" means to it — live in the markdown body, and
+    that is exactly what you need to read before hiring someone. So the body is
+    read from disk on demand rather than duplicated into SQLite, where it would
+    go stale the next time the agency-agents repo is pulled.
+    """
+    conn = _conn()
+    try:
+        row = one(conn, "SELECT * FROM roster WHERE slug = ?", (slug,))
+        if not row:
+            raise HTTPException(404, "no such persona")
+        hired = one(
+            conn, "SELECT id, role, project, status FROM agents WHERE roster_slug = ? "
+                  "AND status != 'retired'", (slug,))
+    finally:
+        conn.close()
+
+    path = Path(row["path"])
+    body, err = "", None
+    if path.is_file():
+        text = path.read_text(encoding="utf-8", errors="replace")
+        # Strip the frontmatter we already have; keep everything after it.
+        if text.startswith("---"):
+            _, _, rest = text.partition("---\n")
+            _, sep, after = rest.partition("\n---")
+            body = after.lstrip("-\n") if sep else rest
+        else:
+            body = text
+    else:
+        err = f"the persona file is gone from disk: {row['path']}"
+
+    return {**row, "body": body.strip(), "error": err, "sections": _sections(body),
+            "hired": hired}
+
+
+def _sections(markdown: str) -> list[dict[str, str]]:
+    """Split a persona body on its headings, so the drawer can show structure.
+
+    Persona files are not uniform — some use `##`, some `**Bold:**`, some
+    neither. Anything that fails to split just comes back as one section, which
+    renders as the whole file. Degrading to "show me the text" is the right
+    failure for a document viewer.
+    """
+    out: list[dict[str, str]] = []
+    title, buf = "", []
+    for line in markdown.splitlines():
+        if line.startswith("#"):
+            if buf or title:
+                out.append({"title": title, "body": "\n".join(buf).strip()})
+            title, buf = line.lstrip("# ").strip(), []
+        else:
+            buf.append(line)
+    if buf or title:
+        out.append({"title": title, "body": "\n".join(buf).strip()})
+    return [s for s in out if s["title"] or s["body"]]
+
+
+@app.get("/api/projects")
+def api_projects() -> dict[str, Any]:
+    """Live working-tree state for every project. The file-manager panel."""
+    return {"head": projects_mod.head(), "rows": projects_mod.scan(),
+            "all": projects_mod.project_dirs()}
+
+
+@app.get("/api/project")
+def api_project(name: str = Query(..., max_length=200)) -> dict[str, Any]:
+    """One project: what is dirty in it, what landed recently, and the diff."""
+    known = projects_mod.project_dirs()
+    if name not in known:
+        raise HTTPException(404, "no such project")
+    rows_ = [r for r in projects_mod.scan() if r["project"] == name]
+    conn = _conn()
+    try:
+        history = rows(
+            conn,
+            "SELECT * FROM project_changes WHERE project = ? ORDER BY seen_at DESC LIMIT 20",
+            (name,),
+        )
+    finally:
+        conn.close()
+    return {
+        "project": name,
+        "state": rows_[0] if rows_ else None,
+        "commits": projects_mod.commits(name),
+        "history": history,
+    }
+
+
+@app.get("/api/diff")
+def api_diff(project: str = Query(..., max_length=200),
+             path: str | None = Query(None, max_length=400)) -> dict[str, Any]:
+    """A working-tree diff, for the project or one file inside it.
+
+    `path` is checked to sit under `project` before it reaches git — not because
+    git would do anything dangerous with it, but because a viewer that will
+    render any path on the disk is a viewer that has stopped being scoped.
+    """
+    if project not in projects_mod.project_dirs():
+        raise HTTPException(404, "no such project")
+    if path:
+        norm = path.replace("\\", "/")
+        if not (norm == project or norm.startswith(project + "/")) or ".." in norm:
+            raise HTTPException(400, "that path is not inside that project")
+    return {"project": project, "path": path, "diff": projects_mod.diff(project, path)}
+
+
+@app.get("/api/pulse/{pulse_id}")
+def api_pulse(pulse_id: int) -> dict[str, Any]:
+    """One heartbeat, in full. The long-form log."""
+    conn = _conn()
+    try:
+        row = one(conn, "SELECT * FROM pulses WHERE id = ?", (pulse_id,))
+        if not row:
+            raise HTTPException(404, "no such pulse")
+        row["changes"] = rows(
+            conn, "SELECT * FROM project_changes WHERE pulse_id = ? ORDER BY project",
+            (pulse_id,))
+        try:
+            row["actions_json"] = json.loads(row.get("actions") or "{}")
+        except ValueError:
+            row["actions_json"] = {}
+        return row
+    finally:
+        conn.close()
+
+
+@app.get("/api/agent/{agent_id}")
+def api_agent(agent_id: int) -> dict[str, Any]:
+    """A hired agent's contract and its record."""
+    conn = _conn()
+    try:
+        row = one(conn, "SELECT * FROM agents WHERE id = ?", (agent_id,))
+        if not row:
+            raise HTTPException(404, "no such agent")
+        row["runs"] = rows(
+            conn,
+            "SELECT r.*, t.title AS ticket_title FROM runs r LEFT JOIN tickets t "
+            "ON t.id = r.ticket_id WHERE r.agent_role = ? ORDER BY r.started_at DESC LIMIT 20",
+            (row["role"],),
+        )
+        return row
+    finally:
+        conn.close()
+
+
+# ── PO actions — the only writes ──────────────────────────────────────────────
+
+
+@app.post("/api/act/decide")
+def act_decide(body: dict = Body(...), x_colony: str | None = Header(None)) -> dict[str, Any]:
+    _guard(x_colony)
+    return _act(control.decide, int(body["escalation_id"]), str(body["decision"]),
+                str(body.get("note") or ""))
+
+
+@app.post("/api/act/confirm-project")
+def act_confirm(body: dict = Body(...), x_colony: str | None = Header(None)) -> dict[str, Any]:
+    _guard(x_colony)
+    return _act(control.confirm_project, int(body["story_id"]), str(body["project"]))
+
+
+@app.post("/api/act/halt")
+def act_halt(body: dict = Body(...), x_colony: str | None = Header(None)) -> dict[str, Any]:
+    _guard(x_colony)
+    return _act(control.halt, bool(body["on"]), str(body.get("reason") or ""))
+
+
+@app.post("/api/act/allowance")
+def act_allowance(body: dict = Body(...), x_colony: str | None = Header(None)) -> dict[str, Any]:
+    _guard(x_colony)
+    return _act(control.set_allowance, float(body["boost"]))
+
+
+@app.post("/api/act/hire")
+def act_hire(body: dict = Body(...), x_colony: str | None = Header(None)) -> dict[str, Any]:
+    _guard(x_colony)
+    return _act(
+        control.hire,
+        roster_slug=body.get("roster_slug") or None,
+        role=str(body["role"]).strip().lower().replace(" ", "-"),
+        project=(body.get("project") or None),
+        model=str(body.get("model") or "claude-sonnet-5"),
+        write_capable=bool(body.get("write_capable")),
+        max_tokens_run=int(body.get("max_tokens_run") or 120000),
+        notes=body.get("notes") or None,
+    )
+
+
+@app.post("/api/act/retire")
+def act_retire(body: dict = Body(...), x_colony: str | None = Header(None)) -> dict[str, Any]:
+    _guard(x_colony)
+    return _act(control.retire, int(body["agent_id"]))
+
+
+@app.post("/api/act/dispatch")
+def act_dispatch(body: dict = Body(...), x_colony: str | None = Header(None)) -> dict[str, Any]:
+    _guard(x_colony)
+    return _act(control.dispatch, int(body["story_id"]))
+
+
+@app.post("/api/act/cancel")
+def act_cancel(body: dict = Body(...), x_colony: str | None = Header(None)) -> dict[str, Any]:
+    _guard(x_colony)
+    return _act(control.cancel_ticket, int(body["ticket_id"]))
+
+
+@app.post("/api/act/rescan")
+def act_rescan(x_colony: str | None = Header(None)) -> dict[str, Any]:
+    """Re-read the agency-agents install. The one write that isn't a decision.
+
+    It changes only the `roster` table — résumés, not employees — and a persona
+    whose file changed upstream is something the PO should see rather than
+    discover the next time they hire.
+    """
+    _guard(x_colony)
+    conn = _rw()
+    try:
+        conn.execute("BEGIN")
+        try:
+            result = roster_mod.sync(conn)
+            control._record(conn, "note", "colony", None,
+                            f"roster rescan: {result['total']} personas, "
+                            f"{len(result['added'])} added, {len(result['changed'])} changed")
+        except BaseException:
+            conn.execute("ROLLBACK")
+            raise
+        conn.execute("COMMIT")
+        _project_cache["at"] = 0.0
+        return {"ok": True, **result}
+    except FileNotFoundError as exc:
+        raise HTTPException(409, str(exc))
     finally:
         conn.close()
 
