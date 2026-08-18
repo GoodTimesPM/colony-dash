@@ -748,7 +748,7 @@ the next piece.
 | --- | --- | --- | --- |
 | M0 ✅ | **Ledger** | Schema, migrations, seed, roster scan, CLI, MySQL mirror | A queryable record of project work exists |
 | M1 ✅ | **Pulse, read-only** | `pulse.py`, tick/wake tiers, Notion sync, grooming dispatch | Daily automated status, zero write risk, near-zero tokens |
-| M2 | **Dashboard, read view** | FastAPI + SSE + pywebview, all panels except approvals | The always-open window; the thing you actually wanted |
+| M2 ✅ | **Dashboard, read view** | FastAPI + SSE + pywebview, all panels except approvals | The always-open window; the thing you actually wanted |
 | M3 | **Hiring + gates** | Roster import, agent definitions, worktree isolation, Inbox approvals, budget kill | Real autonomous work with a safety rail |
 | M4 | **Skill forge** | Detection, drafting, promotion, tokens-saved tracking | The compounding loop turns on |
 | M5 | **Two-way Notion** | Loop-authored stories and questions push up as comments | The backlog stops being two places |
@@ -757,7 +757,7 @@ the next piece.
 that tells us whether the bar in §4.6 is set correctly and what a token actually buys —
 calibrations everything downstream depends on.
 
-### 10.1 What exists on disk (2026-08-17)
+### 10.1 What exists on disk (2026-08-18)
 
 ```
 colony-dash/
@@ -771,7 +771,10 @@ colony-dash/
     wake.py      the wake tier — grooming, budget guard, retry cap
     agent.py     the only code that spends tokens: one `claude -p` invocation
     mirror.py    full-refresh ledger → MySQL
-    cli.py       init / status / roster / agents / sql / pulse / mirror
+    server.py    FastAPI, read-only connections, SSE change feed
+    desktop.py   pywebview shell; logs to .colony/dash.log
+    ui/index.html  the whole front end — one file, no build step
+    cli.py       init / status / roster / agents / sql / pulse / mirror / dash
   pulse.cmd                     what Task Scheduler runs; logs to .colony/pulse.log
   .colony/ledger.db             gitignored; the ledger
 ```
@@ -784,13 +787,16 @@ python -m colony pulse --dry-run      preview, writes nothing, spends nothing
 python -m colony pulse --no-wake      tick only — guaranteed zero tokens
 python -m colony roster "database"    search the hiring pool
 python -m colony sql "SELECT ..."     SELECT-only console
+python -m colony dash                 open the dashboard window
+python -m colony dash --serve         server only, no window (browse to :8787)
 ```
 
 **Verified working:** migrations, seeding, a 270-persona scan across 17 divisions, FTS
 search, project inference, story upsert with change detection, needs-info escalation, the
 `story_events` timeline, tick-vs-wake tiering, usage sampling from the shared cache, the
-hourly scheduled task, and — since 2026-08-17 — **a wake that actually spawns an agent,
-grooms a story, and records what it cost.**
+hourly scheduled task, **a wake that actually spawns an agent, grooms a story, and records
+what it cost**, and — since 2026-08-18 — **the dashboard window itself: every panel in §9
+except approvals, live over SSE.**
 
 ### 10.2 What the first real wake taught us
 
@@ -822,6 +828,35 @@ same question.**
 Notion, so six ungroomed stories would have sat untouched forever. Groomable backlog is now
 itself a reason to wake, capped at `MAX_ATTEMPTS = 2` per story so a story the agent keeps
 failing on can't bill for the same failure every hour.
+
+### 10.3 What building the read view taught us
+
+**A dashboard's first job is to disagree with you.** Within a minute of first rendering, the
+Colony panel showed an agent that had been "running" for eleven minutes. Nothing was
+running. `run_ticket` opens the `runs` row *before* spawning, so cost survives a crash —
+which also means a killed parent leaves a `running` row nobody will ever close. The parent
+had been killed by the scheduler's own `ExecutionTimeLimit = PT10M`, a cap shorter than the
+two seven-minute grooms the same task was authorised to run. The task is now `PT30M`, and
+`reap_orphaned_runs()` closes anything still `running` after twenty minutes as `timeout`.
+Tokens already spent stay recorded: **an orphan is an unknown ending, not a refund.** It
+raises an anomaly, never a wake reason — you don't spend money reacting to a corpse.
+
+**Read-only by construction, not by discipline.** Every request opens the ledger with
+`db.connect(read_only=True)`. The dashboard cannot be the reason state changed, so no
+panel needs to be audited for write side effects. Approval controls stay out until M3,
+where the gate that governs them exists.
+
+**The change feed must not tick.** The pulse writes hourly from another process, so the
+server re-reads its own snapshot every two seconds and pushes only when a sha256 of it
+moves. Elapsed timers are excluded from that fingerprint and computed browser-side from
+`started_at` — otherwise every clock second would look like a state change and the feed
+would push forever.
+
+**The stream that reports failures was the failure.** The windowed launch died with exit 1,
+no traceback, no log. Cause: `cli.py` evaluated `sys.stdout.isatty()` at import time for
+colour detection, and under `pythonw.exe` `sys.stdout` is `None`. Fixed with a None-safe
+check, a hardened `_force_utf8()`, and `.colony/dash.log` — because a GUI that dies
+silently is a GUI you debug by guessing.
 
 **Still deliberately not built:** staffing and write-capable dispatch (§4.3–4.4). They need
 the Inbox approval gate, and building the spawner before the gate that governs it is the
