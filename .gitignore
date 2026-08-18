@@ -1,0 +1,11 @@
+# The ledger and everything the colony produces at runtime.
+.colony/
+*.db
+*.db-wal
+*.db-shm
+
+# Secrets. Never committed, never readable by an agent.
+.env
+
+__pycache__/
+*.pyc
