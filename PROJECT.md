@@ -32,7 +32,7 @@ python -m colony halt "reason"        stop all spending now; resume lifts it
 python -m colony allowance 10         +10 points of week for a high-volume sprint (0 clears)
 python -m colony projects             what moved across the whole tree (--diff PROJECT)
 python -m colony shortcut             (re)write the desktop shortcut + icon
-pulse.cmd                             what the scheduled task runs; logs to .colony/pulse.log
+python -m colony schedule             (re)install the hourly pulse task (--show, --remove)
 ```
 
 Ledger: `colony-dash/.colony/ledger.db` (gitignored). Config: `colony-dash/.env` (gitignored)
@@ -222,6 +222,55 @@ names the state and the next move.
 - [ ] **M4** — the skill forge. The compounding loop.
 - [ ] Update the published artifact — it still shows the pre-M1 design.
 
+## Finished 2026-08-18 — M3.1, the PO's own quality-of-life pass
+
+Ten things Jordan asked for after living with M3 for a day. All shipped.
+
+- [x] **No console windows, ever.** Two separate bugs wearing one costume. The flashing
+      2-3x/minute was `PROJECT_TTL_S = 30.0` in `server.py`: every 30s the SSE snapshot
+      re-ran `projects.scan()`, which shells out to `git` from a GUI process. The hourly
+      window that never closed was the scheduled task running `cmd.exe`. The fix needs
+      **both halves**: `colony/proc.py` wraps every subprocess in `CREATE_NO_WINDOW` +
+      a hidden `STARTUPINFO` (kills the children — git, the claude CLI, WScript.Shell),
+      and `colony/schedule.py` reinstalls the task under **pythonw.exe** (kills the
+      parent). Suppressing one alone leaves the other on screen. `python -m colony
+      schedule --show` reports `windowless` when both halves hold.
+- [x] **Reply to Ordis.** Every Inbox card has a `REPLY TO ORDIS` button that opens a
+      screen-wide composer with the proposal pinned above the box — the same thing as
+      typing into Claude Code, but from the tile. Migration `005_po_replies.sql` adds
+      `po_messages`; `control.reply()` queues a row, **spends nothing**, and leaves the
+      escalation open. The next wake reads it (`wake.answer_po`, before grooming) and
+      answers. A reply is not a decision: Ordis may *suggest* a project from one but never
+      confirm it — `project_source` stays `inferred`, so a reply can never authorize a
+      write (§8.2). An unanswered message stays `unread` so the question survives.
+- [x] **New folders from the Inbox.** The project picker now carries a `+ new project
+      folder...` option. `control.create_project()` whitelists each path segment
+      (fails closed) *and* re-checks the resolved path. This was the "Full computer scan
+      (Optimization)" case — no existing folder fit, and the dropdown had no answer.
+- [x] **Dropdowns fit their tile** at any window size (`select.pick { max-width:100%;
+      min-width:0 }` — the missing `min-width` was what let the grid child overflow).
+- [x] **"Later" now moves something.** It writes `snoozed_until` (8h default); the tile
+      dims and sorts last (`ORDER BY snoozed, ...`). Un-snooze is the same call with
+      `snooze_hours: 0` — note `or 8` is wrong there, 0 is falsy. "story" is now
+      `OPEN STORY`, which is all it ever did.
+- [x] **The dark themes actually apply.** Pure CSS specificity: the system-dark guard
+      `:root:not([data-theme="light"]):not([data-theme="parchment"])...` scored 0,4,0 and
+      beat `:root[data-theme="ember"]` at 0,2,0, so on a dark OS every named dark theme
+      lost to system-dark. The guard is now `:root:not([data-theme])` — a chosen theme is
+      never "system", so the *absence* of the attribute is the whole condition.
+- [x] **Parchment re-saturated** into real sepia (`--ground:#E4D5B7`, panels tinted rather
+      than white-with-a-hint, accents as pigments: ochre / verdigris / vermilion).
+      A sepia theme whose panel is `#FBF6EB` is a white theme standing near a candle.
+- [x] **A real file tree** in the middle column. `scan()` answers *what moved*; `tree()`
+      answers *what is there* — a panel built on `scan()` looks empty exactly when the
+      tree is tidy, which is why the old one looked unimplemented. Lazy, one directory per
+      request (the root has ~60 projects, some with `node_modules`). `safe_path()`
+      validates the **resolved** path, so a symlink out of the tree fails like a `..`, and
+      rejects hidden names and anything matching `is_secret()` (`.env*`, `credentials.json`,
+      `id_rsa`, ...). Verified: `/api/tree?path=../../` -> 400, `/api/file?path=.../.env` -> 400.
+- [x] `?theme=<name>` forces a theme for one load without touching localStorage.
+- [x] `pulse.cmd` deleted — the task no longer references it.
+
 ## Finished 2026-08-17
 
 - [x] Notion integration connected 2026-08-17. The board reads: **6 rows, 6 stories** —
@@ -229,7 +278,7 @@ names the state and the next move.
 - [x] Tray app restarted 2026-08-17 21:10 — `usage.json` is publishing; the pulse now reads
       `5h 32% · 7d 18%` from it.
 - [x] Hourly Task Scheduler job **"Colony Dash Pulse"** registered 2026-08-17. Runs
-      `pulse.cmd` (interactive user, on battery too, `StartWhenAvailable` so a missed hour
+      `pythonw.exe -m colony pulse` (interactive user, on battery too, `StartWhenAvailable` so a missed hour
       fires on wake), appending to `.colony/pulse.log`. Verified: exit code 0.
 - [x] Wake-tier dispatch built and run live 2026-08-17. Four bugs it exposed — the token
       ceiling counting cache reads, a budget breach discarding paid-for work, the wake never

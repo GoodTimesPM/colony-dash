@@ -27,6 +27,7 @@ file on disk cannot be blocked by a locked database or an unresponsive server.
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 from typing import Any
 
@@ -161,7 +162,7 @@ def _close_escalation(conn: sqlite3.Connection, esc_id: int, decision: str) -> N
 
 
 def decide(conn: sqlite3.Connection, esc_id: int, decision: str,
-           note: str = "") -> dict[str, Any]:
+           note: str = "", snooze_hours: float = 8) -> dict[str, Any]:
     """Answer one Inbox item. The single entry point for every escalation kind.
 
     What an approval *means* depends on the escalation, and that mapping lives
@@ -200,9 +201,22 @@ def decide(conn: sqlite3.Connection, esc_id: int, decision: str,
         # Deferring is not resolving: the item stays open and stays visible.
         # An Inbox you can empty without deciding anything is an Inbox that
         # stops meaning what it says.
-        conn.execute("UPDATE escalations SET raised_at = datetime('now','localtime') WHERE id = ?",
-                     (esc_id,))
-        return {"ok": True, "outcome": "deferred", "kind": kind}
+        #
+        # But it does stop being *loud*. `snoozed_until` is what lets the tile
+        # gray itself out and sort to the back until the snooze runs out — the
+        # difference between "not now" and "not important", which an Inbox with
+        # only one visual weight cannot express.
+        conn.execute(
+            "UPDATE escalations SET raised_at = datetime('now','localtime'), "
+            "snoozed_until = datetime('now','localtime', ?) WHERE id = ?",
+            (f"+{int(snooze_hours)} hours", esc_id),
+        )
+        return {"ok": True, "kind": kind,
+                "outcome": f"snoozed {int(snooze_hours)}h" if snooze_hours else "back in the Inbox"}
+
+    # Any decision other than "later" wakes the item back up, so an approved
+    # item never carries a stale snooze into the audit trail.
+    conn.execute("UPDATE escalations SET snoozed_until = NULL WHERE id = ?", (esc_id,))
 
     _close_escalation(conn, esc_id, decision)
 
@@ -323,6 +337,134 @@ def confirm_project(conn: sqlite3.Connection, story_id: int, project: str) -> di
 def _project_dirs() -> list[str]:
     from . import projects
     return projects.project_dirs()
+
+
+SAFE_SEGMENT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 ._-]*$")
+
+
+def _today(conn: sqlite3.Connection) -> str:
+    return conn.execute("SELECT date('now','localtime') AS d").fetchone()["d"]
+
+
+def create_project(conn: sqlite3.Connection, name: str, *, why: str = "") -> dict[str, Any]:
+    r"""Make a new project folder, with the PROJECT.md the repo convention requires.
+
+    This exists because the commonest answer to "which folder does this story
+    belong to?" turned out to be one the dropdown could not express: *none of
+    them yet*. A list of existing folders is only a question if the true answer
+    is somewhere on the list.
+
+    It is the one place the dashboard writes outside the ledger, and it is
+    deliberately the smallest write that could be useful: `mkdir` plus a stub.
+    The name is validated segment by segment against a whitelist rather than
+    scanned for `..`, because a whitelist fails closed and a blacklist fails the
+    day someone finds a spelling nobody thought of. Two levels at most, matching
+    the only shape `project_dirs()` will ever report.
+    """
+    name = (name or "").strip().replace("\\", "/").strip("/")
+    if not name:
+        raise Refused("give the new project a folder name")
+
+    parts = [p.strip() for p in name.split("/") if p.strip()]
+    if len(parts) > 2:
+        raise Refused("projects live one or two levels under the root, not deeper")
+    for part in parts:
+        if not SAFE_SEGMENT.match(part):
+            raise Refused(f"{part!r} is not a folder name I will create — letters, "
+                          "digits, spaces, dot, dash and underscore only")
+
+    rel = "/".join(parts)
+    path = db.PROJECTS_ROOT.joinpath(*parts)
+    # Belt and braces: the whitelist above already makes traversal impossible,
+    # but the resolved path is checked against the root anyway. Two independent
+    # checks on the one operation that leaves the ledger is cheap.
+    if db.PROJECTS_ROOT.resolve() not in path.resolve().parents:
+        raise Refused("that path is outside the projects root")
+
+    existed = path.is_dir()
+    path.mkdir(parents=True, exist_ok=True)
+    stub = path / "PROJECT.md"
+    if not stub.exists():
+        stub.write_text(
+            f"# {parts[-1]}\n\n"
+            f"**Status:** new — folder created from the Colony Dash Inbox on "
+            f"{_today(conn)}.\n\n"
+            f"{(why or 'No brief yet.').strip()}\n\n"
+            "## Next\n\n- Say what this project is for.\n",
+            encoding="utf-8",
+        )
+    _record(conn, "confirm-project", "story", None,
+            f"created project folder {rel}" + ("" if not existed else " (already existed)"))
+    return {"ok": True, "project": rel, "path": str(path), "created": not existed}
+
+
+# ── talking back ──────────────────────────────────────────────────────────────
+
+
+def reply(conn: sqlite3.Connection, *, escalation_id: int | None = None,
+          story_id: int | None = None, body: str = "") -> dict[str, Any]:
+    """Write a sentence to Ordis about one Inbox item.
+
+    The message is queued, not delivered: nothing here spends a token, same as
+    every other function in this module. The next wake picks up the unread rows,
+    answers them, and writes the answer back into the same thread as an `ordis`
+    message (`wake.answer_po`). Until then the tile says so — an Inbox that
+    swallows what you typed and shows no sign of it is worse than one with no
+    reply box at all.
+
+    The escalation stays **open**. A reply is not a decision, which is the whole
+    reason for having both.
+    """
+    body = (body or "").strip()
+    if not body:
+        raise Refused("nothing to send")
+    if len(body) > 8000:
+        raise Refused("that is longer than a work order — trim it to 8,000 characters")
+
+    if escalation_id:
+        esc = conn.execute("SELECT * FROM escalations WHERE id = ?", (escalation_id,)).fetchone()
+        if not esc:
+            raise Refused("no such Inbox item")
+        story_id = story_id or esc["story_id"]
+
+    cur = conn.execute(
+        "INSERT INTO po_messages (escalation_id, story_id, author, body) VALUES (?,?,'po',?)",
+        (escalation_id, story_id, body),
+    )
+    _record(conn, "note", "escalation" if escalation_id else "story",
+            escalation_id or story_id, body[:400])
+    if story_id:
+        _event(conn, story_id, "note", "PO wrote to Ordis about this", body[:2000])
+    # A replied-to item stops shouting but stays open: waiting on an answer is
+    # not the same as being answered.
+    if escalation_id:
+        conn.execute("UPDATE escalations SET snoozed_until = NULL WHERE id = ?", (escalation_id,))
+    return {"ok": True, "message_id": cur.lastrowid, "queued": True}
+
+
+def thread(conn: sqlite3.Connection, escalation_id: int | None = None,
+           story_id: int | None = None) -> list[dict[str, Any]]:
+    """The whole conversation about one item, oldest first."""
+    if escalation_id:
+        rows = conn.execute(
+            "SELECT * FROM po_messages WHERE escalation_id = ? ORDER BY id", (escalation_id,)
+        ).fetchall()
+    elif story_id:
+        rows = conn.execute(
+            "SELECT * FROM po_messages WHERE story_id = ? ORDER BY id", (story_id,)
+        ).fetchall()
+    else:
+        rows = []
+    return [dict(r) for r in rows]
+
+
+def unread_messages(conn: sqlite3.Connection, limit: int = 4) -> list[sqlite3.Row]:
+    """What the PO has said that Ordis has not answered yet."""
+    return conn.execute(
+        "SELECT * FROM po_messages WHERE author = 'po' AND status = 'unread' "
+        "ORDER BY id LIMIT ?",
+        (limit,),
+    ).fetchall()
 
 
 # ── staffing ──────────────────────────────────────────────────────────────────

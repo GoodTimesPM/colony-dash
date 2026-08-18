@@ -294,9 +294,192 @@ def groom_story(conn: sqlite3.Connection, story: sqlite3.Row, terms: dict,
     return outcome
 
 
+# ── answering the PO ──────────────────────────────────────────────────────────
+#
+# The Inbox got a reply box, so the wake got a job that runs before every other
+# job: read what Jordan typed and answer it. It goes first for the same reason a
+# standup starts with blockers — an hour spent grooming a story the PO has just
+# redefined is an hour spent on the wrong story.
+#
+# This is capped hard. A reply is a short question about one item, so the answer
+# is a short read and a short paragraph; if a message needs more than this it
+# needs to be a story, and saying so is a legitimate answer.
+
+REPLY_LIMIT = int(os.environ.get("COLONY_REPLY_LIMIT", "3"))
+REPLY_TIMEOUT_S = int(os.environ.get("COLONY_REPLY_TIMEOUT", "300"))
+
+
+def reply_prompt(msg: sqlite3.Row, esc: sqlite3.Row | None, story: sqlite3.Row | None,
+                 projects: list[str], history: list[dict]) -> str:
+    """The work order for one PO reply."""
+    lines = [
+        "You are Ordis, Scrum Master of a colony of Claude agents. Jordan is the",
+        "Product Owner. He has written to you about one item in his PO Inbox, and",
+        "you are answering him directly. You are READ-ONLY: Read, Grep and Glob.",
+        "",
+    ]
+    if esc is not None:
+        lines += [
+            "--- the Inbox item he is replying to ---",
+            f"kind: {esc['kind']}",
+            f"raised: {esc['raised_at']}",
+            f"reason: {esc['reason']}",
+            f"your recommendation was: {esc['recommendation'] or '(none)'}",
+            "--- end item ---",
+            "",
+        ]
+    if story is not None:
+        lines += [
+            f"STORY #{story['id']}: {story['title']}",
+            f"status: {story['status']}   project: {story['project'] or 'unknown'} "
+            f"({story['project_source'] or 'unset'})",
+            "--- brief ---",
+            (story["description"] or "(empty)")[:3000],
+            "--- end brief ---",
+            "",
+        ]
+    if history:
+        lines.append("--- the conversation so far ---")
+        for h in history[-8:]:
+            who = "JORDAN" if h["author"] == "po" else "YOU"
+            lines.append(f"{who} ({h['at']}): {h['body'][:1200]}")
+        lines += ["--- end conversation ---", ""]
+
+    lines += [
+        "--- what he just said ---",
+        msg["body"][:6000],
+        "--- end ---",
+        "",
+        "Project folders that exist under D:\\ALL STUFF\\PROJECTS:",
+        *(f"  {p}" for p in projects),
+        "",
+        "You may read files under D:\\ALL STUFF\\PROJECTS to check anything he",
+        "refers to. Be frugal — a few targeted reads, not a survey.",
+        "",
+        "Answer him. Plainly, in your own voice, in a few sentences. If he told you",
+        "something that changes what you recommended, say what changes. If he asked",
+        "for something you cannot do, say so and say what you can do instead. Never",
+        "decide the item yourself: approving, rejecting and confirming a project are",
+        "his, and this reply does none of them.",
+        "",
+        "Reply with ONLY a JSON object:",
+        "",
+        "{",
+        '  "answer": "what you are saying back to Jordan, under 1200 characters",',
+        '  "project": "a folder from the list if his message settled which one, else null",',
+        '  "new_project": "a folder name he asked you to treat as new work, else null",',
+        '  "recommendation": "a revised one-line recommendation for the Inbox tile, or null",',
+        '  "resolved": true only if his message means this item no longer needs him,',
+        '  "learned": "one durable thing worth keeping, or null"',
+        "}",
+    ]
+    return "\n".join(lines)
+
+
+def answer_po(conn: sqlite3.Connection, terms: dict, projects: list[str]) -> list[dict]:
+    """Read the unread PO messages and write answers into the same threads."""
+    out: list[dict] = []
+    for msg in control.unread_messages(conn, REPLY_LIMIT):
+        esc = story = None
+        if msg["escalation_id"]:
+            esc = conn.execute("SELECT * FROM escalations WHERE id = ?",
+                               (msg["escalation_id"],)).fetchone()
+        if msg["story_id"]:
+            story = conn.execute("SELECT * FROM stories WHERE id = ?",
+                                 (msg["story_id"],)).fetchone()
+        history = [h for h in control.thread(conn, escalation_id=msg["escalation_id"],
+                                             story_id=msg["story_id"])
+                   if h["id"] != msg["id"]]
+
+        prompt = reply_prompt(msg, esc, story, projects, history)
+        cur = conn.execute(
+            """INSERT INTO tickets (story_id, title, intent, role, status, work_order, requires_po)
+               VALUES (?,?,'research',?,'staffed',?,0)""",
+            (msg["story_id"], f"Answer the PO: {msg['body'][:120]}", terms["role"], prompt),
+        )
+        ticket_id = cur.lastrowid
+
+        result = agent.run_ticket(
+            conn, ticket_id=ticket_id, role=terms["role"], prompt=prompt,
+            model=terms["model"], tools_allowed=terms["tools_allowed"],
+            tools_denied=terms.get("tools_denied"), cwd=db.PROJECTS_ROOT,
+            timeout_s=REPLY_TIMEOUT_S, max_tokens=terms.get("max_tokens_run"),
+        )
+        answer = result.json_payload() if result.status in ("ok", "killed-over-budget") else None
+
+        if not answer:
+            # The message is *not* marked read. An answer that never arrived is
+            # a question still waiting, and silently swallowing it would be the
+            # one failure mode this whole feature exists to prevent.
+            conn.execute("UPDATE tickets SET status = 'blocked', findings = ? WHERE id = ?",
+                         ((result.error or result.text or result.status)[:2000], ticket_id))
+            out.append({"message_id": msg["id"], "tokens": result.chargeable_tokens,
+                        "verdict": f"no answer ({result.status})"})
+            continue
+
+        text = (answer.get("answer") or "").strip() or "(no answer given)"
+        conn.execute(
+            "INSERT INTO po_messages (escalation_id, story_id, author, body, status, tokens) "
+            "VALUES (?,?,'ordis',?,'read',?)",
+            (msg["escalation_id"], msg["story_id"], text[:4000], result.chargeable_tokens),
+        )
+        conn.execute(
+            "UPDATE po_messages SET status = 'answered', read_at = datetime('now','localtime') "
+            "WHERE id = ?",
+            (msg["id"],),
+        )
+        conn.execute(
+            "UPDATE tickets SET status = 'done', findings = ?, closed_at = datetime('now','localtime') "
+            "WHERE id = ?",
+            (json.dumps(answer, indent=2)[:8000], ticket_id),
+        )
+
+        # A revised recommendation replaces the one on the tile, so the Inbox
+        # shows the current advice rather than the advice the PO just argued
+        # with. The escalation itself stays open unless Ordis is confident the
+        # question is gone — and even then it is closed as 'amend', never as an
+        # approval nobody gave.
+        if esc is not None:
+            if answer.get("recommendation"):
+                conn.execute("UPDATE escalations SET recommendation = ? WHERE id = ?",
+                             (str(answer["recommendation"])[:1000], esc["id"]))
+            if answer.get("resolved"):
+                conn.execute(
+                    "UPDATE escalations SET resolved_at = datetime('now','localtime'), "
+                    "po_decision = 'amend' WHERE id = ? AND resolved_at IS NULL",
+                    (esc["id"],),
+                )
+
+        # Ordis may *suggest* a folder from a reply, never confirm one. Naming
+        # the project is a PO action and stays one (§8.2).
+        suggested = answer.get("project")
+        if (story is not None and suggested and suggested in projects
+                and story["project_source"] != "confirmed"):
+            conn.execute("UPDATE stories SET project = ? WHERE id = ?",
+                         (suggested, story["id"]))
+
+        if msg["story_id"]:
+            _event(conn, msg["story_id"], "note", "Ordis answered the PO",
+                   text[:2000], ticket_id, result.chargeable_tokens)
+            if answer.get("learned"):
+                _event(conn, msg["story_id"], "learning", str(answer["learned"])[:400],
+                       None, ticket_id, 0)
+
+        out.append({"message_id": msg["id"], "tokens": result.chargeable_tokens,
+                    "verdict": "answered", "answer": text[:200]})
+    return out
+
+
+def unanswered_count(conn: sqlite3.Connection) -> int:
+    """How many PO replies are waiting — the tick uses this to decide to wake."""
+    return conn.execute(
+        "SELECT COUNT(*) n FROM po_messages WHERE author = 'po' AND status = 'unread'"
+    ).fetchone()["n"]
+
+
 def run(conn: sqlite3.Connection, usage: dict | None) -> dict:
     """Do the wake. Returns what happened, for the pulse row and the printout."""
-    report = {"groomed": [], "built": [], "tokens": 0, "skipped": None}
+    report = {"groomed": [], "built": [], "answered": [], "tokens": 0, "skipped": None}
 
     if control.is_halted():
         # Belt-and-braces: the tick already refuses to escalate to a wake while
@@ -316,7 +499,15 @@ def run(conn: sqlite3.Connection, usage: dict | None) -> dict:
     stories = stories_to_groom(conn, GROOM_LIMIT) if terms else []
     if terms is None:
         report["skipped"] = "no active investigator contract — run `python -m colony init`"
-    elif stories:
+    else:
+        # Before anything else: whatever the PO said. Working a backlog he has
+        # just re-scoped is the most expensive kind of wrong.
+        projects = pulse_mod.candidate_projects()
+        for outcome in answer_po(conn, terms, projects):
+            report["answered"].append(outcome)
+            report["tokens"] += outcome["tokens"]
+
+    if terms is not None and stories:
         projects = pulse_mod.candidate_projects()
         for story in stories:
             outcome = groom_story(conn, story, terms, projects)
@@ -330,6 +521,7 @@ def run(conn: sqlite3.Connection, usage: dict | None) -> dict:
         report["built"].append(outcome)
         report["tokens"] += outcome["tokens"]
 
-    if not report["groomed"] and not report["built"] and not report["skipped"]:
+    if (not report["groomed"] and not report["built"] and not report["answered"]
+            and not report["skipped"]):
         report["skipped"] = "nothing to groom and nothing dispatched"
     return report

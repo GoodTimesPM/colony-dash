@@ -58,8 +58,15 @@
   --step-3:  26px;
 }
 
+/* The guard is `:not([data-theme])` — no attribute at all — and not a list of
+   the light themes to exclude. The list version was a specificity trap: it
+   scored higher than `:root[data-theme="ember"]`, so on a dark OS every named
+   theme lost to it and the picker appeared to do nothing except for the two
+   light palettes that happened to be named in the exclusions. A theme that is
+   chosen is never "system", so the absence of the attribute is the whole
+   condition. */
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]):not([data-theme="parchment"]):not([data-theme="clay"]) {
+  :root:not([data-theme]) {
     --ground:      #0B0F14;
     --panel:       #121820;
     --panel-sunk:  #0E141B;
@@ -125,16 +132,21 @@
   --shadow: 0 1px 0 rgba(255,255,255,.02), 0 12px 32px -18px #000;
 }
 
-/* Parchment — a ledger on a table. Warm paper, iron-gall ink, red rubrication. */
+/* Parchment — a ledger on a table. Warm paper, iron-gall ink, red rubrication.
+   Pushed further into the sepia than the first pass: the panels are tinted
+   rather than white-with-a-hint, the rules carry the same hue as the ground,
+   and the accents are pigments (ochre, verdigris, vermilion) instead of the
+   default palette desaturated. A sepia theme whose panel is #FBF6EB is a white
+   theme standing near a candle. */
 :root[data-theme="parchment"] {
-  --ground:      #EFE7D8;  --panel:      #FBF6EB;  --panel-sunk: #E7DDCA;
-  --rule:        #D6C9B0;  --rule-soft:  #E3D8C4;
-  --ink:         #241C12;  --ink-soft:   #574733;  --ink-dim:    #8A7758;
-  --amber:       #9A5A10;  --amber-ground:#F5E5C8;
-  --mint:        #37704F;  --mint-ground: #DFEBD9;
-  --coral:       #A5341F;  --coral-ground:#F3DED6;
-  --violet:      #6A5230;
-  --shadow: 0 1px 2px rgba(60,45,25,.08), 0 8px 24px -14px rgba(60,45,25,.3);
+  --ground:      #E4D5B7;  --panel:      #F2E4C6;  --panel-sunk: #D8C6A2;
+  --rule:        #C2A97C;  --rule-soft:  #D2BC95;
+  --ink:         #2A1B08;  --ink-soft:   #5C4520;  --ink-dim:    #8C7345;
+  --amber:       #8A4A06;  --amber-ground:#EFD9A6;
+  --mint:        #2E6A43;  --mint-ground: #D5E0BC;
+  --coral:       #992C13;  --coral-ground:#EBD0BC;
+  --violet:      #6B4A18;
+  --shadow: 0 1px 2px rgba(70,48,18,.12), 0 8px 24px -14px rgba(70,48,18,.4);
 }
 
 /* Clay — the daylight version of the same settlement. Cool light, brick accent. */
@@ -193,6 +205,12 @@ select.pick, input.field {
   background: var(--panel-sunk); color: var(--ink);
   border: 1px solid var(--rule); border-radius: 5px; padding: 4px 7px;
   font-family: var(--mono); font-size: var(--step--1);
+  /* A <select> sizes itself to its widest option unless told otherwise, and the
+     widest project folder here is `personal-desktop-projects/domain-expansion-news`.
+     Inside a tile that is a control wider than the card it sits in, hanging off
+     the right edge at every window size. `min-width:0` is the half people forget:
+     without it a flex or grid child refuses to shrink below its content. */
+  max-width: 100%; min-width: 0;
 }
 select.pick:focus-visible, input.field:focus-visible { outline: 2px solid var(--violet); outline-offset: -1px; }
 
@@ -258,6 +276,33 @@ body.halted .halt-banner { display: flex; }
 .tile .rec { font-size: var(--step--1); color: var(--ink-soft); white-space: pre-wrap; max-height: 8.5em; overflow-y: auto; }
 .tile .meta { font-family: var(--mono); font-size: 10px; color: var(--ink-dim); }
 .tile .acts { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: auto; padding-top: 4px; }
+/* The picker gets its own row rather than sharing one with the buttons. It is
+   the answer to the tile's question; the buttons are what you do with it. */
+.tile .picker { display: flex; gap: 6px; align-items: center; width: 100%; min-width: 0; }
+.tile .picker select.pick, .tile .picker input.field { flex: 1 1 auto; width: 100%; min-width: 0; }
+
+/* A snoozed item is still open — it just stops shouting until the snooze runs
+   out. Everything about it recedes: the amber ground, the border, the type. */
+.tile.snoozed {
+  background: var(--panel); border-color: var(--rule); box-shadow: none; opacity: .62;
+}
+.tile.snoozed .k, .tile.snoozed .r { color: var(--ink-dim); }
+.tile.snoozed:hover { opacity: 1; }
+.tile .snooze-note {
+  font-family: var(--mono); font-size: 10px; color: var(--ink-dim);
+  letter-spacing: .06em; text-transform: uppercase;
+}
+/* What Ordis said back, on the face of the tile. A reply you have to open a
+   drawer to discover is a reply you will not read. */
+.tile .said {
+  border-left: 2px solid var(--violet); padding: 4px 0 4px 8px;
+  font-size: var(--step--1); color: var(--ink-soft); white-space: pre-wrap;
+  max-height: 7em; overflow-y: auto;
+}
+.tile .waiting {
+  font-family: var(--mono); font-size: 10px; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--violet);
+}
 
 button.act {
   font-family: var(--mono); font-size: var(--step--1); letter-spacing: .06em; text-transform: uppercase;
@@ -483,6 +528,65 @@ button.pulse[disabled] { cursor: default; }
   display: flex; flex-direction: column; z-index: 2;
 }
 .drawer.on { transform: none; }
+/* The composer is the one drawer that is not a side panel. Replying to Ordis
+   means reading the proposal and drafting against it, and 640px of column with
+   a textarea at the bottom makes you scroll between the two halves of the one
+   thought. Full width, proposal pinned above, editor below. */
+.drawer.wide { width: min(1100px, 100vw); }
+.compose { display: flex; flex-direction: column; gap: 12px; }
+.compose .proposal {
+  border: 1px solid var(--amber); background: var(--amber-ground);
+  border-radius: 8px; padding: 12px 14px; display: flex; flex-direction: column; gap: 7px;
+  max-height: 34vh; overflow-y: auto;
+}
+.compose .proposal .r { font-size: var(--step-1); line-height: 1.35; }
+.compose .proposal .rec { font-size: var(--step-0); color: var(--ink-soft); white-space: pre-wrap; }
+.compose .thread { display: flex; flex-direction: column; gap: 8px; }
+.msg { display: flex; flex-direction: column; gap: 3px; max-width: 82%; }
+.msg .who { font-family: var(--mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-dim); }
+.msg .bubble {
+  padding: 8px 11px; border-radius: 8px; white-space: pre-wrap;
+  background: var(--panel-sunk); border: 1px solid var(--rule-soft); font-size: var(--step-0);
+}
+.msg.po { align-self: flex-end; }
+.msg.po .who { text-align: right; }
+.msg.po .bubble { background: var(--amber-ground); border-color: var(--amber); }
+.msg.ordis .bubble { border-left: 2px solid var(--violet); }
+.msg.pending .bubble { border-style: dashed; }
+textarea.compose-box {
+  width: 100%; min-height: 210px; resize: vertical;
+  background: var(--panel-sunk); color: var(--ink);
+  border: 1px solid var(--rule); border-radius: 8px; padding: 11px 13px;
+  font-family: var(--mono); font-size: var(--step-0); line-height: 1.55;
+}
+textarea.compose-box:focus-visible { outline: 2px solid var(--violet); outline-offset: -1px; }
+.compose .foot { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.compose .foot .hint { color: var(--ink-dim); font-size: var(--step--1); flex: 1; min-width: 180px; }
+
+/* ── the file tree ────────────────────────────────────────────────────────── */
+
+.tree { display: flex; flex-direction: column; gap: 0; font-family: var(--mono); font-size: var(--step--1); }
+.tree .node {
+  display: flex; align-items: center; gap: 7px; width: 100%; text-align: left;
+  background: none; border: 0; color: inherit; font: inherit; cursor: pointer;
+  padding: 3px 6px; border-radius: 5px;
+}
+.tree .node:hover { background: var(--panel-sunk); }
+.tree .node:focus-visible { outline: 2px solid var(--violet); outline-offset: -2px; }
+.tree .node .tw { width: 9px; color: var(--ink-dim); font-size: 9px; flex: none; }
+.tree .node .ic { width: 13px; flex: none; color: var(--ink-dim); }
+.tree .node.dir .nm { color: var(--ink); }
+.tree .node .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-soft); }
+.tree .node .n  { color: var(--ink-dim); font-size: 10px; }
+/* State is a dot, not a colour on the filename: the name has to stay legible
+   and the dot has to be readable at a glance from across the panel. */
+.tree .node .dot { width: 6px; height: 6px; border-radius: 50%; flex: none; }
+.tree .dot.modified  { background: var(--violet); }
+.tree .dot.added     { background: var(--mint); }
+.tree .dot.deleted   { background: var(--coral); }
+.tree .dot.untracked { background: var(--ink-dim); }
+.tree .kids { margin-left: 11px; border-left: 1px solid var(--rule-soft); padding-left: 4px; }
+.tree .node.pj .nm { color: var(--amber); }
 @media (prefers-reduced-motion: reduce) { .drawer, .scrim { transition: none } }
 .drawer header { display: flex; gap: 10px; align-items: flex-start; padding: 15px 17px 12px; border-bottom: 1px solid var(--rule); }
 .drawer header h3 { margin: 0; font-size: var(--step-2); font-weight: 600; }
@@ -608,8 +712,15 @@ table.runs td.num { text-align: right; padding-right: 0; }
       <div class="body" id="stories" style="gap:2px"></div>
     </section>
     <section class="panel">
-      <h2>Projects <span class="count" id="proj-count"></span></h2>
-      <div class="body" id="projects" style="gap:3px"></div>
+      <h2>Files <span class="count" id="proj-count"></span>
+        <button class="link" id="tree-refresh" title="re-read the working tree">refresh</button>
+      </h2>
+      <div class="body" style="gap:8px">
+        <div id="projects" style="display:flex;flex-direction:column;gap:3px"></div>
+        <hr class="macro-rule">
+        <input class="search" id="tree-q" placeholder="filter this folder" autocomplete="off">
+        <div class="tree" id="tree"></div>
+      </div>
     </section>
     <section class="panel">
       <h2>Spend <span class="count" id="spend-count"></span></h2>
@@ -1004,6 +1115,123 @@ function renderProjects(rows) {
   }
 }
 
+// ── the file tree ───────────────────────────────────────────────────────────
+//
+// The Projects list above answers "what moved"; a project with a clean tree
+// vanishes from it, which is correct for the pulse log and useless as a file
+// manager. This is the other half: everything that is there, lazily, one folder
+// per request, with change state hung off it as a dot.
+//
+// Open folders are remembered in a Set of paths rather than in the DOM, so a
+// refresh — a snapshot arriving, a rescan — re-renders the same shape instead
+// of collapsing everything the user opened.
+
+const TREE_OPEN = new Set();
+let TREE_FILTER = "";
+
+async function renderTree() {
+  const box = $("tree");
+  box.replaceChildren(el("div", "empty", "reading the tree…"));
+  try {
+    const root = await getJSON("/api/tree?path=");
+    box.replaceChildren();
+    box.append(await treeLevel(root, ""));
+  } catch {
+    box.replaceChildren(el("div", "empty", "could not read the projects folder"));
+  }
+}
+
+async function treeLevel(data, path) {
+  const frag = document.createDocumentFragment();
+  const q = TREE_FILTER.toLowerCase();
+  // The filter applies to the top level only — it is there to find a project in
+  // a list of sixty, not to search the disk. Filtering every level would make
+  // an open folder disappear out from under the cursor.
+  for (const d of data.dirs) {
+    if (!path && q && !d.name.toLowerCase().includes(q)) continue;
+    frag.append(await treeDir(d));
+  }
+  for (const f of data.files) {
+    if (!path && q && !f.name.toLowerCase().includes(q)) continue;
+    frag.append(treeFile(f));
+  }
+  if (!frag.childNodes.length) frag.append(el("div", "empty", "nothing here"));
+  return frag;
+}
+
+async function treeDir(d) {
+  const wrap = el("div");
+  const row = el("button", "node dir" + (d.project ? " pj" : ""));
+  const tw = el("span", "tw", TREE_OPEN.has(d.path) ? "▾" : "▸");
+  row.append(tw, el("span", "ic", "▣"), el("span", "nm", d.name));
+  if (d.changed) {
+    row.append(el("span", "n", d.changed));
+    row.append(el("span", "dot modified"));
+  }
+  row.title = d.path + (d.project ? "  ·  a project (has a PROJECT.md)" : "");
+  wrap.append(row);
+
+  const kids = el("div", "kids");
+  kids.style.display = TREE_OPEN.has(d.path) ? "" : "none";
+  wrap.append(kids);
+
+  const load = async () => {
+    kids.replaceChildren(el("div", "empty", "…"));
+    try {
+      const data = await getJSON("/api/tree?path=" + encodeURIComponent(d.path));
+      kids.replaceChildren();
+      kids.append(await treeLevel(data, d.path));
+    } catch {
+      kids.replaceChildren(el("div", "empty", "could not open that folder"));
+    }
+  };
+  if (TREE_OPEN.has(d.path)) load();
+
+  row.onclick = () => {
+    const open = TREE_OPEN.has(d.path);
+    if (open) { TREE_OPEN.delete(d.path); kids.style.display = "none"; tw.textContent = "▸"; }
+    else { TREE_OPEN.add(d.path); kids.style.display = ""; tw.textContent = "▾"; load(); }
+  };
+  return wrap;
+}
+
+function treeFile(f) {
+  const row = el("button", "node file");
+  row.append(el("span", "tw", ""), el("span", "ic", "▤"), el("span", "nm", f.name));
+  if (f.state) row.append(el("span", "dot " + f.state));
+  row.title = f.path + "  ·  " + (f.size > 1024 ? Math.round(f.size / 1024) + " KB" : f.size + " B") +
+              (f.state ? "  ·  " + f.state : "");
+  row.onclick = () => openFile(f);
+  return row;
+}
+
+async function openFile(f) {
+  const body = openDrawer(f.state ? f.state : "file", f.name);
+  const blocks = [];
+  blocks.push(el("div", "meta mono dim", f.path));
+  // A changed file leads with its diff — that is why it is interesting — and
+  // still offers the whole text underneath.
+  if (f.state && f.state !== "untracked") {
+    try {
+      const project = f.path.split("/")[0];
+      const d = await getJSON("/api/diff?project=" + encodeURIComponent(project) +
+                              "&path=" + encodeURIComponent(f.path));
+      const pre = el("pre", "detail diff tall");
+      paintDiff(pre, d.diff || "(nothing uncommitted)");
+      blocks.push(blk("working-tree diff", pre));
+    } catch { /* fall through to the text */ }
+  }
+  try {
+    const data = await getJSON("/api/file?path=" + encodeURIComponent(f.path));
+    blocks.push(data.text == null
+      ? el("div", "empty", data.why || "nothing to show")
+      : blk("contents", el("pre", "detail tall", data.text)));
+  } catch {
+    blocks.push(el("div", "empty", "this dashboard will not open that file"));
+  }
+  body.replaceChildren(...blocks);
+}
+
 function renderInbox(items) {
   const box = $("inbox"), strip = $("inbox-strip");
   box.replaceChildren();
@@ -1021,10 +1249,26 @@ function renderInbox(items) {
 function inboxTile(e) {
   const card = el("div", "tile");
   card.dataset.kind = e.kind;
+  if (e.snoozed) card.classList.add("snoozed");
   const k = el("div", "k");
   k.append(el("span", null, e.kind.replace("-", " ")), el("span", "age", ago(e.raised_at)));
   card.append(k, el("div", "r", e.reason));
   if (e.recommendation) card.append(el("div", "rec", e.recommendation));
+  if (e.snoozed) {
+    card.append(el("div", "snooze-note", "snoozed · back " + until(e.snoozed_until)));
+  }
+  // The conversation, in the two states it can be in. Both belong on the face
+  // of the tile: a reply nobody can see from the Inbox is a reply nobody reads.
+  if (e.last_reply) {
+    const said = el("div", "said", e.last_reply);
+    said.title = "Ordis answered your reply";
+    card.append(said);
+  }
+  if (e.awaiting_ordis) {
+    card.append(el("div", "waiting",
+      e.awaiting_ordis + " repl" + (e.awaiting_ordis === 1 ? "y" : "ies") +
+      " queued — Ordis answers on the next pulse"));
+  }
 
   const meta = [];
   if (e.story_title) meta.push(e.story_title);
@@ -1044,13 +1288,42 @@ function inboxTile(e) {
   const unconfirmed = e.story_id && e.project_source !== "confirmed";
   const asksForProject = e.kind === "needs-info";
   if (unconfirmed) {
-    const sel = projectSelect(e.project);
+    // The picker sits on its own full-width row. Two answers are possible and
+    // the second one — "none of these, it's new" — used to have nowhere to go:
+    // choosing it swaps the <select> for a text field and confirms against a
+    // folder that gets created on the spot.
+    const row = el("div", "picker");
+    const sel = projectSelect(e.project, { allowNew: true });
+    const field = el("input", "field");
+    field.placeholder = "new-folder-name";
+    field.style.display = "none";
     const go = el("button", "act go", "confirm project");
-    go.onclick = () => {
-      if (!sel.value) { toast("pick the folder this story belongs to first", "bad"); return; }
-      act("confirm-project", { story_id: e.story_id, project: sel.value });
+
+    sel.onchange = () => {
+      const isNew = sel.value === NEW_PROJECT;
+      field.style.display = isNew ? "" : "none";
+      sel.style.display = isNew ? "none" : "";
+      go.textContent = isNew ? "create + confirm" : "confirm project";
+      if (isNew) field.focus();
     };
-    acts.append(sel, go);
+    field.onkeydown = (ev) => {
+      if (ev.key === "Escape") { sel.value = ""; sel.onchange(); }
+      if (ev.key === "Enter") go.click();
+    };
+    go.onclick = () => {
+      const isNew = sel.value === NEW_PROJECT;
+      const name = isNew ? field.value.trim() : sel.value;
+      if (!name) {
+        toast(isNew ? "name the new folder" : "pick the folder this story belongs to first", "bad");
+        return;
+      }
+      act("confirm-project", {
+        story_id: e.story_id, project: name, create: isNew,
+        why: isNew ? e.story_title || e.reason : "",
+      });
+    };
+    row.append(sel, field, go);
+    acts.append(row);
   }
 
   if (e.kind === "write-approval") {
@@ -1071,15 +1344,35 @@ function inboxTile(e) {
     acts.append(yes, no);
   }
 
-  // Defer keeps the item in the Inbox on purpose. An Inbox you can empty
-  // without deciding anything stops meaning what it says.
-  const later = el("button", "act", "later");
-  later.title = "snooze — stays in the Inbox, because nothing was decided";
-  later.onclick = () => act("decide", { escalation_id: e.id, decision: "defer" });
-  acts.append(later);
+  // Reply. The button that makes this an Inbox rather than a set of switches:
+  // most of what a PO actually needs to say is a sentence, and every other
+  // control here can only say one of two things.
+  const say = el("button", "act warn",
+                 e.messages ? "reply · " + e.messages : "reply to Ordis");
+  say.title = "write to Ordis about this item — queued for the next pulse";
+  say.onclick = () => openCompose(e);
+  acts.append(say);
+
+  // Later is a snooze with an end on it. It stays in the Inbox — an Inbox you
+  // can empty without deciding anything stops meaning what it says — but it
+  // grays out and sorts to the back until the snooze expires.
+  if (e.snoozed) {
+    const wake = el("button", "act", "un-snooze");
+    wake.title = "bring it back to the front of the Inbox now";
+    wake.onclick = () => act("decide", { escalation_id: e.id, decision: "defer", snooze_hours: 0 });
+    acts.append(wake);
+  } else {
+    const later = el("button", "act", "later");
+    later.title = "snooze 8h — it stays in the Inbox, dimmed, because nothing was decided";
+    later.onclick = () => act("decide", { escalation_id: e.id, decision: "defer", snooze_hours: 8 });
+    acts.append(later);
+  }
 
   if (e.story_id) {
-    const open = el("button", "act", "story");
+    // Named for what it opens. "story" read like a category label on the tile;
+    // it is a link to the story's own timeline, criteria and events.
+    const open = el("button", "act", "open story");
+    open.title = "the full story: brief, acceptance criteria, every event on it";
     open.onclick = () => openStory(e.story_id);
     acts.append(open);
   }
@@ -1087,7 +1380,89 @@ function inboxTile(e) {
   return card;
 }
 
-function projectSelect(current) {
+// ── the composer ────────────────────────────────────────────────────────────
+//
+// Typing to Ordis, with the thing you are answering pinned above the box. The
+// drawer goes wide for this one view: drafting a reply while re-reading a
+// proposal in a 640px column means scrolling between the two halves of one
+// thought.
+
+async function openCompose(e) {
+  openDrawer(e.kind.replace("-", " ") + " · #" + e.id, "Reply to Ordis", { wide: true });
+  const box = $("d-body");
+  box.replaceChildren();
+  const wrap = el("div", "compose");
+
+  const proposal = el("div", "proposal");
+  proposal.append(el("div", "r", e.reason));
+  if (e.recommendation) proposal.append(el("div", "rec", e.recommendation));
+  const meta = [];
+  if (e.story_title) meta.push(e.story_title);
+  if (e.project) meta.push(e.project + (e.project_source === "confirmed" ? "" : " (guess)"));
+  if (e.est_tokens) meta.push(toks(e.est_tokens) + " tok");
+  meta.push("raised " + ago(e.raised_at));
+  proposal.append(el("div", "meta", meta.join("  ·  ")));
+  wrap.append(proposal);
+
+  const thread = el("div", "thread");
+  wrap.append(thread);
+
+  const ta = el("textarea", "compose-box");
+  ta.placeholder =
+    "Write to Ordis the way you would in a terminal.\n\n" +
+    "He reads this on the next pulse, answers in the same thread, and revises " +
+    "his recommendation if you have changed it. He cannot approve, reject or " +
+    "confirm a project from your reply — those stay yours.";
+  wrap.append(ta);
+
+  const foot = el("div", "foot");
+  const send = el("button", "act go", "send to ordis");
+  const hint = el("span", "hint",
+    "queued, not sent — nothing here spends a token until the next pulse. Ctrl+Enter sends.");
+  foot.append(send, hint);
+  wrap.append(foot);
+  box.append(wrap);
+  ta.focus();
+
+  const load = async () => {
+    thread.replaceChildren();
+    const data = await getJSON("/api/thread?escalation_id=" + e.id);
+    for (const m of (data.messages || [])) {
+      const row = el("div", "msg " + (m.author === "po" ? "po" : "ordis") +
+                              (m.status === "unread" ? " pending" : ""));
+      row.append(el("div", "who",
+        (m.author === "po" ? "you" : "ordis") + " · " + ago(m.at) +
+        (m.status === "unread" ? " · not read yet" : "")));
+      row.append(el("div", "bubble", m.body));
+      thread.append(row);
+    }
+  };
+  load();
+
+  const submit = async () => {
+    const body = ta.value.trim();
+    if (!body) { toast("nothing to send", "bad"); return; }
+    send.disabled = true;
+    const ok = await act("reply", { escalation_id: e.id, story_id: e.story_id, body });
+    send.disabled = false;
+    if (ok) {
+      ta.value = "";
+      load();
+      toast("queued — Ordis reads it on the next pulse", "good");
+    }
+  };
+  send.onclick = submit;
+  ta.onkeydown = (ev) => {
+    if (ev.key === "Enter" && (ev.ctrlKey || ev.metaKey)) { ev.preventDefault(); submit(); }
+  };
+}
+
+// The sentinel for "none of the folders on this list". A constant rather than a
+// magic string in three places, and one that cannot collide with a real folder
+// name because a real folder name can never contain a newline.
+const NEW_PROJECT = "\n<new>";
+
+function projectSelect(current, opts) {
   const sel = el("select", "pick");
   sel.append(el("option", null, "— name the folder —"));
   sel.firstChild.value = "";
@@ -1101,6 +1476,11 @@ function projectSelect(current) {
     const o = el("option", null, p);
     o.value = p;
     if (p === current) o.selected = true;
+    sel.append(o);
+  }
+  if (opts && opts.allowNew) {
+    const o = el("option", null, "＋ new project folder…");
+    o.value = NEW_PROJECT;
     sel.append(o);
   }
   return sel;
@@ -1320,9 +1700,10 @@ function personaButton(p) {
 
 let ALL_PROJECTS = [];   // every folder with a PROJECT.md, for the confirm pickers
 
-function openDrawer(eyebrow, title) {
+function openDrawer(eyebrow, title, opts) {
   const d = $("drawer");
   d.classList.add("on"); $("scrim").classList.add("on"); d.setAttribute("aria-hidden", "false");
+  d.classList.toggle("wide", !!(opts && opts.wide));
   $("d-eyebrow").textContent = eyebrow;
   $("d-title").textContent = title;
   const body = $("d-body");
@@ -1728,7 +2109,11 @@ $("roster-q").addEventListener("input", (e) => {
 
 // ── theme ───────────────────────────────────────────────────────────────────
 
-const saved = localStorage.getItem("colony-theme") || "";
+// `?theme=ember` overrides the stored choice for this load only — it never
+// writes localStorage. It exists so a theme can be inspected without clicking
+// through the picker, which is also the only way to screenshot one headlessly.
+const forced = new URLSearchParams(location.search).get("theme");
+const saved = forced || localStorage.getItem("colony-theme") || "";
 if (saved) document.documentElement.dataset.theme = saved;
 $("theme").value = saved;
 $("theme").onchange = (e) => {
@@ -1761,6 +2146,17 @@ function connect() {
 }
 
 fetch("/api/projects").then((r) => r.json()).then((p) => { ALL_PROJECTS = p.all || []; }).catch(() => {});
+
+// The tree is not part of the snapshot and deliberately not on the SSE feed: it
+// is a filesystem read, it costs a `git status` and a directory listing, and
+// nothing about it changes because the ledger did. It loads once and refreshes
+// when asked.
+renderTree();
+$("tree-refresh").onclick = () => renderTree();
+$("tree-q").addEventListener("input", (e) => {
+  TREE_FILTER = e.target.value.trim();
+  renderTree();
+});
 fetch("/api/state").then((r) => r.json()).then(render).catch(() => setConn(false, "ledger unreachable"));
 
 // ?nostream skips the live feed and leaves one static frame on screen. An
