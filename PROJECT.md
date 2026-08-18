@@ -1,8 +1,10 @@
 # Colony Dash — Master Memory
 
-**Status:** **M0 → M3 shipped.** The loop is live and grooming on the hour, there is a window
-to watch it in, and as of 2026-08-18 that window can also *act*: hire, dispatch, approve a
-patch, halt everything. Priority: **High.**
+**Status:** **M0 → M5 shipped.** The loop is live and grooming on the hour, there is a window
+to watch it in, that window can *act* — hire, dispatch, approve a patch, halt everything — and
+as of 2026-08-18 the link to Notion runs both ways: the colony reads the checklist it is being
+judged on, and the PO can set a status, tick a box or leave a comment from the dashboard.
+Priority: **High.**
 **Created:** 2026-08-15 (as "PO Dashboard"; renamed **Colony Dash** 2026-08-17)
 
 The orchestrator loop and dashboard where Jordan acts as Product Owner over a colony of
@@ -140,7 +142,11 @@ proposal, not a decision. The Colony panel is a direct descendant of Lloyd's Ses
 ## Build order
 
 **M0 Ledger ✅** → **M1 Pulse ✅** → **M2 Dashboard ✅** → **M3 Hiring + gates ✅** →
-**M4 Skill forge ✅** → M5 Two-way Notion. Details in `ARCHITECTURE.md` §10.
+**M4 Skill forge ✅** → **M5 Two-way Notion ✅**. Details in `ARCHITECTURE.md` §10.
+
+The build order as designed is complete. What comes next is not another milestone — it is
+using the thing: answering the Inbox, pointing a write-capable ticket at a real story, and
+promoting the first skill the forge has already found.
 
 **M0 is done and verified:** 11 tables plus an FTS5 roster index, hash-checked append-only
 migrations, structural agents seeded, 270 personas scanned, the CLI, and the MySQL mirror.
@@ -215,13 +221,81 @@ names the state and the next move.
 - [ ] Answer the Inbox. Five stories are parked on "which project folder?" and
       "15 Part Job Search" is parked on a real decision: should the manual *Job & Internship
       Tracker* and the auto-written *Job Radar Tracker* merge, coexist with a defined
-      handoff, or one retire?
+      handoff, or one retire? **Check the stale flags first** — the next pulse will mark any
+      question the Notion page has already moved past, and a stale card wants **re-ask**
+      rather than an answer.
+- [ ] **Restart the dashboard window** to pick up M5. The ledger is already migrated; the
+      running window is serving the pre-M5 code.
 - [ ] Let it run a week, then tune the escalation bar (§4.6) against real logs.
 - [ ] **Promote the first real skill.** Three candidates are waiting in the FORGE panel;
       none has been drafted yet, because drafting costs tokens and that is the PO's call.
 - [ ] **First live write-capable ticket.** M3 is verified against a copy of the ledger; it
       has not yet been pointed at a real story end-to-end.
 - [ ] Update the published artifact — it still shows the pre-M1 design.
+
+## Finished 2026-08-18 — M5, the link that runs both ways
+
+Three complaints, one bug: **the colony had no memory of which version of a story it was
+talking about.** The Inbox kept asking about work already finished, there was no way to change
+anything from a phone, and a story you had decided against sat on the board forever.
+
+- [x] **The checklist has two halves now.** `fetch_page_content()` keeps ticked and unticked
+      to-dos apart (`stories.done_items` / `open_items`) and **both** feed the content hash, so
+      ticking a box in Notion is a change the colony notices. The board shows `4/7`; the story
+      drawer lists what is done; and the grooming prompt opens with **ALREADY DONE (n) — treat
+      these as closed, do not re-raise them, do not ask about them** before it says what is
+      still open. That last part is the whole fix for tiles asking about last month: the
+      information simply was not in the prompt.
+- [x] **Questions can go stale.** `escalations.raised_hash` records the version of the story a
+      question was written against; when the story moves on, `stale_at` is stamped. Stale cards
+      drain of amber, sort to the back, hide behind a toggle, and carry **re-ask** — which
+      resolves the question as amended, puts the story back in the grooming queue and voids the
+      groom attempts the old pass used up, so the colony is actually allowed to try again.
+      Nothing is deleted: the colony really was confused, and that is worth being able to read.
+- [x] **The PO can write upward.** Set a status, tick a to-do, leave a comment — from the story
+      drawer, on a phone-readable page, without opening Notion. `control.py` still performs no
+      network I/O: the button writes a `notion_outbox` row and the next tick sends it. That buys
+      retries, an audit trail of everything the colony has said upward, and a switch that holds
+      the queue rather than dropping it. `flush()` never raises — a tick that dies because
+      Notion was slow is a tick that stops doing the eleven other free things it was going to do.
+- [x] **The Notion vocabulary is deliberately tiny.** Status, checkbox, comment. No creating
+      rows, no deleting rows, no editing the brief — the brief is unambiguously the PO's.
+      `"In Progress"` is not writable, because it is the status the intake filter selects on and
+      a loop that can write it can feed itself work forever.
+- [x] **`notion_write` is a separate switch from HALT.** HALT means *spend nothing*, and a
+      comment is not a token. A halted colony that also went mute upward looks broken rather
+      than paused.
+- [x] **Stories can be dropped**, from the Inbox, the board row, or the drawer. It archives
+      rather than deletes, refuses to proceed without a reason, closes the open questions,
+      cancels the waiting tickets, optionally sets the Notion page to Archived, and stays
+      restorable. It refuses outright on an `in-progress` story: a running ticket has a worktree
+      and a budget attached, and archiving out from under it orphans both.
+- [x] **Twenty-eight more themes**, in three families — eras (deco, diner, cold war, harvest,
+      miami, grunge, y2k, frontier), worlds (cyberpunk, neon noir, spice, grid, vault, outer
+      rim, imperial, nostromo, bridge, mordor, rivendell, meadow) and terminals (phosphor,
+      ochre crt, dusk, fjord, kiln, paper, blueprint, ink wash). Thirty-six in total, grouped in
+      the picker. Every one keeps the same four jobs for the same four accents — amber is the
+      Inbox, mint is live work, coral is an anomaly, violet is Ordis — because that rationing is
+      what lets a glance mean something.
+- [x] **Section titles have colour.** Eleven headings in `--ink-dim` read as one grey mumble.
+      The hues are derived from the four accents with `color-mix`, so all thirty-six palettes
+      get them without drifting out of key, and the 3px bar down the left of each title is the
+      part that actually carries at 11px mono.
+- [x] **A view menu.** Every panel can be hidden, stale questions and dropped stories toggled,
+      rows made dense — persisted in localStorage and **sent nowhere**. Hiding a panel does not
+      stop the colony filling it. Panels default on, detail defaults off, and nothing is ever
+      hidden without a count in the header saying so.
+- [x] **The folder dropdown is alphabetical.** It fell back to the working-tree scan, which is
+      ordered by what moved most recently — right for "what did I touch today", useless for
+      finding a folder. Sorted at the point of render, so it holds whichever list fills it.
+
+Verified on a **copy** of the ledger: `"In Progress"` and an empty comment both refused; a
+flush with writes held queued nothing; two escalations marked stale and the story un-parked back
+to `backlog`; the same hash marking nothing on the second pass; re-ask resolving as `amend` and
+refusing twice; drop closing 2 questions and refusing to repeat; restore clearing `dropped_at`;
+`groomable` falling to 0 with the story dropped; and the progress section rendering ALREADY DONE
+(2) / STILL OPEN (1). Migration 008 is applied to the live ledger; `done_n`/`open_n` fill in on
+the next sync.
 
 ## Finished 2026-08-18 — M4, the skill forge
 

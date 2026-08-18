@@ -161,6 +161,413 @@
   --shadow: 0 1px 2px rgba(40,32,24,.06), 0 8px 24px -12px rgba(40,32,24,.2);
 }
 
+/* ── the named themes ────────────────────────────────────────────────────────
+   Twenty-eight more, in three families: eras, worlds, terminals. They are
+   palettes and nothing else. No theme changes a layout, a font or a radius,
+   because a theme that moves things is a theme you have to re-learn.
+
+   Every one keeps the same four jobs for the same four accents: amber is the
+   PO Inbox and only the Inbox, mint is live work, coral is an anomaly, violet
+   is Ordis. That rationing is why a glance at the page tells you something
+   before you've read a word, and a theme that traded it for a prettier swatch
+   would be trading away the signal itself. What changes between them is the
+   hue each accent is made of — a forge-red coral under Ember, a hazard orange
+   under Vault — never the meaning.
+
+   The *-ground pairs matter as much as the accents. An accent with no tinted
+   ground behind it makes a chip that shouts, and a page of shouting chips is a
+   page with no hierarchy left.                                                */
+
+/* ── eras ───────────────────────────────────────────────────────────────── */
+
+/* Deco — 1925, a lobby in black marble and brass. Gold on near-black. */
+:root[data-theme="deco"] {
+  --ground:      #0E0F0D;  --panel:      #171916;  --panel-sunk: #121412;
+  --rule:        #2A2D26;  --rule-soft:  #1F2220;
+  --ink:         #EDE6D2;  --ink-soft:   #B3A98D;  --ink-dim:    #7C7462;
+  --amber:       #D9B45B;  --amber-ground:#241E0E;
+  --mint:        #6FBFA4;  --mint-ground: #10201B;
+  --coral:       #C9614C;  --coral-ground:#251310;
+  --violet:      #9E8FB8;
+  --shadow: 0 1px 0 rgba(255,255,255,.03), 0 14px 34px -18px #000;
+}
+
+/* Diner — 1955, chrome and cherry vinyl under fluorescent light. The loudest
+   light theme here, and the only one whose coral is genuinely red. */
+:root[data-theme="diner"] {
+  --ground:      #F3EFE6;  --panel:      #FFFDF8;  --panel-sunk: #EAE3D6;
+  --rule:        #D6CCBA;  --rule-soft:  #E3DBCC;
+  --ink:         #1C1A17;  --ink-soft:   #55504A;  --ink-dim:    #8A8378;
+  --amber:       #9A5B10;  --amber-ground:#FBEBD4;
+  --mint:        #147C6E;  --mint-ground: #DDF0EC;
+  --coral:       #C0182B;  --coral-ground:#FADEE0;
+  --violet:      #5E5AA8;
+  --shadow: 0 1px 2px rgba(50,40,28,.08), 0 8px 24px -12px rgba(50,40,28,.24);
+}
+
+/* Harvest — 1974. Avocado, harvest gold, burnt orange, walnut veneer. Warm,
+   low contrast, completely uninterested in being crisp. */
+:root[data-theme="harvest"] {
+  --ground:      #EFE3CB;  --panel:      #F8EFDC;  --panel-sunk: #E3D5B8;
+  --rule:        #C9B48A;  --rule-soft:  #DBC9A6;
+  --ink:         #2C2110;  --ink-soft:   #5D4A28;  --ink-dim:    #8B7549;
+  --amber:       #8A5406;  --amber-ground:#F2DFB2;
+  --mint:        #4A6B18;  --mint-ground: #DFE5C0;
+  --coral:       #A8390D;  --coral-ground:#F0D6C1;
+  --violet:      #6B4E7A;
+  --shadow: 0 1px 2px rgba(70,52,20,.12), 0 8px 24px -14px rgba(70,52,20,.4);
+}
+
+/* Miami — 1986. Sunset pink and cyan over deep teal, the one theme allowed to
+   be gaudy. Kept dark enough that pale text still wins. */
+:root[data-theme="miami"] {
+  --ground:      #0F1220;  --panel:      #181C30;  --panel-sunk: #131728;
+  --rule:        #2B3050;  --rule-soft:  #212540;
+  --ink:         #EDE7F6;  --ink-soft:   #A79FC4;  --ink-dim:    #736C92;
+  --amber:       #FFC24D;  --amber-ground:#2B2008;
+  --mint:        #4CE0D2;  --mint-ground: #0A2A2C;
+  --coral:       #FF5D8F;  --coral-ground:#2E0F1D;
+  --violet:      #A98CFF;
+  --shadow: 0 1px 0 rgba(255,255,255,.04), 0 16px 40px -20px #000;
+}
+
+/* Grunge — 1994. Flannel, a four-track, a basement with one lamp. Muddy
+   greens and rust; the least saturated dark theme here. */
+:root[data-theme="grunge"] {
+  --ground:      #14140F;  --panel:      #1C1D16;  --panel-sunk: #171812;
+  --rule:        #2C2E22;  --rule-soft:  #22241A;
+  --ink:         #DFDCC9;  --ink-soft:   #A19D86;  --ink-dim:    #6F6C5A;
+  --amber:       #C99A3E;  --amber-ground:#241C0A;
+  --mint:        #7FA05C;  --mint-ground: #1A2113;
+  --coral:       #B85C3C;  --coral-ground:#26140D;
+  --violet:      #8E8AA6;
+  --shadow: 0 1px 0 rgba(255,255,255,.02), 0 12px 30px -18px #000;
+}
+
+/* Y2K — 1999 going on 2001. Frosted chrome, bubblegum, and that specific
+   silver-blue every product render had for about three years. */
+:root[data-theme="y2k"] {
+  --ground:      #E7ECF3;  --panel:      #FFFFFF;  --panel-sunk: #DDE4EE;
+  --rule:        #C3CEDC;  --rule-soft:  #D6DEE9;
+  --ink:         #101820;  --ink-soft:   #46566A;  --ink-dim:    #7A8A9E;
+  --amber:       #9A6200;  --amber-ground:#FBEBCF;
+  --mint:        #0A8DA8;  --mint-ground: #D9F0F6;
+  --coral:       #C42B7A;  --coral-ground:#FBDDEC;
+  --violet:      #6558D6;
+  --shadow: 0 1px 2px rgba(20,35,55,.08), 0 10px 26px -14px rgba(20,35,55,.3);
+}
+
+/* Frontier — 1880s. Tintype, oiled leather, lamp black. Cousin to parchment
+   but darker and browner: paper that's spent a month in a saddlebag. */
+:root[data-theme="frontier"] {
+  --ground:      #1A1512;  --panel:      #241D18;  --panel-sunk: #1D1714;
+  --rule:        #3A2E25;  --rule-soft:  #2C231C;
+  --ink:         #E8D8BE;  --ink-soft:   #B09B7C;  --ink-dim:    #7E6B54;
+  --amber:       #D79A44;  --amber-ground:#2A1D0B;
+  --mint:        #86A468;  --mint-ground: #1B2314;
+  --coral:       #C25A3C;  --coral-ground:#2A130D;
+  --violet:      #A98B6B;
+  --shadow: 0 1px 0 rgba(255,255,255,.03), 0 14px 34px -18px #000;
+}
+
+/* Cold War — 1968, a mainframe room with the lights off. Bakelite grey,
+   indicator lamps, and nothing on screen that wasn't put there on purpose. */
+:root[data-theme="coldwar"] {
+  --ground:      #101211;  --panel:      #191C1B;  --panel-sunk: #141716;
+  --rule:        #2A2F2D;  --rule-soft:  #1F2423;
+  --ink:         #D6DEDA;  --ink-soft:   #94A09B;  --ink-dim:    #67716D;
+  --amber:       #E2A32B;  --amber-ground:#241A06;
+  --mint:        #58C08A;  --mint-ground: #0E2318;
+  --coral:       #D64B3F;  --coral-ground:#26100E;
+  --violet:      #7F9BC4;
+  --shadow: 0 1px 0 rgba(255,255,255,.02), 0 12px 32px -18px #000;
+}
+
+/* ── worlds ─────────────────────────────────────────────────────────────── */
+
+/* Cyberpunk — the obvious one, done without letting cyan and magenta fight.
+   Magenta is the anomaly colour, the only place it can live without taking
+   over the page. */
+:root[data-theme="cyberpunk"] {
+  --ground:      #08080F;  --panel:      #10111C;  --panel-sunk: #0B0C14;
+  --rule:        #232640;  --rule-soft:  #191B2E;
+  --ink:         #E4E9FF;  --ink-soft:   #9AA3CF;  --ink-dim:    #666E9B;
+  --amber:       #FFD447;  --amber-ground:#2A2205;
+  --mint:        #2CF5D0;  --mint-ground: #06282A;
+  --coral:       #FF3F8E;  --coral-ground:#2C0A1C;
+  --violet:      #9C6BFF;
+  --shadow: 0 1px 0 rgba(255,255,255,.04), 0 18px 44px -22px #000;
+}
+
+/* Neon noir — permanent rain, permanent night, one advertising hoarding.
+   Amber and warm grey do most of the work; the accents arrive wet. */
+:root[data-theme="neon-noir"] {
+  --ground:      #0A0C10;  --panel:      #14181F;  --panel-sunk: #0F1319;
+  --rule:        #232B36;  --rule-soft:  #1A2028;
+  --ink:         #DCE3EC;  --ink-soft:   #97A3B2;  --ink-dim:    #66717F;
+  --amber:       #FF9F1C;  --amber-ground:#2A1A05;
+  --mint:        #56C7C0;  --mint-ground: #0B2322;
+  --coral:       #E4483F;  --coral-ground:#280F0D;
+  --violet:      #8E7BD8;
+  --shadow: 0 1px 0 rgba(255,255,255,.03), 0 16px 40px -20px #000;
+}
+
+/* Spice — deep desert. Sand, shadow, and the orange that means the thing you
+   came for. The lightest of the worlds, and deliberately hot. */
+:root[data-theme="spice"] {
+  --ground:      #17120C;  --panel:      #201A11;  --panel-sunk: #1A150E;
+  --rule:        #362B1C;  --rule-soft:  #292117;
+  --ink:         #F0E2C8;  --ink-soft:   #B7A483;  --ink-dim:    #85765B;
+  --amber:       #E8952A;  --amber-ground:#2C1C06;
+  --mint:        #55B0A4;  --mint-ground: #0F2320;
+  --coral:       #CF5230;  --coral-ground:#2A120A;
+  --violet:      #9E86C0;
+  --shadow: 0 1px 0 rgba(255,255,255,.03), 0 14px 36px -18px #000;
+}
+
+/* Grid — inside the machine. Black, cyan light-lines, and an orange that only
+   the other side uses. High contrast on purpose. */
+:root[data-theme="grid"] {
+  --ground:      #04070B;  --panel:      #0A1119;  --panel-sunk: #060C12;
+  --rule:        #16303F;  --rule-soft:  #0F212C;
+  --ink:         #D9F2FF;  --ink-soft:   #8DB6CC;  --ink-dim:    #5A7F94;
+  --amber:       #FFB020;  --amber-ground:#2A1C03;
+  --mint:        #43E1FF;  --mint-ground: #052730;
+  --coral:       #FF6A2B;  --coral-ground:#2B1206;
+  --violet:      #7FA8FF;
+  --shadow: 0 1px 0 rgba(120,220,255,.06), 0 18px 44px -22px #000;
+}
+
+/* Vault — a shelter terminal thirty years after. Green phosphor with the
+   amber of a warning lamp, and enough grey that it stays a dashboard. */
+:root[data-theme="vault"] {
+  --ground:      #0A0E0A;  --panel:      #111A12;  --panel-sunk: #0D140E;
+  --rule:        #1E2E20;  --rule-soft:  #172319;
+  --ink:         #BFF0C4;  --ink-soft:   #7FB088;  --ink-dim:    #567F60;
+  --amber:       #E9B22C;  --amber-ground:#241B06;
+  --mint:        #4FE07A;  --mint-ground: #0A2612;
+  --coral:       #E4623A;  --coral-ground:#26120B;
+  --violet:      #86C0A8;
+  --shadow: 0 1px 0 rgba(120,255,150,.05), 0 14px 36px -20px #000;
+}
+
+/* Outer rim — twin suns, bleached canvas, a moisture farm at noon. The bright
+   half of a galaxy far away, and the only sand-coloured light theme. */
+:root[data-theme="outer-rim"] {
+  --ground:      #EDE3D2;  --panel:      #F7EFE0;  --panel-sunk: #E0D4BE;
+  --rule:        #C8B896;  --rule-soft:  #D9CBB0;
+  --ink:         #2A2113;  --ink-soft:   #5C4C31;  --ink-dim:    #8A7857;
+  --amber:       #8F5A08;  --amber-ground:#F2E1BB;
+  --mint:        #1F6F63;  --mint-ground: #D6E7E0;
+  --coral:       #A93D1C;  --coral-ground:#F0D9C9;
+  --violet:      #5F5486;
+  --shadow: 0 1px 2px rgba(70,55,25,.10), 0 8px 24px -14px rgba(70,55,25,.35);
+}
+
+/* Imperial — the other side of that galaxy. Gunmetal, black glass, one red
+   telltale. Almost monochrome until something goes wrong. */
+:root[data-theme="imperial"] {
+  --ground:      #0C0D0F;  --panel:      #15171A;  --panel-sunk: #101214;
+  --rule:        #262A2F;  --rule-soft:  #1C1F23;
+  --ink:         #DFE3E8;  --ink-soft:   #99A0A8;  --ink-dim:    #6A7178;
+  --amber:       #C9A227;  --amber-ground:#221B05;
+  --mint:        #4FB8C4;  --mint-ground: #0B2225;
+  --coral:       #E03131;  --coral-ground:#280C0C;
+  --violet:      #8891A8;
+  --shadow: 0 1px 0 rgba(255,255,255,.02), 0 14px 36px -20px #000;
+}
+
+/* Nostromo — a commercial towing vehicle, and a crew that isn't being told
+   everything. Plastic gone yellow, CRT green, hazard stripes. */
+:root[data-theme="nostromo"] {
+  --ground:      #0B0D0C;  --panel:      #141715;  --panel-sunk: #0F1211;
+  --rule:        #232823;  --rule-soft:  #1A1E1B;
+  --ink:         #D8DCC8;  --ink-soft:   #9AA189;  --ink-dim:    #6C7360;
+  --amber:       #E8C33F;  --amber-ground:#241E06;
+  --mint:        #7FD86A;  --mint-ground: #12240F;
+  --coral:       #E2542F;  --coral-ground:#26110A;
+  --violet:      #9BB0A0;
+  --shadow: 0 1px 0 rgba(255,255,255,.02), 0 12px 32px -18px #000;
+}
+
+/* Bridge — a ship console designed by somebody who liked rounded rectangles.
+   Black ground, and the accents read as panel colours rather than warnings. */
+:root[data-theme="bridge"] {
+  --ground:      #06060A;  --panel:      #0F1018;  --panel-sunk: #0A0B12;
+  --rule:        #212436;  --rule-soft:  #171927;
+  --ink:         #E7E9F5;  --ink-soft:   #A2A7C2;  --ink-dim:    #6F7593;
+  --amber:       #F2A93B;  --amber-ground:#2A1D06;
+  --mint:        #6FC2F5;  --mint-ground: #08222E;
+  --coral:       #E86A6A;  --coral-ground:#2A1113;
+  --violet:      #B58CE0;
+  --shadow: 0 1px 0 rgba(255,255,255,.03), 0 16px 40px -20px #000;
+}
+
+/* Mordor — ash, basalt, and a light that is looking for you. The darkest
+   theme here; coral is the eye, and it's used exactly as sparingly. */
+:root[data-theme="mordor"] {
+  --ground:      #0A0908;  --panel:      #14100E;  --panel-sunk: #0E0B0A;
+  --rule:        #251F1B;  --rule-soft:  #1A1512;
+  --ink:         #D9CFC6;  --ink-soft:   #9A8D83;  --ink-dim:    #6B5F57;
+  --amber:       #D98324;  --amber-ground:#261703;
+  --mint:        #6E9C7A;  --mint-ground: #131F16;
+  --coral:       #E23B22;  --coral-ground:#2A0C07;
+  --violet:      #8E7F92;
+  --shadow: 0 1px 0 rgba(255,255,255,.02), 0 16px 40px -22px #000;
+}
+
+/* Rivendell — the opposite errand. Autumn light through leaves, silver, and a
+   library nobody is hurrying you out of. */
+:root[data-theme="rivendell"] {
+  --ground:      #EFEFE7;  --panel:      #FAFAF4;  --panel-sunk: #E3E4D9;
+  --rule:        #CBCDBE;  --rule-soft:  #DCDDD1;
+  --ink:         #1F241E;  --ink-soft:   #4F5749;  --ink-dim:    #838B7B;
+  --amber:       #8A6410;  --amber-ground:#F4E9C8;
+  --mint:        #2C7359;  --mint-ground: #DCEBE1;
+  --coral:       #A6432F;  --coral-ground:#F3DED6;
+  --violet:      #5B5687;
+  --shadow: 0 1px 2px rgba(40,50,35,.07), 0 8px 24px -13px rgba(40,50,35,.28);
+}
+
+/* Meadow — a hand-painted background, mid-afternoon, nothing urgent. The
+   gentlest light theme; every accent desaturated one step further. */
+:root[data-theme="meadow"] {
+  --ground:      #EAF0E4;  --panel:      #F8FBF4;  --panel-sunk: #DEE7D6;
+  --rule:        #C4D2BA;  --rule-soft:  #D6E0CC;
+  --ink:         #1E2A1C;  --ink-soft:   #4B5A46;  --ink-dim:    #7E8C77;
+  --amber:       #96660D;  --amber-ground:#F6EACC;
+  --mint:        #2A7A52;  --mint-ground: #D8ECDE;
+  --coral:       #B04A34;  --coral-ground:#F6DFD7;
+  --violet:      #5D5B93;
+  --shadow: 0 1px 2px rgba(35,50,30,.07), 0 8px 24px -13px rgba(35,50,30,.26);
+}
+
+/* ── terminals ──────────────────────────────────────────────────────────── */
+
+/* Phosphor — a P1 green CRT. One hue and its own dimmer settings, which is
+   what makes the accents work: they're the only colour on the screen. */
+:root[data-theme="phosphor"] {
+  --ground:      #020703;  --panel:      #061009;  --panel-sunk: #040B06;
+  --rule:        #102A17;  --rule-soft:  #0C1D11;
+  --ink:         #7CFFA0;  --ink-soft:   #4FBF72;  --ink-dim:    #2F8049;
+  --amber:       #C8E86A;  --amber-ground:#131F06;
+  --mint:        #45FFB0;  --mint-ground: #032618;
+  --coral:       #FF7A5C;  --coral-ground:#26100A;
+  --violet:      #7FE0C8;
+  --shadow: 0 1px 0 rgba(80,255,140,.06), 0 14px 36px -20px #000;
+}
+
+/* Ochre CRT — the same tube in amber. Easier at night than green, which is
+   why half the terminals of that era were sold this way. */
+:root[data-theme="ochre-crt"] {
+  --ground:      #0A0602;  --panel:      #140D04;  --panel-sunk: #0E0903;
+  --rule:        #2A1C08;  --rule-soft:  #1D1306;
+  --ink:         #FFC46B;  --ink-soft:   #C08F3F;  --ink-dim:    #86612A;
+  --amber:       #FFD98A;  --amber-ground:#2A1C05;
+  --mint:        #8FD46A;  --mint-ground: #16220C;
+  --coral:       #FF7043;  --coral-ground:#2A1006;
+  --violet:      #D6A15E;
+  --shadow: 0 1px 0 rgba(255,190,90,.06), 0 14px 36px -20px #000;
+}
+
+/* Dusk — violet-grey ground, pastel accents, nothing shouting. The safest
+   dark theme on the list. */
+:root[data-theme="dusk"] {
+  --ground:      #181A26;  --panel:      #212434;  --panel-sunk: #1B1E2C;
+  --rule:        #333752;  --rule-soft:  #282B40;
+  --ink:         #E8E6F5;  --ink-soft:   #A9A6C6;  --ink-dim:    #767394;
+  --amber:       #F2C97D;  --amber-ground:#2A2210;
+  --mint:        #7BE0B0;  --mint-ground: #12291F;
+  --coral:       #FF7B8A;  --coral-ground:#2A1218;
+  --violet:      #B79CF5;
+  --shadow: 0 1px 0 rgba(255,255,255,.03), 0 14px 36px -20px #000;
+}
+
+/* Fjord — cold blue-grey, low saturation, built for long sessions in a room
+   with bad light. The quietest theme here. */
+:root[data-theme="fjord"] {
+  --ground:      #202632;  --panel:      #29303E;  --panel-sunk: #232936;
+  --rule:        #3B4454;  --rule-soft:  #303847;
+  --ink:         #E3E9F2;  --ink-soft:   #A9B4C4;  --ink-dim:    #7C8698;
+  --amber:       #EBCB8B;  --amber-ground:#2E2A18;
+  --mint:        #8FD3C0;  --mint-ground: #1B2A2A;
+  --coral:       #E08A82;  --coral-ground:#2E1E1E;
+  --violet:      #A6B8E0;
+  --shadow: 0 1px 0 rgba(255,255,255,.03), 0 14px 34px -20px #000;
+}
+
+/* Kiln — warm dark with a cream ink, for people who find blue-grey clinical.
+   Brown ground, and the accents fired rather than printed. */
+:root[data-theme="kiln"] {
+  --ground:      #1D1B18;  --panel:      #262320;  --panel-sunk: #201D1A;
+  --rule:        #3A3530;  --rule-soft:  #2C2825;
+  --ink:         #EDE2D0;  --ink-soft:   #B5A894;  --ink-dim:    #857A6A;
+  --amber:       #E8A73C;  --amber-ground:#2C2009;
+  --mint:        #A6BF6E;  --mint-ground: #1F2611;
+  --coral:       #E06B4A;  --coral-ground:#2C140D;
+  --violet:      #C09BB0;
+  --shadow: 0 1px 0 rgba(255,255,255,.03), 0 14px 34px -20px #000;
+}
+
+/* Paper — the plainest light theme on the list, and the one to fall back to
+   when a screenshot has to be legible to somebody else. */
+:root[data-theme="paper"] {
+  --ground:      #FBFAF7;  --panel:      #FFFFFF;  --panel-sunk: #F1EFEA;
+  --rule:        #DEDAD2;  --rule-soft:  #EBE8E2;
+  --ink:         #16150F;  --ink-soft:   #4A473F;  --ink-dim:    #817D73;
+  --amber:       #96590A;  --amber-ground:#FAEBD6;
+  --mint:        #16705C;  --mint-ground: #DEEFEA;
+  --coral:       #AF3327;  --coral-ground:#F8E2DE;
+  --violet:      #5A4E96;
+  --shadow: 0 1px 2px rgba(30,25,15,.05), 0 8px 22px -13px rgba(30,25,15,.22);
+}
+
+/* Blueprint — white lines on process blue. A drawing, not a document, and the
+   one theme whose panels sit lighter than the ground by design. */
+:root[data-theme="blueprint"] {
+  --ground:      #0B2545;  --panel:      #133357;  --panel-sunk: #0E2A4C;
+  --rule:        #2A4E7A;  --rule-soft:  #1C3F68;
+  --ink:         #E3EDF9;  --ink-soft:   #A6C0DC;  --ink-dim:    #7392B4;
+  --amber:       #F0C46A;  --amber-ground:#2B2410;
+  --mint:        #79D6C8;  --mint-ground: #0E3038;
+  --coral:       #F08A7C;  --coral-ground:#33191A;
+  --violet:      #B8AEF0;
+  --shadow: 0 1px 0 rgba(255,255,255,.04), 0 14px 36px -20px #001127;
+}
+
+/* Ink wash — greyscale with one colour allowed through at a time. The most
+   restrained theme here, and the best of them for long detail panes. */
+:root[data-theme="inkwash"] {
+  --ground:      #121314;  --panel:      #1B1C1E;  --panel-sunk: #161718;
+  --rule:        #2B2D30;  --rule-soft:  #212325;
+  --ink:         #E6E7E9;  --ink-soft:   #A0A3A8;  --ink-dim:    #71757A;
+  --amber:       #D2A24C;  --amber-ground:#221B0C;
+  --mint:        #78C7AE;  --mint-ground: #12241F;
+  --coral:       #D8756A;  --coral-ground:#251413;
+  --violet:      #9FA6C4;
+  --shadow: 0 1px 0 rgba(255,255,255,.02), 0 12px 32px -18px #000;
+}
+
+/* ── section hues ────────────────────────────────────────────────────────────
+   Every panel title used to be --ink-dim, which made the page one uniform grey
+   mumble: you had to read "STANDBY" to find standby. These give each section a
+   hue of its own, and they are derived from the four accents rather than
+   written per theme, so all thirty-six palettes get them for free and none of
+   them can drift out of key with its own ground.                              */
+:root {
+  --h-inbox:   var(--amber);
+  --h-ordis:   var(--violet);
+  --h-colony:  var(--mint);
+  --h-board:   color-mix(in oklab, var(--mint) 55%, var(--violet));
+  --h-files:   color-mix(in oklab, var(--mint) 45%, var(--amber));
+  --h-standby: color-mix(in oklab, var(--violet) 62%, var(--coral));
+  --h-spend:   color-mix(in oklab, var(--amber) 62%, var(--coral));
+  --h-macros:  var(--coral);
+  --h-pulse:   color-mix(in oklab, var(--violet) 55%, var(--ink-soft));
+  --h-forge:   color-mix(in oklab, var(--amber) 50%, var(--violet));
+  --h-sprint:  var(--ink-soft);
+}
+
 * { box-sizing: border-box; }
 
 body {
@@ -193,15 +600,56 @@ header.bar .goal {
   flex: 1; min-width: 0; color: var(--ink-soft);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+/* ── the view menu ────────────────────────────────────────────────────────────
+   A <details> and not a modal: it opens in place, it closes when you click
+   away, and it survives a re-render because nothing inside it is redrawn by
+   the poll. Every box here writes localStorage and nothing else — the server
+   has no idea what you have chosen to look at, which is the point. Hiding a
+   panel is a display decision, not a colony decision, and a page that phoned
+   home about it would be a page you could not trust to be only a page. */
+
+.viewmenu { position: relative; align-self: center; }
+.viewmenu > summary {
+  list-style: none; cursor: pointer; padding: 4px 9px; border-radius: 5px;
+  font-family: var(--mono); font-size: var(--step--1);
+  letter-spacing: .1em; text-transform: uppercase; color: var(--ink-dim);
+  border: 1px solid var(--rule);
+}
+.viewmenu > summary::-webkit-details-marker { display: none; }
+.viewmenu > summary:hover { color: var(--ink); background: var(--panel-sunk); }
+.viewmenu[open] > summary { color: var(--ink); border-color: var(--ink-dim); }
+.viewmenu .menu {
+  position: absolute; right: 0; top: calc(100% + 7px); z-index: 6;
+  min-width: 190px; padding: 9px 11px 10px;
+  display: flex; flex-direction: column; gap: 2px;
+  background: var(--panel); border: 1px solid var(--rule);
+  border-radius: 8px; box-shadow: var(--shadow);
+}
+.viewmenu .menu .lb {
+  font-family: var(--mono); font-size: 10px; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--ink-dim); padding: 2px 0 3px;
+}
+.viewmenu .menu label {
+  display: flex; align-items: center; gap: 8px; cursor: pointer;
+  font-size: var(--step--1); padding: 2px 0;
+}
+.viewmenu .menu label:hover { color: var(--ink); }
+.viewmenu .menu button { align-self: flex-start; margin-top: 4px; }
+
+[data-panel].hidden-by-view { display: none; }
+body.dense .panel .body { padding: 7px 11px 9px; gap: 6px; }
+body.dense .story, body.dense .pulse { padding-top: 3px; padding-bottom: 3px; }
+
 .link {
   background: none; border: 0; padding: 4px 8px; cursor: pointer;
   color: var(--ink-dim); font-family: var(--mono); font-size: var(--step--1);
   letter-spacing: .1em; text-transform: uppercase; border-radius: 5px;
 }
 .link:hover { color: var(--ink); background: var(--panel-sunk); }
+.link[aria-pressed="true"] { color: var(--ink); background: var(--panel-sunk); }
 .link:focus-visible { outline: 2px solid var(--violet); outline-offset: 1px; }
 
-select.pick, input.field {
+select.pick, input.field, textarea.field {
   background: var(--panel-sunk); color: var(--ink);
   border: 1px solid var(--rule); border-radius: 5px; padding: 4px 7px;
   font-family: var(--mono); font-size: var(--step--1);
@@ -270,6 +718,16 @@ body.halted .halt-banner { display: flex; }
   box-shadow: var(--shadow);
 }
 .tile[data-kind="write-approval"] { border-width: 2px; }
+
+/* A stale tile is drained of the amber that means "this needs you", because it
+   does not: it needs re-asking. It keeps the border so it still reads as a
+   card and not as a note, and the flag says which of the two it is. */
+.tile.stale { background: var(--panel-sunk); border-color: var(--rule); }
+.tile.stale .k, .tile.stale .r { color: var(--ink-dim); }
+.tile .k .flag {
+  margin-left: auto; padding: 1px 5px; border-radius: 3px;
+  background: var(--rule); color: var(--ink-soft); letter-spacing: .08em;
+}
 .tile .k { font-family: var(--mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--amber); display: flex; gap: 8px; }
 .tile .k .age { margin-left: auto; color: var(--ink-dim); letter-spacing: 0; }
 .tile .r { font-size: var(--step-1); line-height: 1.35; }
@@ -335,11 +793,33 @@ section.panel {
 .panel > h2 {
   margin: 0; padding: 10px 13px 9px;
   font-family: var(--mono); font-size: var(--step--1); font-weight: 600;
-  letter-spacing: .16em; text-transform: uppercase; color: var(--ink-dim);
+  letter-spacing: .16em; text-transform: uppercase; color: var(--section-hue, var(--ink-dim));
   border-bottom: 1px solid var(--rule-soft);
+  box-shadow: inset 3px 0 0 var(--section-hue, transparent);
   display: flex; align-items: center; gap: 8px;
 }
 .panel > h2 .count { margin-left: auto; color: var(--ink-soft); letter-spacing: 0; }
+.panel > h2 .link { margin-left: 6px; }
+.panel > h2 .count + .link { margin-left: 8px; }
+
+/* ── section hues, applied ────────────────────────────────────────────────────
+   One rule per section rather than a colour written into each panel, because
+   the panels are markup and the hues are a scheme: this way the scheme is in
+   one place and every theme inherits it through the tokens above. The bar down
+   the left edge of the title is the part that actually does the work — the
+   text is uppercase mono at 11px and colour alone was never going to carry it
+   at that size. */
+
+[data-panel="inbox"]   { --section-hue: var(--h-inbox); }
+[data-panel="ordis"]   { --section-hue: var(--h-ordis); }
+[data-panel="colony"]  { --section-hue: var(--h-colony); }
+[data-panel="standby"] { --section-hue: var(--h-standby); }
+[data-panel="board"]   { --section-hue: var(--h-board); }
+[data-panel="files"]   { --section-hue: var(--h-files); }
+[data-panel="spend"]   { --section-hue: var(--h-spend); }
+[data-panel="macros"]  { --section-hue: var(--h-macros); }
+[data-panel="pulse"]   { --section-hue: var(--h-pulse); }
+[data-panel="forge"]   { --section-hue: var(--h-forge); }
 .panel .body { padding: 11px 13px 13px; display: flex; flex-direction: column; gap: 9px; }
 .empty { color: var(--ink-dim); font-size: var(--step--1); padding: 2px 0 4px; }
 
@@ -476,6 +956,38 @@ button.persona.hired .nm { color: var(--mint); }
 .story:focus-visible { outline: 2px solid var(--violet); outline-offset: -2px; }
 .story .t { font-size: var(--step-1); }
 .story .sub { grid-column: 1 / -1; display: flex; text-align: left; gap: 9px; align-items: center; font-family: var(--mono); font-size: var(--step--1); color: var(--ink-dim); flex-wrap: wrap; }
+
+/* A board row is a <button>, so the drop control cannot live inside it — the
+   row and the control are siblings in a line instead. The control stays
+   invisible until the row is hovered or something in the line has focus:
+   destructive affordances should be reachable, not ambient. */
+.story-line { display: flex; align-items: stretch; border-radius: 6px; }
+.story-line:hover { background: var(--panel-sunk); }
+.story-line .story { flex: 1; min-width: 0; }
+.story-line .story:hover { background: none; }
+.story-line .drop {
+  flex: none; align-self: center; opacity: 0; padding: 4px 7px;
+  font-size: var(--step--1); color: var(--ink-dim);
+}
+.story-line:hover .drop, .story-line:focus-within .drop { opacity: 1; }
+.story-line .drop:hover { color: var(--coral); background: var(--coral-ground); }
+
+/* The progress pair. Two numbers, one meaning: how much of this story Notion
+   says is already ticked. It is the fix for the whole class of "the colony is
+   asking me about something I finished last week" — now visible from the
+   board, before you open anything. */
+.chip.prog { background: var(--mint-ground); color: var(--mint); }
+.chip.prog.none { background: var(--panel-sunk); color: var(--ink-dim); }
+
+.dropped-list { display: flex; flex-direction: column; gap: 2px; padding-top: 4px; }
+.dropped-list .lb {
+  font-family: var(--mono); font-size: 10px; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--ink-dim); padding: 4px 0 2px;
+  border-top: 1px solid var(--rule-soft); margin-top: 4px;
+}
+.dropped-line { display: flex; align-items: center; gap: 8px; padding: 3px 9px; }
+.dropped-line .t { flex: 1; min-width: 0; color: var(--ink-dim); text-decoration: line-through; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dropped-line .why { font-family: var(--mono); font-size: var(--step--1); color: var(--ink-dim); }
 
 .chip {
   font-family: var(--mono); font-size: 10px; letter-spacing: .06em; text-transform: uppercase;
@@ -684,14 +1196,73 @@ table.runs td.num { text-align: right; padding-right: 0; }
   <span class="conn" id="conn" data-live="false"><span class="dot"></span><span id="conn-text">connecting</span></span>
   <select class="pick" id="theme" title="theme">
     <option value="">system</option>
-    <option value="light">daylight</option>
-    <option value="dark">basalt</option>
-    <option value="ember">ember</option>
-    <option value="moss">moss</option>
-    <option value="slate">slate</option>
-    <option value="parchment">parchment</option>
-    <option value="clay">clay</option>
+    <optgroup label="the originals">
+      <option value="light">daylight</option>
+      <option value="dark">basalt</option>
+      <option value="ember">ember</option>
+      <option value="moss">moss</option>
+      <option value="slate">slate</option>
+      <option value="parchment">parchment</option>
+      <option value="clay">clay</option>
+    </optgroup>
+    <optgroup label="eras">
+      <option value="deco">deco · 1925</option>
+      <option value="diner">diner · 1955</option>
+      <option value="coldwar">cold war · 1968</option>
+      <option value="harvest">harvest · 1974</option>
+      <option value="miami">miami · 1986</option>
+      <option value="grunge">grunge · 1994</option>
+      <option value="y2k">y2k · 1999</option>
+      <option value="frontier">frontier · 1880s</option>
+    </optgroup>
+    <optgroup label="worlds">
+      <option value="cyberpunk">cyberpunk</option>
+      <option value="neon-noir">neon noir</option>
+      <option value="spice">spice</option>
+      <option value="grid">grid</option>
+      <option value="vault">vault</option>
+      <option value="outer-rim">outer rim</option>
+      <option value="imperial">imperial</option>
+      <option value="nostromo">nostromo</option>
+      <option value="bridge">bridge</option>
+      <option value="mordor">mordor</option>
+      <option value="rivendell">rivendell</option>
+      <option value="meadow">meadow</option>
+    </optgroup>
+    <optgroup label="terminals">
+      <option value="phosphor">phosphor</option>
+      <option value="ochre-crt">ochre crt</option>
+      <option value="dusk">dusk</option>
+      <option value="fjord">fjord</option>
+      <option value="kiln">kiln</option>
+      <option value="paper">paper</option>
+      <option value="blueprint">blueprint</option>
+      <option value="inkwash">ink wash</option>
+    </optgroup>
   </select>
+  <details class="viewmenu" id="viewmenu">
+    <summary title="choose what this page shows">view</summary>
+    <div class="menu">
+      <div class="lb">panels</div>
+      <label><input type="checkbox" data-view="sprint" checked> sprint</label>
+      <label><input type="checkbox" data-view="inbox" checked> PO inbox</label>
+      <label><input type="checkbox" data-view="ordis" checked> Ordis</label>
+      <label><input type="checkbox" data-view="colony" checked> colony</label>
+      <label><input type="checkbox" data-view="standby" checked> standby</label>
+      <label><input type="checkbox" data-view="board" checked> board</label>
+      <label><input type="checkbox" data-view="files" checked> files</label>
+      <label><input type="checkbox" data-view="spend" checked> spend</label>
+      <label><input type="checkbox" data-view="macros" checked> macros</label>
+      <label><input type="checkbox" data-view="pulse" checked> pulse log</label>
+      <label><input type="checkbox" data-view="forge" checked> forge</label>
+      <hr class="macro-rule">
+      <div class="lb">detail</div>
+      <label><input type="checkbox" data-view="stale"> stale questions</label>
+      <label><input type="checkbox" data-view="dropped"> dropped stories</label>
+      <label><input type="checkbox" data-view="dense"> dense rows</label>
+      <button class="link" id="view-reset">show everything</button>
+    </div>
+  </details>
 </header>
 
 <div class="halt-banner">
@@ -700,7 +1271,7 @@ table.runs td.num { text-align: right; padding-right: 0; }
   <button class="act go" id="halt-banner-resume" style="margin-left:auto">resume</button>
 </div>
 
-<section class="sprint">
+<section class="sprint" data-panel="sprint">
   <div>
     <div class="figure">
       <span class="big" id="spend-tok">—</span>
@@ -713,22 +1284,24 @@ table.runs td.num { text-align: right; padding-right: 0; }
   <div class="gauge" id="gauge"><i style="width:0"></i></div>
 </section>
 
-<section class="strip" id="inbox-strip">
-  <h2>PO Inbox <span class="count" id="inbox-count"></span></h2>
+<section class="strip" id="inbox-strip" data-panel="inbox">
+  <h2>PO Inbox <span class="count" id="inbox-count"></span>
+    <button class="link" id="inbox-show-stale" style="display:none" title="stale questions are ones the story has moved past">stale</button>
+  </h2>
   <div class="tiles" id="inbox"></div>
 </section>
 
 <main>
   <div class="col">
-    <section class="panel ordis">
+    <section class="panel ordis" data-panel="ordis">
       <h2>Ordis <span class="count" id="ordis-count"></span></h2>
       <div class="body" id="ordis"></div>
     </section>
-    <section class="panel">
+    <section class="panel" data-panel="colony">
       <h2>Colony <span class="count" id="colony-count"></span></h2>
       <div class="body" id="colony"></div>
     </section>
-    <section class="panel">
+    <section class="panel" data-panel="standby">
       <h2>Standby <span class="count" id="roster-count"></span></h2>
       <div class="body">
         <input class="search" id="roster-q" placeholder="search personas, or browse below" autocomplete="off">
@@ -739,12 +1312,14 @@ table.runs td.num { text-align: right; padding-right: 0; }
   </div>
 
   <div class="col">
-    <section class="panel">
-      <h2>Board <span class="count" id="board-count"></span></h2>
+    <section class="panel" data-panel="board">
+      <h2>Board <span class="count" id="board-count"></span>
+        <button class="link" id="board-dropped" style="display:none" title="stories you have dropped">dropped</button>
+      </h2>
       <div class="flow" id="flow"></div>
       <div class="body" id="stories" style="gap:2px"></div>
     </section>
-    <section class="panel">
+    <section class="panel" data-panel="files">
       <h2>Files <span class="count" id="proj-count"></span>
         <button class="link" id="tree-refresh" title="re-read the working tree">refresh</button>
       </h2>
@@ -755,7 +1330,7 @@ table.runs td.num { text-align: right; padding-right: 0; }
         <div class="tree" id="tree"></div>
       </div>
     </section>
-    <section class="panel">
+    <section class="panel" data-panel="spend">
       <h2>Spend <span class="count" id="spend-count"></span></h2>
       <div class="body">
         <svg class="spark" id="spark" preserveAspectRatio="none" aria-hidden="true"></svg>
@@ -765,15 +1340,15 @@ table.runs td.num { text-align: right; padding-right: 0; }
   </div>
 
   <div class="col">
-    <section class="panel">
+    <section class="panel" data-panel="macros">
       <h2>Macros</h2>
       <div class="body" id="macros"></div>
     </section>
-    <section class="panel">
+    <section class="panel" data-panel="pulse">
       <h2>Pulse log <span class="count" id="pulse-count"></span></h2>
       <div class="body" id="pulses" style="gap:2px"></div>
     </section>
-    <section class="panel">
+    <section class="panel" data-panel="forge">
       <h2>Forge <span class="count" id="forge-count"></span></h2>
       <div class="body" id="forge"></div>
     </section>
@@ -1102,7 +1677,11 @@ function renderBoard(b) {
   const box = $("stories");
   box.replaceChildren();
   const shown = b.stories.filter((s) => !filter || s.status === filter);
-  if (!shown.length) { box.append(el("div", "empty", filter ? "nothing in " + STATUS_LABEL[filter] : "board empty")); return; }
+  if (!shown.length) {
+    box.append(el("div", "empty", filter ? "nothing in " + STATUS_LABEL[filter] : "board empty"));
+    renderDropped(b.dropped || []);
+    return;
+  }
 
   for (const s of shown) {
     const card = el("button", "story");
@@ -1119,13 +1698,60 @@ function renderBoard(b) {
     } else {
       sub.append(el("span", "dim", "no project"));
     }
+    // What Notion says is already ticked off. The colony reads both halves of
+    // the checklist now, so the board can say "4 of 7 done" instead of leaving
+    // you to open the page to find out you had already finished it.
+    if (s.done_n || s.open_n) {
+      const total = s.done_n + s.open_n;
+      const prog = el("span", "chip prog" + (s.done_n ? "" : " none"), s.done_n + "/" + total);
+      prog.title = s.done_n + " of " + total + " to-dos ticked in Notion";
+      sub.append(prog);
+    }
     if (s.tokens) sub.append(el("span", null, toks(s.tokens) + " tok"));
     if (s.events) sub.append(el("span", "dim", s.events + " event" + (s.events === 1 ? "" : "s")));
     sub.append(el("span", "dim", ago(s.updated_at)));
     card.append(sub);
     card.onclick = () => openStory(s.id);
-    box.append(card);
+
+    const line = el("div", "story-line");
+    const drop = el("button", "link drop", "drop");
+    drop.title = "take this story off the board";
+    drop.onclick = () => dropStory(s.id, "“" + s.title + "”");
+    line.append(card, drop);
+    box.append(line);
   }
+
+  renderDropped(b.dropped || []);
+}
+
+// ── the dropped ─────────────────────────────────────────────────────────────
+//
+// Dropped stories live under the board rather than in a separate view, because
+// the question they answer — "did we decide not to do that, or did I imagine
+// deciding?" — comes up while you are looking at the board. Hidden by default;
+// the count in the header is what tells you there is anything to open.
+function renderDropped(rows) {
+  const box = $("stories");
+  const btn = $("board-dropped");
+  btn.style.display = rows.length ? "" : "none";
+  btn.textContent = shows("dropped") ? "hide dropped · " + rows.length : "dropped · " + rows.length;
+  if (!shows("dropped") || !rows.length) return;
+
+  const list = el("div", "dropped-list");
+  list.append(el("div", "lb", "dropped"));
+  for (const s of rows) {
+    const line = el("div", "dropped-line");
+    const t = el("span", "t", s.title);
+    t.title = s.drop_reason || "no reason recorded";
+    line.append(t);
+    line.append(el("span", "why", s.drop_reason ? s.drop_reason.slice(0, 40) : "no reason"));
+    const back = el("button", "link", "restore");
+    back.title = "put it back in the backlog, un-groomed";
+    back.onclick = () => act("restore", { story_id: s.id });
+    line.append(back);
+    list.append(line);
+  }
+  box.append(list);
 }
 
 function renderProjects(rows) {
@@ -1268,23 +1894,45 @@ async function openFile(f) {
 function renderInbox(items) {
   const box = $("inbox"), strip = $("inbox-strip");
   box.replaceChildren();
-  $("inbox-count").textContent = items.length ? items.length + " waiting on you" : "";
-  strip.classList.toggle("quiet", items.length === 0);
-  if (!items.length) {
+
+  // A stale question is one the story has moved past: it was written against a
+  // version of the brief that no longer exists, and answering it now answers
+  // the wrong question. It is not deleted — the colony really was confused, and
+  // that is worth being able to look at — but it is out of the way by default.
+  const stale = items.filter((e) => e.stale);
+  const live = shows("stale") ? items : items.filter((e) => !e.stale);
+
+  const btn = $("inbox-show-stale");
+  btn.style.display = stale.length ? "" : "none";
+  btn.textContent = shows("stale") ? "hide stale · " + stale.length : "stale · " + stale.length;
+
+  const waiting = items.filter((e) => !e.stale).length;
+  $("inbox-count").textContent = waiting ? waiting + " waiting on you" : "";
+  strip.classList.toggle("quiet", waiting === 0);
+  if (!live.length) {
     // An empty Inbox means the system is working. It gets to look like it —
     // and, up here at full width, it gets to take up almost no room.
-    box.append(el("div", "empty", "empty — nothing needs you"));
+    box.append(el("div", "empty", stale.length
+      ? "nothing current — " + stale.length + " stale question" +
+        (stale.length === 1 ? "" : "s") + " behind the toggle"
+      : "empty — nothing needs you"));
     return;
   }
-  for (const e of items) box.append(inboxTile(e));
+  for (const e of live) box.append(inboxTile(e));
 }
 
 function inboxTile(e) {
   const card = el("div", "tile");
   card.dataset.kind = e.kind;
   if (e.snoozed) card.classList.add("snoozed");
+  if (e.stale) card.classList.add("stale");
   const k = el("div", "k");
   k.append(el("span", null, e.kind.replace("-", " ")), el("span", "age", ago(e.raised_at)));
+  if (e.stale) {
+    const flag = el("span", "flag", "stale");
+    flag.title = "the story changed after this was asked — the question is about a version that no longer exists";
+    k.append(flag);
+  }
   card.append(k, el("div", "r", e.reason));
   if (e.recommendation) card.append(el("div", "rec", e.recommendation));
   if (e.snoozed) {
@@ -1401,6 +2049,18 @@ function inboxTile(e) {
     acts.append(later);
   }
 
+  // Re-ask. The answer to a stale question is not yes and not no — it is "you
+  // asked me about last week's version, go and read it again". This is the
+  // button that says that: it resolves the escalation as amended, puts the
+  // story back in the grooming queue, and voids the attempts the old grooming
+  // used up so the colony is actually allowed to try again.
+  if (e.stale) {
+    const again = el("button", "act warn", "re-ask");
+    again.title = "send it back to Ordis to re-read the current brief and ask again if it still needs to";
+    again.onclick = () => act("reask", { escalation_id: e.id });
+    acts.append(again);
+  }
+
   if (e.story_id) {
     // Named for what it opens. "story" read like a category label on the tile;
     // it is a link to the story's own timeline, criteria and events.
@@ -1408,6 +2068,14 @@ function inboxTile(e) {
     open.title = "the full story: brief, acceptance criteria, every event on it";
     open.onclick = () => openStory(e.story_id);
     acts.append(open);
+
+    // Dropping from here rather than only from the board, because the Inbox is
+    // where you find out a story is not worth doing: the question that arrives
+    // about a story is often the moment you decide it was never the work.
+    const drop = el("button", "act no", "drop story");
+    drop.title = "take the whole story off the board — closes its questions, cancels its tickets";
+    drop.onclick = () => dropStory(e.story_id, e.story_title || "this story");
+    acts.append(drop);
   }
   card.append(acts);
   return card;
@@ -1502,9 +2170,18 @@ function projectSelect(current, opts) {
   // `STATE` may not have arrived yet — a deep-linked drawer opens before the
   // first snapshot does — and a picker with no options is a far better failure
   // than a drawer that renders nothing because one list was undefined.
-  const all = ALL_PROJECTS.length
+  //
+  // Sorted here rather than trusted from either source. /api/projects arrives
+  // alphabetical, but the fallback is the working-tree scan, which is ordered
+  // by *change recency* — a sensible order for "what did I touch today" and a
+  // useless one for "find job-search in this list". Sorting at the point of
+  // render means the picker reads the same way no matter which list filled it.
+  // localeCompare, not <, so the folder starting with ＋ and any accented name
+  // land where a person would look for them.
+  const all = (ALL_PROJECTS.length
     ? ALL_PROJECTS
-    : ((STATE && STATE.projects) || []).map((r) => r.project);
+    : ((STATE && STATE.projects) || []).map((r) => r.project)
+  ).slice().sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
   for (const p of all) {
     const o = el("option", null, p);
     o.value = p;
@@ -1563,6 +2240,38 @@ function renderMacros(c) {
   row.append(clr);
   al.append(row);
   box.append(al);
+  box.append(el("hr", "macro-rule"));
+
+  // ── the upward direction ────────────────────────────────────────────────
+  //
+  // Its own switch, separate from HALT, and the separation is the point. HALT
+  // means "spend nothing"; a comment on a Notion page is not a token. A halted
+  // colony that also went silent upward would look broken to anyone reading
+  // the board on their phone, when what it actually is is paused.
+  //
+  // Off holds the queue rather than dropping it: everything you queued while
+  // it was off goes up in order when you turn it back on.
+  const nw = el("div", "macro");
+  nw.append(el("div", "lb", "writing to notion"));
+  const ob = c.outbox || { waiting: 0, stuck: 0 };
+  const on = c.notion_write !== false;   // a bool from /api/state, not the raw control string
+  const r3 = el("div", "row");
+  const sw = el("button", "act " + (on ? "no" : "go"), on ? "hold writes" : "resume writes");
+  sw.title = on
+    ? "stop sending upward — queued changes wait rather than disappear"
+    : "send the queue upward again, oldest first";
+  sw.onclick = () => act("notion-write", { on: !on });
+  r3.append(sw);
+  nw.append(r3);
+  nw.append(el("div", "why", on
+    ? (ob.waiting
+        ? `${ob.waiting} change${ob.waiting === 1 ? "" : "s"} queued — the next pulse sends them.`
+        : "Status changes, ticks and comments go up on the pulse that follows them.")
+    : `Held. ${ob.waiting} change${ob.waiting === 1 ? "" : "s"} waiting, and nothing goes up until you resume.`));
+  if (ob.stuck) {
+    nw.append(el("div", "why", `${ob.stuck} gave up after repeated failures — check the pulse log for what Notion said.`));
+  }
+  box.append(nw);
   box.append(el("hr", "macro-rule"));
 
   // Housekeeping.
@@ -1880,6 +2589,15 @@ function blk(label, ...nodes) {
 }
 function sectionBlock(label, text) { return blk(label, el("pre", "detail", text)); }
 
+// The ledger stores the two halves of a Notion checklist as JSON arrays. A
+// story synced before migration 008 has neither, and a story whose page has no
+// to-dos has empty ones — both read as "no checklist" here, and neither is an
+// error worth showing.
+function jsonList(raw) {
+  if (!raw) return [];
+  try { const v = JSON.parse(raw); return Array.isArray(v) ? v : []; } catch (_) { return []; }
+}
+
 // ── story drawer ────────────────────────────────────────────────────────────
 
 async function openStory(id) {
@@ -1924,7 +2642,101 @@ async function openStory(id) {
     if (out) { toast("queued — the next wake will build it", "good"); openStory(s.id); }
   };
   gate.append(disp);
+
+  // Drop, or undo the drop. On the gate rather than off in a corner, because
+  // "not doing this" is one of the three things you can decide about a story
+  // and the other two are already here.
+  gate.append(el("label", null, s.dropped_at ? "dropped" : "drop"));
+  if (s.dropped_at) {
+    const note = el("div", "row");
+    note.style.display = "flex"; note.style.gap = "6px"; note.style.alignItems = "center";
+    note.append(el("span", "dim mono", s.drop_reason || "no reason recorded"));
+    const back = el("button", "act go", "restore");
+    back.onclick = async () => { if (await act("restore", { story_id: s.id })) openStory(s.id); };
+    note.append(back);
+    gate.append(note);
+  } else {
+    const kill = el("button", "act no", "drop this story");
+    kill.title = "off the board, questions closed, tickets cancelled — reversible";
+    kill.onclick = () => dropStory(s.id, "“" + s.title + "”");
+    gate.append(kill);
+  }
   body.append(gate);
+
+  // ── the checklist, both halves ──────────────────────────────────────────
+  //
+  // This is the block that stops the loop from asking about finished work. The
+  // ledger keeps the ticked and unticked to-dos apart now, so the drawer can
+  // show you what the colony believes is done — which is also the thing to
+  // check first when a question looks like it is about last month.
+  const done = jsonList(s.done_items), open = jsonList(s.open_items);
+  if (done.length || open.length) {
+    const list = el("div", "blk");
+    for (const it of done) list.append(el("div", "dim", "✓  " + it));
+    for (const it of open) list.append(el("div", null, "☐  " + it));
+    body.append(blk(`to-dos · ${done.length} of ${done.length + open.length} done`, list));
+  }
+
+  // ── talking back to Notion ──────────────────────────────────────────────
+  //
+  // Everything here queues; nothing here sends. The button writes a row to the
+  // outbox and the next pulse performs the HTTP, which is the same rule that
+  // keeps every other control on this page free of network I/O — and it means
+  // a Notion outage costs you a delay rather than a lost decision.
+  if (s.notion_page_id) {
+    const push = el("div", "form");
+    const statuses = (STATE && STATE.controls && STATE.controls.notion_statuses) || [];
+
+    push.append(el("label", null, "status"));
+    const row = el("div"); row.style.display = "flex"; row.style.gap = "6px";
+    const pick = el("select", "pick");
+    pick.append(el("option", null, "— set status —"));
+    pick.firstChild.value = "";
+    for (const st of statuses) {
+      const o = el("option", null, st);
+      o.value = st;
+      if (st === s.notion_status) o.selected = true;
+      pick.append(o);
+    }
+    const setIt = el("button", "act go", "queue");
+    setIt.title = "queued now, sent on the next pulse";
+    setIt.onclick = async () => {
+      if (!pick.value) { toast("pick a status first", "bad"); return; }
+      if (await act("notion", { story_id: s.id, kind: "status", status: pick.value })) openStory(s.id);
+    };
+    row.append(pick, setIt);
+    push.append(row);
+
+    if (open.length) {
+      push.append(el("label", null, "tick"));
+      const row2 = el("div"); row2.style.display = "flex"; row2.style.gap = "6px";
+      const item = el("select", "pick");
+      for (const it of open) { const o = el("option", null, it); o.value = it; item.append(o); }
+      const tick = el("button", "act go", "queue");
+      tick.title = "ticks that checkbox on the Notion page";
+      tick.onclick = async () => {
+        if (await act("notion", { story_id: s.id, kind: "check", item: item.value, checked: true })) openStory(s.id);
+      };
+      row2.append(item, tick);
+      push.append(row2);
+    }
+
+    push.append(el("label", null, "comment"));
+    const say = el("textarea", "field wide");
+    say.rows = 2;
+    say.placeholder = "leave a note on the Notion page — posted as Ordis";
+    const send = el("button", "act go", "queue comment");
+    send.onclick = async () => {
+      const text = say.value.trim();
+      if (!text) { toast("nothing to say", "bad"); return; }
+      if (await act("notion", { story_id: s.id, kind: "comment", text })) { say.value = ""; openStory(s.id); }
+    };
+    const wrap = el("div"); wrap.className = "wide";
+    wrap.style.display = "flex"; wrap.style.flexDirection = "column"; wrap.style.gap = "6px";
+    wrap.append(say, send);
+    push.append(wrap);
+    body.append(blk("notion", push));
+  }
 
   if (s.description) body.append(sectionBlock("brief", s.description));
   if (s.acceptance_criteria) body.append(sectionBlock("acceptance criteria", s.acceptance_criteria));
@@ -2235,6 +3047,32 @@ async function openPatch(e) {
 
 function confirmThen(question, fn) { if (window.confirm(question)) fn(); }
 
+// ── dropping a story ────────────────────────────────────────────────────────
+//
+// Two prompts, and both of them earn their interruption. The first asks for a
+// reason, because "why did we not do this" is the single most useful thing to
+// have written down six months later and the only moment anyone knows the
+// answer is now. Cancelling the reason cancels the drop — there is no way to
+// drop a story silently, which is deliberate.
+//
+// The second asks whether to say so in Notion, and it is separate because it
+// is a different kind of act: the first changes the colony's mind, the second
+// changes a page other people may be reading. The server no-ops the Notion
+// half for a story that has no page, so answering yes is always safe.
+function dropStory(id, title) {
+  const reason = window.prompt(
+    "Drop " + title + "?\n\n" +
+    "It comes off the board, its open questions close, and any ticket waiting on " +
+    "it is cancelled. Nothing is deleted and you can restore it.\n\n" +
+    "Why are you dropping it?", "");
+  if (reason === null) return;
+  const archive = window.confirm(
+    "Also set it to Archived in Notion?\n\n" +
+    "OK queues the change — it goes up on the next pulse. Cancel drops it here only.");
+  act("drop", { story_id: id, reason: reason.trim(),
+                notion_status: archive ? "Archived" : null });
+}
+
 // ── roster search ───────────────────────────────────────────────────────────
 
 let rosterTimer = null;
@@ -2269,6 +3107,74 @@ $("theme").onchange = (e) => {
   if (STATE) render(STATE);   // avatars are painted on canvas, so they re-paint
 };
 $("halt-banner-resume").onclick = () => act("halt", { on: false });
+
+// ── what the page shows ─────────────────────────────────────────────────────
+//
+// Eleven sections is the right number for a colony you are running and the
+// wrong number for a colony you are only checking on. So the page remembers
+// which of them you want. Three rules keep this from becoming a second kind of
+// state to reason about:
+//
+//   1. It is local. Nothing here is sent to the server, and hiding a panel
+//      does not stop the colony from filling it — you are choosing what to
+//      look at, not what runs. Come back with the panel shown and the work
+//      that happened while it was hidden is all there.
+//   2. Panels default to *on* and detail defaults to *off*. A key that has
+//      never been written reads as its default, so a new panel added later
+//      appears for people who have been using the menu for months.
+//   3. Nothing is ever hidden silently. The two detail toggles have a count
+//      in the header when they are hiding something, because a filter you
+//      forgot you set is indistinguishable from a bug.
+
+const VIEW_KEY = "colony-view";
+const PANEL_KEYS = ["sprint", "inbox", "ordis", "colony", "standby", "board",
+                    "files", "spend", "macros", "pulse", "forge"];
+let VIEW = {};
+try { VIEW = JSON.parse(localStorage.getItem(VIEW_KEY) || "{}") || {}; } catch (_) { VIEW = {}; }
+
+function shows(key) {
+  return VIEW[key] === undefined ? PANEL_KEYS.includes(key) : !!VIEW[key];
+}
+
+function applyView() {
+  for (const key of PANEL_KEYS) {
+    const node = document.querySelector('[data-panel="' + key + '"]');
+    if (node) node.classList.toggle("hidden-by-view", !shows(key));
+  }
+  document.body.classList.toggle("dense", shows("dense"));
+  for (const box of document.querySelectorAll("[data-view]")) box.checked = shows(box.dataset.view);
+  $("inbox-show-stale").setAttribute("aria-pressed", String(shows("stale")));
+  $("board-dropped").setAttribute("aria-pressed", String(shows("dropped")));
+}
+
+function setView(key, on) {
+  VIEW[key] = !!on;
+  localStorage.setItem(VIEW_KEY, JSON.stringify(VIEW));
+  applyView();
+  if (STATE) render(STATE);   // stale and dropped change what the lists contain
+}
+
+for (const box of document.querySelectorAll("[data-view]")) {
+  box.onchange = () => setView(box.dataset.view, box.checked);
+}
+$("view-reset").onclick = () => {
+  VIEW = {};
+  localStorage.removeItem(VIEW_KEY);
+  applyView();
+  if (STATE) render(STATE);
+};
+$("inbox-show-stale").onclick = () => setView("stale", !shows("stale"));
+$("board-dropped").onclick = () => setView("dropped", !shows("dropped"));
+
+// Click-away close. <details> has no such behaviour of its own, and a menu
+// that stays open over the board while you try to click the board is worse
+// than no menu.
+document.addEventListener("click", (ev) => {
+  const menu = $("viewmenu");
+  if (menu.open && !menu.contains(ev.target)) menu.open = false;
+});
+
+applyView();
 
 // ── live feed ───────────────────────────────────────────────────────────────
 

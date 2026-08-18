@@ -40,7 +40,8 @@ from typing import Any
 from fastapi import Body, FastAPI, Header, HTTPException, Query
 from fastapi.responses import HTMLResponse, StreamingResponse
 
-from . import control, db, forge, projects as projects_mod, roster as roster_mod
+from . import (control, db, forge, notion as notion_mod, outbox as outbox_mod,
+               projects as projects_mod, roster as roster_mod)
 
 UI_DIR = Path(__file__).resolve().parent / "ui"
 
@@ -225,6 +226,7 @@ def _board(conn: sqlite3.Connection) -> dict[str, Any]:
         """
         SELECT s.id, s.title, s.status, s.project, s.project_source, s.priority,
                s.est_tokens, s.blocked_reason, s.notion_status, s.updated_at,
+               s.notion_page_id, s.done_items, s.open_items,
                (SELECT COUNT(*) FROM story_events e WHERE e.story_id = s.id)   AS events,
                (SELECT COALESCE(SUM(e.tokens), 0) FROM story_events e
                  WHERE e.story_id = s.id)                                      AS tokens
@@ -233,10 +235,35 @@ def _board(conn: sqlite3.Connection) -> dict[str, Any]:
          ORDER BY s.priority, s.id
         """,
     )
+    # Progress belongs on the card, not two clicks in. "4 of 11 done" is the
+    # answer to the question the PO actually has when he looks at the board —
+    # and it is the same pair of columns that stops the loop re-raising finished
+    # work, so the number on screen and the number in the prompt cannot drift.
+    for s in stories:
+        s["done_n"] = len(_json_list(s.pop("done_items", None)))
+        s["open_n"] = len(_json_list(s.pop("open_items", None)))
+    dropped = rows(
+        conn,
+        """SELECT id, title, project, priority, dropped_at, drop_reason, notion_page_id
+             FROM stories WHERE dropped_at IS NOT NULL
+            ORDER BY dropped_at DESC LIMIT 20""",
+    )
     return {
         "columns": [{"status": s, "n": counts.get(s, 0)} for s in BOARD_ORDER],
         "stories": stories,
+        "dropped": dropped,
     }
+
+
+def _json_list(raw: Any) -> list:
+    """A JSON array column, or an empty list. Never an exception on the hot path."""
+    if not raw:
+        return []
+    try:
+        value = json.loads(raw)
+    except (TypeError, ValueError):
+        return []
+    return value if isinstance(value, list) else []
 
 
 def _inbox(conn: sqlite3.Connection) -> list[dict[str, Any]]:
@@ -254,14 +281,18 @@ def _inbox(conn: sqlite3.Connection) -> list[dict[str, Any]]:
                   ORDER BY m.id DESC LIMIT 1)                                     AS last_message_at,
                CASE WHEN e.snoozed_until IS NOT NULL
                      AND e.snoozed_until > datetime('now','localtime')
-                    THEN 1 ELSE 0 END                                             AS snoozed
+                    THEN 1 ELSE 0 END                                             AS snoozed,
+               CASE WHEN e.stale_at IS NOT NULL THEN 1 ELSE 0 END                 AS stale
           FROM escalations e
           LEFT JOIN stories s ON s.id = e.story_id
           LEFT JOIN tickets t ON t.id = e.ticket_id
          WHERE e.resolved_at IS NULL
-         -- A snoozed item sorts to the back whatever its kind: "later" has to
-         -- move something, or it is a button that does nothing but log.
-         ORDER BY snoozed,
+         -- Snoozed and stale both sort to the back, and stale goes furthest.
+         -- "Later" has to move something or it is a button that only logs; a
+         -- question the brief has already outrun should never be the first
+         -- thing on the page, because reading it wastes the one kind of
+         -- attention this Inbox is spending.
+         ORDER BY stale, snoozed,
                   CASE e.kind WHEN 'write-approval' THEN 0 WHEN 'hire' THEN 1
                               WHEN 'decision' THEN 2 ELSE 3 END,
                   e.raised_at DESC
@@ -358,6 +389,12 @@ def _controls(conn: sqlite3.Connection) -> dict[str, Any]:
         "allowance": band,
         "max_boost": control.MAX_BOOST_POINTS,
         "recent": recent,
+        # M5. Separate from HALT on purpose: HALT means "spend nothing", and a
+        # comment on a Notion page is not a token. One can be on while the other
+        # is off, and conflating them would make a paused colony look mute.
+        "notion_write": control.get_control(conn, "notion_write", "1") == "1",
+        "outbox": outbox_mod.depth(conn),
+        "notion_statuses": list(notion_mod.WRITABLE_STATUS),
     }
 
 
@@ -801,6 +838,59 @@ def act_retire_skill(body: dict = Body(...),
                      x_colony: str | None = Header(None)) -> dict[str, Any]:
     _guard(x_colony)
     return _act(control.retire_skill, int(body["skill_id"]), str(body.get("reason") or ""))
+
+
+# ── M5: dropping, and talking back to Notion ─────────────────────────────────
+
+
+@app.post("/api/act/drop")
+def act_drop(body: dict = Body(...), x_colony: str | None = Header(None)) -> dict[str, Any]:
+    """Take a story off the board. `notion_status` optionally says so upward too."""
+    _guard(x_colony)
+    return _act(control.drop_story, int(body["story_id"]),
+                reason=str(body.get("reason") or ""),
+                notion_status=(body.get("notion_status") or None))
+
+
+@app.post("/api/act/restore")
+def act_restore(body: dict = Body(...), x_colony: str | None = Header(None)) -> dict[str, Any]:
+    _guard(x_colony)
+    return _act(control.restore_story, int(body["story_id"]))
+
+
+@app.post("/api/act/notion")
+def act_notion(body: dict = Body(...), x_colony: str | None = Header(None)) -> dict[str, Any]:
+    """Queue one write upward. The tick sends it; this only writes a row."""
+    _guard(x_colony)
+    kind = str(body.get("kind") or "comment")
+    payload = {k: body[k] for k in ("status", "text", "item", "checked") if k in body}
+    return _act(control.queue_notion, story_id=int(body["story_id"]), kind=kind,
+                payload=payload)
+
+
+@app.post("/api/act/notion-write")
+def act_notion_write(body: dict = Body(...),
+                     x_colony: str | None = Header(None)) -> dict[str, Any]:
+    """The switch for the whole upward direction. Off holds the queue, never drops it."""
+    _guard(x_colony)
+    return _act(control.set_notion_write, bool(body["on"]))
+
+
+@app.post("/api/act/reask")
+def act_reask(body: dict = Body(...), x_colony: str | None = Header(None)) -> dict[str, Any]:
+    """Send a stale question back to Ordis rather than answer the wrong question."""
+    _guard(x_colony)
+    return _act(control.reask, int(body["escalation_id"]))
+
+
+@app.get("/api/outbox")
+def api_outbox() -> dict[str, Any]:
+    """What the colony has said upward lately, and what is still waiting."""
+    conn = _conn()
+    try:
+        return {"rows": outbox_mod.recent(conn, 25), **outbox_mod.depth(conn)}
+    finally:
+        conn.close()
 
 
 @app.get("/api/skill")

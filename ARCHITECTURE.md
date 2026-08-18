@@ -751,7 +751,7 @@ the next piece.
 | M2 ✅ | **Dashboard, read view** | FastAPI + SSE + pywebview, all panels except approvals | The always-open window; the thing you actually wanted |
 | M3 ✅ | **Hiring + gates** | Staffing from the roster, worktree isolation, write-capable dispatch, Inbox approvals, HALT + allowance | Real autonomous work with a safety rail |
 | M4 ✅ | **Skill forge** | Detection, drafting, promotion, tokens-saved tracking | The compounding loop turns on |
-| M5 | **Two-way Notion** | Loop-authored stories and questions push up as comments | The backlog stops being two places |
+| M5 ✅ | **Two-way Notion** | Checklist memory, stale escalations, a queued write path, dropping | The backlog stops being two places |
 
 **Start at M0 and M1.** They're cheap, they're safe, and a week of pulse logs is the data
 that tells us whether the bar in §4.6 is set correctly and what a token actually buys —
@@ -767,10 +767,12 @@ colony-dash/
                  005 PO replies — po_messages, escalations.snoozed_until
                  006 skill forge — skill_uses, detector + draft columns, new verbs
                  007 draft requests — skills.draft_requested_at
+                 008 two-way Notion — notion_outbox, checklist halves, staleness, drops
     db.py        WAL, foreign keys, hash-checked append-only migrations
     seed.py      investigator + reviewer contracts, sprint 1
     roster.py    scans ~/.agency-agents into `roster`; FTS search
-    notion.py    stdlib REST client for the intake board (read-only)
+    notion.py    stdlib REST client for the intake board — reads, and four writes
+    outbox.py    the queue between a PO decision and a Notion HTTP call
     pulse.py     the two-tier heartbeat
     wake.py      the wake tier — grooming, budget guard, retry cap
     agent.py     the only code that spends tokens: one `claude -p` invocation
@@ -1042,3 +1044,92 @@ unreferenced SKILL.md is inert.
 drafts, which meant the forge panel went empty exactly when the forge had *succeeded* — the
 same failure the Files panel had in §10.5. Once a skill is promoted, what the PO wants to see
 is what it has earned since.
+
+### 10.7 What building the two-way link taught us
+
+M5 started as three separate complaints — the Inbox kept asking about work that was already
+finished, there was no way to change anything from a phone, and a story you had decided against
+sat on the board forever. They turned out to be one bug wearing three coats: **the colony had no
+memory of which version of a story it was talking about.**
+
+**An escalation is prose written at a moment.** "This cannot start until you decide X" is true
+the hour it is raised and false an hour later, once you have gone and decided X in Notion. The
+text does not know that. `escalations.raised_hash` records the version of the story the question
+was written against, and `stale_at` marks the moment the story moved past it. Nothing rewrites
+the prose — you cannot amend a question after the fact and still call it a record of what was
+asked — but the tile now knows it is talking about a page that no longer exists.
+
+**Stale is a flag, not a delete.** The obvious fix is to drop the escalation when the story
+changes. It is also wrong: the colony really was confused, and erasing the evidence erases the
+one signal that says the grooming prompt needs work. Stale questions sort to the back, hide
+behind a toggle, and keep a **re-ask** button, which is the only honest answer to a question
+about last week: not yes, not no, but *go and read it again*.
+
+**A checklist has two halves and the ledger only kept one.** `fetch_page_body` flattened
+`- [x] merge the databases` and `- [ ] decide the retention window` into the same kind of
+string, so the ledger could see the sentence but not the checkbox. Every downstream symptom
+followed from that: the groom prompt could not tell an agent what was already done, so the agent
+asked; the board could not show progress, so you had to open Notion to find out you had already
+finished. `done_items` / `open_items` are stored separately and **both** feed the content hash,
+which is what makes a ticked box a change the colony notices at all.
+
+**The fix for re-asking about finished work is not cleverness, it is a heading.** The groom
+prompt now opens with ALREADY DONE (n) — *treat these as closed, do not re-raise them, do not
+ask about them, do not put them in criteria* — before STILL OPEN (n). No model reasoning
+required; the information simply was not in the prompt before.
+
+**Clearing a field is not the same as re-queueing the work.** Un-parking a story meant setting
+`acceptance_criteria = NULL` so `GROOMABLE_WHERE` would pick it up again — except the same
+predicate caps grooming at two attempts per story, and the story had already spent both. The
+first repair attempt was to compare timestamps (`t.created_at >= stories.updated_at`), which
+reads correctly and is silently always-true, because `groom_story` stamps `updated_at` *after*
+creating the ticket. The working version marks the superseded groom tickets `wontfix` and counts
+only tickets that are not: an explicit fact in a row, rather than an inference from two clocks.
+
+**control.py still does no network I/O.** The same rule that made skill drafting a queued
+request in §10.6 makes every Notion write a `notion_outbox` row: the button writes the row, the
+tick performs the HTTP. That buys retries, an audit trail of everything the colony has said
+upward, and a switch that holds the queue instead of dropping it. It also means a Notion outage
+costs a delay rather than a decision — and `flush()` never raises, because a tick that dies
+because Notion was slow is a tick that stops doing the eleven other free things it was going to
+do.
+
+**HALT is not the Notion switch.** HALT means *spend nothing*, and a comment on a page is not a
+token. A halted colony that also went silent upward would look broken to anyone reading the
+board on their phone, when what it actually is is paused. `controls.notion_write` is separate,
+and either can be on while the other is off.
+
+**Sync before flush, and the newer side wins.** A status set on a phone at 9am must land in the
+ledger before the colony overwrites it with one queued yesterday. `_tick` syncs first and
+flushes second for exactly this reason; it is a merge, not a push.
+
+**The colony's Notion vocabulary is deliberately tiny.** Set a status, tick a checkbox, leave a
+comment. It may not create rows, delete rows, or edit the brief — the brief is the one artefact
+that is unambiguously the PO's. `"In Progress"` is excluded from `WRITABLE_STATUS` for a
+sharper reason than tidiness: it is the status the intake filter selects on, so a loop able to
+write it could feed itself work forever.
+
+**Dropping had to be reversible to be usable.** A drop that deleted anything would be a decision
+nobody makes at 11pm. It archives, records *why* — the prompt refuses to proceed without a
+reason, because six months later the reason is the only part anyone wants — closes the open
+questions, cancels the waiting tickets, and stays restorable. It refuses outright on an
+`in-progress` story: a running ticket has a worktree and a budget attached, and archiving the
+story out from under it orphans both.
+
+**Colour was doing no work.** Every panel title was `--ink-dim`, which made eleven sections read
+as one grey mumble; finding STANDBY meant reading the words. The section hues are derived from
+the four accent tokens with `color-mix` rather than written per theme, so all thirty-six
+palettes get them without any of them drifting out of key with its own ground — and the 3px bar
+down the left of each title is the part that actually carries at 11px mono.
+
+**A picker sorted by change recency is a picker you cannot use.** The folder dropdown fell back
+to the working-tree scan when `/api/projects` had not arrived, and that list is ordered by what
+moved most recently — perfect for "what did I touch today", useless for "find job-search in this
+list". Sorting at the point of render rather than trusting either source is the fix that stays
+fixed.
+
+**What you look at is not what runs.** The view menu writes localStorage and nothing else.
+Hiding a panel does not stop the colony filling it, and nothing about the choice reaches the
+server — a page that phoned home about which panels you had open would be a page you could not
+trust to be only a page. Panels default on and detail defaults off, so a panel added later
+appears for someone who has been using the menu for months.
