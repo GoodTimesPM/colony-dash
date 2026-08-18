@@ -750,7 +750,7 @@ the next piece.
 | M1 ✅ | **Pulse, read-only** | `pulse.py`, tick/wake tiers, Notion sync, grooming dispatch | Daily automated status, zero write risk, near-zero tokens |
 | M2 ✅ | **Dashboard, read view** | FastAPI + SSE + pywebview, all panels except approvals | The always-open window; the thing you actually wanted |
 | M3 ✅ | **Hiring + gates** | Staffing from the roster, worktree isolation, write-capable dispatch, Inbox approvals, HALT + allowance | Real autonomous work with a safety rail |
-| M4 | **Skill forge** | Detection, drafting, promotion, tokens-saved tracking | The compounding loop turns on |
+| M4 ✅ | **Skill forge** | Detection, drafting, promotion, tokens-saved tracking | The compounding loop turns on |
 | M5 | **Two-way Notion** | Loop-authored stories and questions push up as comments | The backlog stops being two places |
 
 **Start at M0 and M1.** They're cheap, they're safe, and a week of pulse logs is the data
@@ -765,6 +765,8 @@ colony-dash/
     migrations/  001 schema · 002 chargeable tokens · 003 structural uniqueness
                  004 M3 control — po_actions, controls, project_changes, tickets
                  005 PO replies — po_messages, escalations.snoozed_until
+                 006 skill forge — skill_uses, detector + draft columns, new verbs
+                 007 draft requests — skills.draft_requested_at
     db.py        WAL, foreign keys, hash-checked append-only migrations
     seed.py      investigator + reviewer contracts, sprint 1
     roster.py    scans ~/.agency-agents into `roster`; FTS search
@@ -775,6 +777,7 @@ colony-dash/
     control.py   every PO decision; the only module allowed to change state
     worktree.py  a throwaway git worktree per ticket; the write blast radius
     build.py     a staffed ticket → a patch waiting for approval
+    forge.py     detect / draft / promote / measure — the compounding loop
     projects.py  one `git status` for the whole tree, bucketed by path
     mirror.py    full-refresh ledger → MySQL
     server.py    FastAPI, read-only connections, SSE change feed, /api/act/*
@@ -784,7 +787,7 @@ colony-dash/
     ui/index.html  the whole front end — one file, no build step
     ui/colony.ico  generated; the taskbar mark
     cli.py       init / status / roster / agents / sql / pulse / mirror / dash
-                 halt / resume / allowance / projects / shortcut / schedule
+                 halt / resume / allowance / projects / shortcut / schedule / forge
     proc.py      every subprocess goes through here; no console window ever
     schedule.py  installs the hourly task under pythonw.exe, hidden
   .colony/ledger.db             gitignored; the ledger
@@ -988,3 +991,54 @@ able from a button that does nothing. It now writes `snoozed_until`, the tile di
 sorts to the bottom — the state is visible, and un-snooze is the same call with
 `snooze_hours: 0`. (Which is why the server reads it with an explicit `is None` check:
 `or 8` would silently turn un-snooze back into a snooze.)
+
+### 10.6 What building the forge taught us
+
+**Detection belongs in the tick, not the wake.** The first sketch had the forge scanning for
+candidates after each wake, which is where the runs it reads come from. But detection is pure
+SQL over work already paid for, and a thing that costs nothing has no business waiting behind
+a budget guard. Running it in the tick means a HALTed colony still *notices* that a procedure
+is emerging — which is right, because noticing is not doing. A new candidate is also
+deliberately not a reason to wake. It sits there until the PO asks for it.
+
+**Asking for a draft and paying for one are separate events.** `control.py`'s second rule is
+that nothing in it spends tokens, and the obvious implementation of a "draft this" button
+breaks that rule in one line. So the button writes `draft_requested_at` and the next wake does
+the work, behind the same budget check as everything else. The PO gets a queued acknowledgement
+instead of a spinner, a mis-click costs nothing, and the gate and the spender stay separate
+exactly as they do for dispatch. The column is a timestamp rather than a flag because
+"asked at 14:02, still not drafted" is a question a boolean cannot answer.
+
+**The forge is allowed to decline its own candidate.** The draft prompt asks for `worth_it`,
+and a false answer retires the candidate on the spot with its reason attached. Three runs that
+succeeded easily and identically teach nothing, and a skill that restates the obvious is a
+permanent tax on every future run's context window. The cheapest place for a bad idea to die
+is before a file exists.
+
+**`tokens_saved` had to be derived, or nobody would believe it.** A single counter that only
+ever goes up is unfalsifiable. `skill_uses` records one row per run that loaded a skill, with
+the baseline it was measured against, so the headline figure can always be taken apart into the
+runs that produced it — and a saving is allowed to be negative, because a skill that makes runs
+*more* expensive has to be able to say so.
+
+**A skill loaded into a failed run is a loss.** `record_uses` is called before the early
+returns in `groom_story`, not after them. Recording only the runs that finished would mean the
+win rate measures the runs the skill was already winning, which is how a metric quietly stops
+measuring anything. For the same reason `killed-over-budget` counts as a success: those runs
+produced their answer, and excluding them would hide exactly the runs a shortcut skill helps.
+
+**The detector that proposed a skill is kept.** `skills.detector` survives retirement, because
+the useful long-run question is not "which skill failed" but "which signal keeps proposing
+worthless skills" — unanswerable without it.
+
+**The whitelist goes where the string becomes a path.** `write_skill_file()` re-validates the
+slug even though it came out of the same row `promote_skill` just read. The row is not the
+boundary; the `Path` join is. Promotion also writes the file *last* in the transaction, so a
+failed write rolls the ledger back rather than leaving a `skills` row pointing at a path that
+does not exist. The reverse residue — file on disk, COMMIT failed — is the lesser harm: an
+unreferenced SKILL.md is inert.
+
+**The panel shows active skills, not only pending ones.** The M2 stub listed candidates and
+drafts, which meant the forge panel went empty exactly when the forge had *succeeded* — the
+same failure the Files panel had in §10.5. Once a skill is promoted, what the PO wants to see
+is what it has earned since.

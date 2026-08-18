@@ -675,3 +675,119 @@ def cancel_ticket(conn: sqlite3.Connection, ticket_id: int) -> dict[str, Any]:
                      (t["story_id"],))
         _event(conn, t["story_id"], "note", "PO cancelled the queued ticket")
     return {"ok": True}
+
+
+# ── the forge (M4) ────────────────────────────────────────────────────────────
+#
+# Three gates, and the middle one is the reason the other two are cheap. Asking
+# for a draft costs nothing (the next wake pays); promoting writes a file; and
+# retiring is how a skill that stopped earning its context window gets removed.
+# Detection is not here at all — it is free, it runs on the pulse, and it needs
+# no permission to notice something.
+
+
+def request_draft(conn: sqlite3.Connection, skill_id: int) -> dict[str, Any]:
+    """Ask Ordis to write this candidate up. Queued, not spent — see forge.py."""
+    row = conn.execute("SELECT * FROM skills WHERE id = ?", (skill_id,)).fetchone()
+    if not row:
+        raise Refused("no such skill")
+    if row["status"] != "candidate":
+        raise Refused(f"that skill is already {row['status']} — only a candidate can be drafted")
+    if row["draft_requested_at"]:
+        raise Refused("already queued; the next wake will draft it")
+
+    _record(conn, "draft-skill", "skill", skill_id, row["name"])
+    conn.execute("UPDATE skills SET draft_requested_at = datetime('now','localtime') WHERE id = ?",
+                 (skill_id,))
+    return {"ok": True, "queued": True, "slug": row["slug"],
+            "outcome": "Ordis drafts it on the next wake"}
+
+
+def promote_skill(conn: sqlite3.Connection, skill_id: int,
+                  roles: list[str] | None = None) -> dict[str, Any]:
+    """Put a drafted skill on disk and attach it to the roles that will load it.
+
+    The one PO action in this file with an effect outside the ledger. The order
+    matters: the decision is recorded, the row is updated, and the file is
+    written *last* — so a failed write rolls the whole transaction back and
+    never leaves a `skills` row pointing at a path that does not exist. The
+    reverse residue (a written file whose COMMIT then failed) is the lesser
+    harm: an unreferenced SKILL.md is inert until something attaches it.
+    """
+    from . import forge
+
+    row = conn.execute("SELECT * FROM skills WHERE id = ?", (skill_id,)).fetchone()
+    if not row:
+        raise Refused("no such skill")
+    if row["status"] != "drafted":
+        raise Refused(f"that skill is {row['status']} — only a drafted skill can be promoted. "
+                      "Ask for a draft first.")
+    if not (row["draft_md"] or "").strip():
+        raise Refused("the draft is empty — there is nothing to promote")
+
+    roles = [r.strip() for r in (roles or ["ordis"]) if r and r.strip()]
+    if not roles:
+        raise Refused("name at least one role to attach it to (ordis counts)")
+
+    _record(conn, "promote-skill", "skill", skill_id, f"{row['name']} -> {', '.join(roles)}")
+    try:
+        path = forge.skill_path(row["slug"])
+    except ValueError as exc:
+        raise Refused(str(exc)) from exc
+
+    conn.execute(
+        """UPDATE skills SET status = 'active', path = ?, roles = ?,
+                  promoted_at = datetime('now','localtime') WHERE id = ?""",
+        (str(path), json.dumps(roles), skill_id),
+    )
+    attached = forge.attach(conn, row["slug"], roles)
+    forge.write_skill_file(row["slug"], row["draft_md"])
+    return {"ok": True, "slug": row["slug"], "path": str(path), "roles": attached,
+            "outcome": f"active for {', '.join(attached) or 'nobody yet'}"}
+
+
+def retire_skill(conn: sqlite3.Connection, skill_id: int, reason: str = "") -> dict[str, Any]:
+    """Take a skill out of circulation. The file stays; nothing loads it.
+
+    Deliberately not a delete. A retired skill is evidence about which detector
+    keeps proposing things that do not work, and that question is only
+    answerable if the retired rows are still there to count.
+    """
+    from . import forge
+
+    row = conn.execute("SELECT * FROM skills WHERE id = ?", (skill_id,)).fetchone()
+    if not row:
+        raise Refused("no such skill")
+    if row["status"] == "retired":
+        raise Refused("already retired")
+
+    reason = (reason or "").strip() or "no longer earning its context window"
+    _record(conn, "retire-skill", "skill", skill_id, f"{row['name']}: {reason}"[:400])
+    conn.execute(
+        """UPDATE skills SET status = 'retired', retired_at = datetime('now','localtime'),
+                  retire_reason = ?, draft_requested_at = NULL WHERE id = ?""",
+        (reason[:400], skill_id),
+    )
+
+    # Detach from every contract that carried it, or the next run still loads a
+    # procedure the PO just judged wrong.
+    for agent_row in conn.execute(
+        "SELECT id, skills FROM agents WHERE skills LIKE ?", (f'%"{row["slug"]}"%',)
+    ).fetchall():
+        kept = [s for s in json.loads(agent_row["skills"] or "[]") if s != row["slug"]]
+        conn.execute("UPDATE agents SET skills = ? WHERE id = ?",
+                     (json.dumps(kept), agent_row["id"]))
+
+    return {"ok": True, "slug": row["slug"], "outcome": f"retired — {reason}"}
+
+
+def skill_draft(conn: sqlite3.Connection, skill_id: int) -> dict[str, Any]:
+    """Read one skill's draft, for the drawer. Read-only; not a PO action."""
+    row = conn.execute(
+        "SELECT id, name, slug, status, summary, detector, trigger_when, draft_md, path, "
+        "roles, evidence_runs, baseline_tokens, times_used, wins, losses, tokens_saved "
+        "FROM skills WHERE id = ?", (skill_id,)
+    ).fetchone()
+    if not row:
+        raise Refused("no such skill")
+    return dict(row)

@@ -380,6 +380,39 @@ body.beating .ordis-head .sigil { animation: breathe 3.6s ease-in-out infinite; 
 .agent .ceiling[data-state="hot"] i { background: var(--coral); }
 .agent .row-acts { display: flex; gap: 6px; margin-top: 5px; }
 
+/* ── the forge ────────────────────────────────────────────────────────────── */
+/* A skill card carries its status as colour on the left edge, because the three
+   states mean three different things to the reader: a draft is waiting on you,
+   a candidate is waiting on nothing, and an active one is only reporting. */
+.skill {
+  display: flex; flex-direction: column; gap: 5px;
+  padding: 8px 10px; border-radius: 6px;
+  background: var(--panel-sunk); border-left: 2px solid var(--rule);
+}
+.skill.drafted   { border-left-color: var(--amber); }
+.skill.candidate { border-left-color: var(--rule); }
+.skill.active    { border-left-color: var(--mint); }
+.skill-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.skill-head .mono { flex: 1 1 auto; min-width: 0; color: var(--ink); }
+.skill .row-acts { display: flex; gap: 6px; margin-top: 3px; flex-wrap: wrap; }
+.skill .said {
+  border-left: 2px solid var(--violet); padding: 3px 0 3px 8px;
+  font-size: var(--step--1); color: var(--ink-soft);
+}
+.skill .waiting {
+  font-family: var(--mono); font-size: 10px; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--violet); align-self: center;
+}
+.tiny { font-size: 10px; letter-spacing: .04em; }
+.pill {
+  font-family: var(--mono); font-size: 9px; letter-spacing: .1em; text-transform: uppercase;
+  padding: 1px 6px; border-radius: 999px; border: 1px solid var(--rule); color: var(--ink-dim);
+  white-space: nowrap;
+}
+.pill.drafted { border-color: var(--amber); color: var(--amber); }
+.pill.active  { border-color: var(--mint);  color: var(--mint); }
+.pill.bad     { border-color: var(--coral); color: var(--coral); }
+
 .pulsing { animation: breathe 2.4s ease-in-out infinite; }
 @keyframes breathe { 0%,100% { opacity: 1 } 50% { opacity: .45 } }
 @media (prefers-reduced-motion: reduce) { .pulsing, .ordis-head .sigil { animation: none } .gauge i { transition: none } }
@@ -1605,16 +1638,129 @@ function renderPulses(rows) {
   }
 }
 
-function renderForge(items) {
+// The forge reads bottom-up on purpose: drafts first (something is waiting on
+// you), then candidates (something could be), then what the active ones earned.
+// The server already sorts it that way; this only has to not undo it.
+const DETECTOR_LABEL = {
+  "repeat": "seen 3+ times",
+  "recovery": "failed, then worked",
+  "shortcut": "came in cheap",
+  "po-correction": "you kept fixing it",
+};
+
+function renderForge(f) {
   const box = $("forge");
+  const items = (f && f.skills) || [];
+  const decaying = new Set((f && f.decaying) || []);
   box.replaceChildren();
-  $("forge-count").textContent = items.length || "";
-  if (!items.length) { box.append(el("div", "empty", "no candidates — the forge turns on at M4")); return; }
+  $("forge-count").textContent = f && f.tokens_saved ? toks(f.tokens_saved) + " saved" : "";
+
+  if (!items.length) {
+    box.append(el("div", "empty",
+      "nothing yet — the forge proposes a skill once a procedure repeats"));
+    return;
+  }
+
   for (const s of items) {
-    const d = el("div");
-    d.append(el("div", "mono", s.name), el("div", "dim", s.summary || ""),
-             el("div", "mono dim", toks(s.tokens_saved) + " tok saved"));
-    box.append(d);
+    const card = el("div", "skill " + s.status);
+    const head = el("div", "skill-head");
+    head.append(el("span", "mono", s.name));
+    head.append(el("span", "pill " + s.status, s.status));
+    if (decaying.has(s.slug)) head.append(el("span", "pill bad", "decaying"));
+    card.append(head);
+
+    if (s.detector) {
+      card.append(el("div", "dim tiny", DETECTOR_LABEL[s.detector] || s.detector));
+    }
+    if (s.summary) card.append(el("div", "dim", s.summary));
+    if (s.trigger_when) card.append(el("div", "said", s.trigger_when));
+
+    if (s.status === "active") {
+      const n = s.wins + s.losses;
+      card.append(el("div", "mono dim tiny",
+        `${s.times_used} run(s) · ${n ? s.wins + "/" + n + " won · " : ""}` +
+        `${toks(s.tokens_saved)} tok saved`));
+    }
+
+    const bar = el("div", "row-acts");
+    if (s.status === "candidate") {
+      if (s.draft_requested_at) {
+        bar.append(el("span", "waiting", "Ordis drafts it on the next wake"));
+      } else {
+        const b = el("button", "act go", "ask for a draft");
+        b.title = "costs nothing now — the next wake writes it";
+        b.onclick = () => act("draft-skill", { skill_id: s.id });
+        bar.append(b);
+      }
+    } else if (s.status === "drafted") {
+      const read = el("button", "act go", "read + promote");
+      read.onclick = () => openSkill(s.id);
+      bar.append(read);
+    } else {
+      const read = el("button", "act", "read");
+      read.onclick = () => openSkill(s.id);
+      bar.append(read);
+    }
+    if (s.status !== "candidate" || s.draft_requested_at) {
+      const drop = el("button", "act no", s.status === "active" ? "retire" : "discard");
+      drop.onclick = () => act("retire-skill", { skill_id: s.id });
+      bar.append(drop);
+    }
+    card.append(bar);
+    box.append(card);
+  }
+}
+
+// The promotion gate. It is the only PO action in the dashboard that writes a
+// file outside the ledger, so the draft is shown in full first — approving a
+// procedure you have not read is the failure mode the gate exists to prevent.
+async function openSkill(id) {
+  const body = openDrawer("skill #" + id, "", { wide: true });
+  let s;
+  try { s = await getJSON("/api/skill?id=" + id); }
+  catch { body.replaceChildren(el("div", "empty", "could not load skill " + id)); return; }
+
+  $("d-eyebrow").textContent = `skill · ${s.status}` + (s.detector ? ` · ${s.detector}` : "");
+  $("d-title").textContent = s.name;
+  body.replaceChildren();
+
+  const facts = el("dl", "kv");
+  const add = (k, v) => { facts.append(el("dt", null, k), el("dd", null, v)); };
+  add("slug", s.slug);
+  add("proposed by", DETECTOR_LABEL[s.detector] || s.detector || "—");
+  if (s.trigger_when) add("loads when", s.trigger_when);
+  add("evidence", JSON.parse(s.evidence_runs || "[]").map((r) => "#" + r).join(", ") || "—");
+  if (s.baseline_tokens) add("baseline", toks(s.baseline_tokens) + " tok / run");
+  if (s.path) add("on disk", s.path);
+  if (s.roles) add("attached to", JSON.parse(s.roles).join(", "));
+  body.append(facts);
+
+  if (s.summary) body.append(sectionBlock("why it was proposed", s.summary));
+  body.append(sectionBlock("the draft", s.draft_md || "(nothing drafted yet)"));
+
+  if (s.status === "drafted") {
+    const wrap = el("div", "blk");
+    wrap.append(el("div", "lb", "promote — this writes the file"));
+    const who = el("input", "search");
+    who.value = "ordis, investigator";
+    who.placeholder = "roles to attach it to, comma separated";
+    wrap.append(who);
+    const bar = el("div", "row-acts");
+    const go = el("button", "act go", "promote");
+    go.onclick = async () => {
+      go.disabled = true;
+      const out = await act("promote-skill", { skill_id: id, roles: who.value });
+      if (out) { toast(out.outcome || "promoted", "good"); closeDrawer(); }
+      else go.disabled = false;
+    };
+    const no = el("button", "act no", "discard this draft");
+    no.onclick = async () => {
+      const out = await act("retire-skill", { skill_id: id, reason: "PO discarded the draft" });
+      if (out) closeDrawer();
+    };
+    bar.append(go, no);
+    wrap.append(bar);
+    body.append(wrap);
   }
 }
 

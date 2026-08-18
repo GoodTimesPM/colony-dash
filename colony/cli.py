@@ -298,6 +298,42 @@ def cmd_pulse(conn: sqlite3.Connection, args) -> int:
     return pulse_mod.run(conn, dry_run=args.dry_run, allow_wake=not args.no_wake)
 
 
+def cmd_forge(conn: sqlite3.Connection, args) -> int:
+    """The forge, in text. Detection is free, so `--detect` costs nothing."""
+    from . import control, forge
+
+    if args.draft:
+        try:
+            out = control.request_draft(conn, args.draft)
+        except control.Refused as exc:
+            print(f"refused: {exc}")
+            return 1
+        conn.commit()
+        print(f"queued   {out['slug']} — {out['outcome']}")
+        return 0
+
+    if args.detect:
+        found = forge.detect(conn)
+        conn.commit()
+        print(f"detected {len(found)} new candidate(s)")
+
+    board = forge.board(conn)
+    rule("forge")
+    if not board["skills"]:
+        print("  nothing yet — a skill is proposed once a procedure repeats")
+        return 0
+    for s in board["skills"]:
+        flag = " !" if s["slug"] in board["decaying"] else "  "
+        queued = " (draft queued)" if s["draft_requested_at"] else ""
+        print(f"{flag}#{s['id']:<3} {s['status']:<10} {s['name'][:44]:<46}"
+              f"{(s['detector'] or ''):<14}{queued}")
+        if s["summary"]:
+            print(f"      {s['summary'][:100]}")
+    print()
+    print(f"  {board['tokens_saved']:,} tokens saved across every run that loaded one")
+    return 0
+
+
 def cmd_schedule(conn: sqlite3.Connection, args) -> int:
     """Install, inspect or remove the hourly heartbeat."""
     from . import schedule as sched
@@ -407,6 +443,13 @@ def build_parser() -> argparse.ArgumentParser:
     pul.add_argument("--no-wake", action="store_true",
                      help="tick only — never spawn an agent, guaranteeing zero tokens")
     pul.set_defaults(func=cmd_pulse)
+
+    frg = sub.add_parser("forge", help="what the skill forge has noticed")
+    frg.add_argument("--detect", action="store_true",
+                     help="re-run detection now instead of waiting for the next tick")
+    frg.add_argument("--draft", type=int, metavar="ID",
+                     help="queue a candidate for drafting on the next wake")
+    frg.set_defaults(func=cmd_forge)
 
     sch = sub.add_parser("schedule", help="install the hourly pulse as a hidden task")
     sch.add_argument("--show", action="store_true", help="report the task, change nothing")

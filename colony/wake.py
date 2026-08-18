@@ -24,7 +24,7 @@ import json
 import os
 import sqlite3
 
-from . import agent, build as build_mod, control, db, pulse as pulse_mod
+from . import agent, build as build_mod, control, db, forge as forge_mod, pulse as pulse_mod
 
 # How many stories one wake may groom. A wake is coalescing — an hour with six
 # new stories is one wake — so this is the throttle that keeps a bulk Notion
@@ -32,6 +32,11 @@ from . import agent, build as build_mod, control, db, pulse as pulse_mod
 GROOM_LIMIT = int(os.environ.get("COLONY_GROOM_LIMIT", "2"))
 
 GROOM_TIMEOUT_S = int(os.environ.get("COLONY_GROOM_TIMEOUT", "420"))
+
+# How many skill drafts one wake will write. One is almost always right: a draft
+# is a PO request, and a PO who queued four of them still wants to read the first
+# before paying for the rest.
+FORGE_DRAFT_LIMIT = int(os.environ.get("COLONY_FORGE_LIMIT", "1"))
 
 
 def contract(conn: sqlite3.Connection, role: str) -> dict | None:
@@ -171,7 +176,11 @@ def _event(conn, story_id, kind, summary, detail=None, ticket_id=None, tokens=0)
 def groom_story(conn: sqlite3.Connection, story: sqlite3.Row, terms: dict,
                 projects: list[str]) -> dict:
     """One story, one spawned agent, one outcome recorded."""
-    prompt = groom_prompt(story, projects)
+    # Whatever the forge has promoted for this role rides in front of the work
+    # order. This is the only place a skill has any effect at all — an active
+    # skill that no run loads is a file, not a capability.
+    skills = forge_mod.active_for(conn, terms["role"])
+    prompt = forge_mod.preamble(skills) + groom_prompt(story, projects)
     cur = conn.execute(
         """INSERT INTO tickets (story_id, title, intent, role, status, work_order, requires_po)
            VALUES (?,?,'research',?,'staffed',?,0)""",
@@ -195,6 +204,15 @@ def groom_story(conn: sqlite3.Connection, story: sqlite3.Row, terms: dict,
     outcome = {"story_id": story["id"], "title": story["title"],
                "tokens": result.chargeable_tokens, "raw_tokens": result.total_tokens,
                "status": result.status, "over_budget": result.over_budget, "verdict": None}
+
+    # Recorded whatever the outcome, and *before* the early returns below: a
+    # skill that was loaded into a run which then failed has to count as a loss,
+    # or the win rate only ever measures the runs the skill was already winning.
+    forge_mod.record_uses(
+        conn, skills=skills, run_id=result.raw.get("run_id"),
+        tokens=result.chargeable_tokens,
+        ok=result.status in ("ok", "killed-over-budget"),
+    )
 
     if result.over_budget:
         # Report the breach, keep the work. We have already paid for it; throwing
@@ -479,7 +497,8 @@ def unanswered_count(conn: sqlite3.Connection) -> int:
 
 def run(conn: sqlite3.Connection, usage: dict | None) -> dict:
     """Do the wake. Returns what happened, for the pulse row and the printout."""
-    report = {"groomed": [], "built": [], "answered": [], "tokens": 0, "skipped": None}
+    report = {"groomed": [], "built": [], "answered": [], "forged": [], "candidates": [],
+              "tokens": 0, "skipped": None}
 
     if control.is_halted():
         # Belt-and-braces: the tick already refuses to escalate to a wake while
@@ -507,6 +526,14 @@ def run(conn: sqlite3.Connection, usage: dict | None) -> dict:
             report["answered"].append(outcome)
             report["tokens"] += outcome["tokens"]
 
+        # Then any skill draft the PO asked for. Ahead of grooming because it is
+        # bounded — one draft per requested candidate, and the request had to be
+        # made by hand — while the groom queue is however long Notion made it.
+        for skill in forge_mod.pending_drafts(conn)[:FORGE_DRAFT_LIMIT]:
+            outcome = forge_mod.draft(conn, skill["id"], terms)
+            report["forged"].append(outcome)
+            report["tokens"] += outcome["tokens"]
+
     if terms is not None and stories:
         projects = pulse_mod.candidate_projects()
         for story in stories:
@@ -522,6 +549,6 @@ def run(conn: sqlite3.Connection, usage: dict | None) -> dict:
         report["tokens"] += outcome["tokens"]
 
     if (not report["groomed"] and not report["built"] and not report["answered"]
-            and not report["skipped"]):
+            and not report["forged"] and not report["skipped"]):
         report["skipped"] = "nothing to groom and nothing dispatched"
     return report

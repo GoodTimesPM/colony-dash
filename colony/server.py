@@ -40,7 +40,7 @@ from typing import Any
 from fastapi import Body, FastAPI, Header, HTTPException, Query
 from fastapi.responses import HTMLResponse, StreamingResponse
 
-from . import control, db, projects as projects_mod, roster as roster_mod
+from . import control, db, forge, projects as projects_mod, roster as roster_mod
 
 UI_DIR = Path(__file__).resolve().parent / "ui"
 
@@ -279,12 +279,15 @@ def _pulses(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     )
 
 
-def _forge(conn: sqlite3.Connection) -> list[dict[str, Any]]:
-    return rows(
-        conn,
-        "SELECT id, name, slug, status, summary, times_used, wins, losses, tokens_saved "
-        "FROM skills WHERE status IN ('candidate','drafted') ORDER BY tokens_saved DESC",
-    )
+def _forge(conn: sqlite3.Connection) -> dict[str, Any]:
+    """The forge panel. Active skills are included, not just the pending ones.
+
+    The M2 stub listed candidates and drafts only, which made the panel go empty
+    exactly when the forge had succeeded — the same failure the Files panel had
+    (§10.5). What the PO wants to see once a skill is promoted is what it has
+    earned since.
+    """
+    return forge.board(conn)
 
 
 def _spend(conn: sqlite3.Connection) -> dict[str, Any]:
@@ -773,6 +776,43 @@ def act_dispatch(body: dict = Body(...), x_colony: str | None = Header(None)) ->
 def act_cancel(body: dict = Body(...), x_colony: str | None = Header(None)) -> dict[str, Any]:
     _guard(x_colony)
     return _act(control.cancel_ticket, int(body["ticket_id"]))
+
+
+@app.post("/api/act/draft-skill")
+def act_draft_skill(body: dict = Body(...), x_colony: str | None = Header(None)) -> dict[str, Any]:
+    """Ask for a candidate to be written up. Costs nothing now; the wake pays."""
+    _guard(x_colony)
+    return _act(control.request_draft, int(body["skill_id"]))
+
+
+@app.post("/api/act/promote-skill")
+def act_promote_skill(body: dict = Body(...),
+                      x_colony: str | None = Header(None)) -> dict[str, Any]:
+    """The third gate: put a drafted skill on disk and attach it to roles."""
+    _guard(x_colony)
+    roles = body.get("roles")
+    if isinstance(roles, str):
+        roles = [r for r in (part.strip() for part in roles.split(",")) if r]
+    return _act(control.promote_skill, int(body["skill_id"]), roles or ["ordis"])
+
+
+@app.post("/api/act/retire-skill")
+def act_retire_skill(body: dict = Body(...),
+                     x_colony: str | None = Header(None)) -> dict[str, Any]:
+    _guard(x_colony)
+    return _act(control.retire_skill, int(body["skill_id"]), str(body.get("reason") or ""))
+
+
+@app.get("/api/skill")
+def skill(id: int) -> dict[str, Any]:
+    """One skill, with its draft, for the drawer."""
+    conn = _conn()
+    try:
+        return control.skill_draft(conn, id)
+    except control.Refused as exc:
+        raise HTTPException(404, str(exc))
+    finally:
+        conn.close()
 
 
 @app.post("/api/act/rescan")
