@@ -1133,6 +1133,28 @@ is neon red and blue at 1am, not beige at noon; Y2K is a rave flyer, not the whi
 flyer was advertising. The test that survives: if you cannot name the theme from a strip of its
 own swatches, it is a duplicate wearing a costume.
 
+Running that test over the survivors rebuilt seventeen of the twenty-four. The failure mode it
+exposes is narrower than "they look alike": a theme drifts when it is written from its *mood*
+rather than its *reference*. Cyberpunk written from a mood is dark-and-neon; written from the
+reference it leads with an acid yellow, and the yellow is the entire recognition. Neon noir and
+cyberpunk are the same street — the difference is water, so neon noir has to be the *less*
+saturated of the two, which is the opposite of what writing-from-mood produces. Where a palette
+already exists in the world, quoting it beats approximating it: LCARS for bridge, polar night
+for fjord, P1 and P3 for the two CRTs. And a theme with a discipline should keep it all the way
+down — phosphor is one hue at four intensities, and its orange anomaly is a documented lie,
+because an alarm that reads as "slightly brighter green" is an alarm nobody sees.
+
+**Every palette is contrast-audited rather than eyeballed.** A theme is thirteen colours that
+have to hold four relationships: ink over ground at 4.5:1, and each of the four accents over its
+panel at 3:1. The audit runs over the parsed stylesheet, so a palette written at 2am is checked
+by the same standard as the rest. Exactly one failed — fjord's aurora red at 2.46 against the
+polar-night panel — and lifting it two steps off the published value is the right call every
+time, because an anomaly colour you have to go looking for is not an anomaly. The audit also
+catches the subtler fault: two accents close enough that amber and coral stop meaning different
+things. Daylight and basalt are exempt from all of this on purpose. They are what a viewer who
+never touches the picker sees, and being the neutral default *is* their identity — a system
+theme with a point of view is a point of view nobody chose.
+
 **A picker sorted by change recency is a picker you cannot use.** The folder dropdown fell back
 to the working-tree scan when `/api/projects` had not arrived, and that list is ordered by what
 moved most recently — perfect for "what did I touch today", useless for "find job-search in this

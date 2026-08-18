@@ -287,6 +287,21 @@ anything from a phone, and a story you had decided against sat on the board fore
       red with no hue anywhere else, and **meadow** got its sage mixed at pigment strength. The
       rule the trim taught: a theme has to be *nameable from its colours alone*, or it is a
       duplicate wearing a costume.
+      **Then the same rule was run over the twenty-four that were left**, and seventeen of them
+      were rebuilt from their reference rather than from "dark ground plus a hue": cyberpunk
+      leads with the acid yellow it is actually known for; neon noir is the same street seen
+      through rain, deliberately *less* saturated than its neighbour; miami's ground is the
+      purple the sky goes rather than navy; bridge quotes the LCARS palette outright; fjord
+      quotes the polar-night one; vault gets the rust and the warning lamp that separate a
+      machine from phosphor's bare tube; phosphor and ochre crt are strictly one hue at four
+      intensities; ink wash desaturates three accents to tinted greys so the vermilion anomaly
+      is the only saturated thing on screen; ember picks up the blue at the base of the flame;
+      dusk gets the rose horizon back. Every palette is contrast-audited in the same pass —
+      ink/ground at 4.5:1 and every accent at 3:1 against its panel. Fjord failed it (the
+      published aurora red scores 2.46) and its coral is lifted two steps, because an anomaly
+      colour you have to look for is not an anomaly. **Daylight and basalt were left alone on
+      purpose:** they are what a viewer who never opens the picker sees, and the neutral
+      default is their identity.
 - [x] **Section titles have colour.** Eleven headings in `--ink-dim` read as one grey mumble.
       The hues are derived from the four accents with `color-mix`, so every palette
       get them without drifting out of key, and the 3px bar down the left of each title is the
