@@ -1,0 +1,917 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Colony Dash</title>
+
+<!--
+  The read view. Every number on this page came out of the ledger; nothing here
+  can put anything back (M2 is read-only by construction — see server.py).
+
+  One typographic rule runs through the whole page: anything the ledger
+  *measured* is set in mono, anything a human *wrote* is set in sans. Token
+  counts, timestamps, roles, ids and statuses are machine facts; story titles,
+  findings and escalation reasons are prose. You can tell at a glance which
+  parts of the screen the colony is responsible for.
+
+  Colour is rationed. Amber belongs to the PO Inbox and nothing else, so a page
+  with any amber on it means something wants Jordan. Mint means live work.
+  Coral means an anomaly. Everything else is neutral by design: §9.2's rule is
+  that an empty Inbox should look like a system that needs nothing.
+-->
+
+<style>
+:root {
+  color-scheme: light dark;
+
+  --ground:      #F2F4F7;
+  --panel:       #FFFFFF;
+  --panel-sunk:  #EAEDF2;
+  --rule:        #DCE1E9;
+  --rule-soft:   #E8ECF1;
+  --ink:         #131A22;
+  --ink-soft:    #47525F;
+  --ink-dim:     #7A8593;
+
+  --amber:       #B26A00;
+  --amber-ground:#FDF3E2;
+  --mint:        #0E8C74;
+  --mint-ground: #E3F5F0;
+  --coral:       #C0392B;
+  --violet:      #6B5BC4;
+
+  --shadow: 0 1px 2px rgba(19,26,34,.06), 0 8px 24px -12px rgba(19,26,34,.18);
+
+  --mono: "Cascadia Code", "Cascadia Mono", Consolas, ui-monospace, "SFMono-Regular", monospace;
+  --sans: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif;
+
+  --step--1: 11px;
+  --step-0:  13px;
+  --step-1:  15px;
+  --step-2:  19px;
+  --step-3:  26px;
+}
+
+/* The un-stamped default: most viewers never touch a theme toggle, so the OS
+   preference has to carry the dark palette on its own. Guarded so an explicit
+   light choice still beats a dark OS. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ground:      #0B0F14;
+    --panel:       #121820;
+    --panel-sunk:  #0E141B;
+    --rule:        #1F2933;
+    --rule-soft:   #172029;
+    --ink:         #DEE5EC;
+    --ink-soft:    #9AA7B5;
+    --ink-dim:     #6B7885;
+
+    --amber:       #F0A63C;
+    --amber-ground:#231A0C;
+    --mint:        #6FE3C4;
+    --mint-ground: #0D2320;
+    --coral:       #E8674F;
+    --violet:      #A99BF0;
+
+    --shadow: 0 1px 0 rgba(255,255,255,.02), 0 12px 32px -18px #000;
+  }
+}
+:root[data-theme="dark"] {
+  --ground:      #0B0F14;
+  --panel:       #121820;
+  --panel-sunk:  #0E141B;
+  --rule:        #1F2933;
+  --rule-soft:   #172029;
+  --ink:         #DEE5EC;
+  --ink-soft:    #9AA7B5;
+  --ink-dim:     #6B7885;
+
+  --amber:       #F0A63C;
+  --amber-ground:#231A0C;
+  --mint:        #6FE3C4;
+  --mint-ground: #0D2320;
+  --coral:       #E8674F;
+  --violet:      #A99BF0;
+
+  --shadow: 0 1px 0 rgba(255,255,255,.02), 0 12px 32px -18px #000;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: var(--step-0);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+.mono, .num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.dim  { color: var(--ink-dim); }
+.soft { color: var(--ink-soft); }
+
+/* ── chrome ───────────────────────────────────────────────────────────────── */
+
+header.bar {
+  display: flex; align-items: baseline; gap: 14px;
+  padding: 12px 20px 10px;
+  border-bottom: 1px solid var(--rule);
+  background: var(--panel);
+}
+header.bar h1 {
+  margin: 0; font-family: var(--mono); font-size: var(--step-0);
+  font-weight: 600; letter-spacing: .16em; text-transform: uppercase;
+}
+header.bar .goal {
+  flex: 1; min-width: 0; color: var(--ink-soft);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.link {
+  background: none; border: 0; padding: 4px 8px; cursor: pointer;
+  color: var(--ink-dim); font-family: var(--mono); font-size: var(--step--1);
+  letter-spacing: .1em; text-transform: uppercase; border-radius: 5px;
+}
+.link:hover { color: var(--ink); background: var(--panel-sunk); }
+.link:focus-visible { outline: 2px solid var(--violet); outline-offset: 1px; }
+
+/* Connection state. A dashboard that has stopped receiving updates while still
+   showing numbers is telling you something it can't know — so say it plainly. */
+.conn { display: flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: var(--step--1); color: var(--ink-dim); }
+.conn .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--mint); }
+.conn[data-live="false"] { color: var(--coral); }
+.conn[data-live="false"] .dot { background: var(--coral); }
+
+/* ── sprint band ──────────────────────────────────────────────────────────── */
+
+.sprint {
+  display: grid; grid-template-columns: 1fr auto; gap: 6px 28px;
+  align-items: end; padding: 16px 20px 14px;
+  border-bottom: 1px solid var(--rule); background: var(--panel);
+}
+.sprint .figure { display: flex; align-items: baseline; gap: 10px; }
+.sprint .big { font-family: var(--mono); font-size: var(--step-3); font-weight: 600; letter-spacing: -.01em; }
+.sprint .meta { display: flex; gap: 22px; font-family: var(--mono); font-size: var(--step--1); color: var(--ink-dim); }
+.sprint .meta b { font-weight: 600; color: var(--ink-soft); }
+
+.gauge { grid-column: 1 / -1; height: 6px; background: var(--panel-sunk); border-radius: 3px; overflow: hidden; position: relative; }
+.gauge i { display: block; height: 100%; background: var(--mint); border-radius: 3px; transition: width .4s ease; }
+.gauge[data-state="warm"] i { background: var(--amber); }
+.gauge[data-state="hot"]  i { background: var(--coral); }
+
+/* ── layout ───────────────────────────────────────────────────────────────── */
+
+main {
+  display: grid;
+  grid-template-columns: minmax(230px, 260px) minmax(0, 1fr) minmax(300px, 340px);
+  gap: 14px; padding: 14px 20px 28px; align-items: start;
+}
+@media (max-width: 1180px) { main { grid-template-columns: minmax(0,1fr); } }
+
+.col { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+
+section.panel {
+  background: var(--panel); border: 1px solid var(--rule);
+  border-radius: 8px; box-shadow: var(--shadow); overflow: hidden;
+}
+.panel > h2 {
+  margin: 0; padding: 10px 13px 9px;
+  font-family: var(--mono); font-size: var(--step--1); font-weight: 600;
+  letter-spacing: .16em; text-transform: uppercase; color: var(--ink-dim);
+  border-bottom: 1px solid var(--rule-soft);
+  display: flex; align-items: center; gap: 8px;
+}
+.panel > h2 .count { margin-left: auto; color: var(--ink-soft); letter-spacing: 0; }
+.panel .body { padding: 11px 13px 13px; display: flex; flex-direction: column; gap: 9px; }
+.empty { color: var(--ink-dim); font-size: var(--step--1); padding: 2px 0 4px; }
+
+/* ── colony rail ──────────────────────────────────────────────────────────── */
+
+.agent { display: grid; grid-template-columns: 26px 1fr; gap: 9px; align-items: start; }
+.agent canvas { width: 26px; height: 26px; border-radius: 5px; image-rendering: pixelated; background: var(--panel-sunk); }
+.agent .who { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+.agent .role { font-family: var(--mono); font-size: var(--step-0); font-weight: 600; }
+.agent .scope { font-family: var(--mono); font-size: var(--step--1); color: var(--ink-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agent .line { font-size: var(--step--1); color: var(--ink-soft); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agent.idle { opacity: .62; }
+.agent .ceiling { height: 3px; background: var(--panel-sunk); border-radius: 2px; margin-top: 5px; overflow: hidden; }
+.agent .ceiling i { display: block; height: 100%; background: var(--mint); }
+.agent .ceiling[data-state="hot"] i { background: var(--coral); }
+
+.pulsing { animation: breathe 2.4s ease-in-out infinite; }
+@keyframes breathe { 0%,100% { opacity: 1 } 50% { opacity: .45 } }
+@media (prefers-reduced-motion: reduce) { .pulsing { animation: none } .gauge i { transition: none } }
+
+.search {
+  width: 100%; padding: 6px 9px; border-radius: 6px;
+  border: 1px solid var(--rule); background: var(--panel-sunk); color: var(--ink);
+  font-family: var(--mono); font-size: var(--step--1);
+}
+.search:focus-visible { outline: 2px solid var(--violet); outline-offset: -1px; border-color: transparent; }
+.persona { display: flex; gap: 7px; align-items: baseline; font-size: var(--step--1); }
+.persona .nm { color: var(--ink-soft); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.persona .dv { margin-left: auto; font-family: var(--mono); color: var(--ink-dim); font-size: 10px; }
+
+/* ── board ────────────────────────────────────────────────────────────────── */
+
+.flow { display: flex; gap: 0; padding: 0; border-bottom: 1px solid var(--rule-soft); overflow-x: auto; }
+.flow button {
+  flex: 1 0 auto; min-width: 84px; padding: 9px 10px 10px;
+  background: none; border: 0; border-right: 1px solid var(--rule-soft); cursor: pointer;
+  text-align: left; color: inherit; font: inherit;
+}
+.flow button:last-child { border-right: 0; }
+.flow button:hover { background: var(--panel-sunk); }
+.flow button[aria-pressed="true"] { background: var(--panel-sunk); box-shadow: inset 0 -2px 0 var(--violet); }
+.flow .n { display: block; font-family: var(--mono); font-size: var(--step-2); line-height: 1.1; }
+.flow .n.zero { color: var(--ink-dim); }
+.flow .lb { display: block; font-family: var(--mono); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-dim); }
+
+.story {
+  width: 100%; text-align: left; font: inherit; color: inherit; cursor: pointer;
+  background: none; border: 0; border-radius: 6px; padding: 8px 9px;
+  display: grid; grid-template-columns: 1fr auto; gap: 3px 12px;
+}
+.story:hover { background: var(--panel-sunk); }
+.story:focus-visible { outline: 2px solid var(--violet); outline-offset: -2px; }
+.story .t { font-size: var(--step-1); }
+.story .sub { grid-column: 1 / -1; display: flex; text-align: left; gap: 9px; align-items: center; font-family: var(--mono); font-size: var(--step--1); color: var(--ink-dim); flex-wrap: wrap; }
+
+.chip {
+  font-family: var(--mono); font-size: 10px; letter-spacing: .06em; text-transform: uppercase;
+  padding: 2px 6px; border-radius: 4px; background: var(--panel-sunk); color: var(--ink-soft); white-space: nowrap;
+}
+.chip.attn  { background: var(--amber-ground); color: var(--amber); }
+.chip.live  { background: var(--mint-ground);  color: var(--mint); }
+.chip.p1::before { content: "▲ "; }
+
+/* An inferred project is a guess the loop is not allowed to act on, so it must
+   never look like a confirmed one. Dotted underline = "nobody has said yes". */
+.guess { border-bottom: 1px dotted currentColor; }
+
+/* ── inbox ────────────────────────────────────────────────────────────────── */
+
+.panel.inbox { border-color: var(--amber); }
+.panel.inbox > h2 { color: var(--amber); border-bottom-color: var(--amber); }
+.panel.inbox.quiet { border-color: var(--rule); }
+.panel.inbox.quiet > h2 { color: var(--ink-dim); border-bottom-color: var(--rule-soft); }
+
+.esc { display: flex; flex-direction: column; gap: 3px; padding: 8px 9px; border-radius: 6px; background: var(--amber-ground); }
+.esc .k { font-family: var(--mono); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--amber); }
+.esc .r { font-size: var(--step-0); }
+.esc .rec { font-size: var(--step--1); color: var(--ink-soft); }
+.esc .meta { font-family: var(--mono); font-size: 10px; color: var(--ink-dim); }
+.esc button.open { align-self: flex-start; margin-top: 2px; }
+
+/* ── pulse log ────────────────────────────────────────────────────────────── */
+
+.pulse { display: grid; grid-template-columns: 44px 40px 1fr auto; gap: 8px; align-items: baseline;
+         font-family: var(--mono); font-size: var(--step--1); }
+.pulse .tier { color: var(--ink-dim); }
+.pulse[data-tier="wake"] .tier { color: var(--mint); }
+.pulse .find { color: var(--ink-soft); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pulse.gap { color: var(--coral); }
+.pulse.gap .find { color: var(--coral); }
+.pulse.rolled .find { color: var(--ink-dim); }
+
+/* ── spend ────────────────────────────────────────────────────────────────── */
+
+.spark { width: 100%; height: 34px; display: block; }
+.rolebar { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; font-family: var(--mono); font-size: var(--step--1); }
+.rolebar .track { grid-column: 1 / -1; height: 3px; background: var(--panel-sunk); border-radius: 2px; overflow: hidden; }
+.rolebar .track i { display: block; height: 100%; background: var(--violet); }
+
+/* ── drawer ───────────────────────────────────────────────────────────────── */
+
+.scrim { position: fixed; inset: 0; background: rgba(6,9,13,.42); opacity: 0; pointer-events: none; transition: opacity .18s ease; }
+.scrim.on { opacity: 1; pointer-events: auto; }
+.drawer {
+  position: fixed; top: 0; right: 0; height: 100%; width: min(560px, 94vw);
+  background: var(--panel); border-left: 1px solid var(--rule);
+  transform: translateX(100%); transition: transform .22s cubic-bezier(.2,.7,.3,1);
+  display: flex; flex-direction: column; z-index: 2;
+}
+.drawer.on { transform: none; }
+@media (prefers-reduced-motion: reduce) { .drawer, .scrim { transition: none } }
+.drawer header { display: flex; gap: 10px; align-items: flex-start; padding: 15px 17px 12px; border-bottom: 1px solid var(--rule); }
+.drawer header h3 { margin: 0; font-size: var(--step-2); font-weight: 600; }
+.drawer .scroll { overflow-y: auto; padding: 14px 17px 34px; display: flex; flex-direction: column; gap: 16px; }
+
+/* The timeline is the point of the drawer: not "where is this" but "what did we
+   find out, and when". `story_events` exists to make this readable. */
+.ev { display: grid; grid-template-columns: 13px 1fr; gap: 10px; }
+.ev .spine { display: flex; flex-direction: column; align-items: center; }
+.ev .node { width: 7px; height: 7px; border-radius: 50%; background: var(--ink-dim); margin-top: 6px; }
+.ev .stem { flex: 1; width: 1px; background: var(--rule); margin-top: 3px; }
+.ev:last-child .stem { display: none; }
+.ev[data-kind="learning"] .node { background: var(--violet); }
+.ev[data-kind="escalated"] .node,
+.ev[data-kind="blocked"]   .node { background: var(--amber); }
+.ev[data-kind="groomed"]   .node { background: var(--mint); }
+.ev .when { font-family: var(--mono); font-size: 10px; color: var(--ink-dim); }
+.ev .sum  { font-size: var(--step-0); }
+.ev .detail {
+  margin: 5px 0 0; padding: 8px 10px; background: var(--panel-sunk); border-radius: 6px;
+  font-size: var(--step--1); color: var(--ink-soft); white-space: pre-wrap;
+  overflow-x: auto; max-height: 420px; overflow-y: auto;
+}
+.kv { display: grid; grid-template-columns: auto 1fr; gap: 3px 14px; font-family: var(--mono); font-size: var(--step--1); }
+.kv dt { color: var(--ink-dim); }
+.kv dd { margin: 0; }
+table.runs { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: var(--step--1); }
+table.runs th { text-align: left; font-weight: 600; color: var(--ink-dim); border-bottom: 1px solid var(--rule); padding: 3px 8px 3px 0; }
+table.runs td { padding: 3px 8px 3px 0; border-bottom: 1px solid var(--rule-soft); white-space: nowrap; }
+table.runs td.num { text-align: right; padding-right: 0; }
+.wrap-x { overflow-x: auto; }
+</style>
+
+<header class="bar">
+  <h1>Colony Dash</h1>
+  <span class="goal" id="goal"></span>
+  <span class="conn" id="conn" data-live="false"><span class="dot"></span><span id="conn-text">connecting</span></span>
+  <button class="link" id="theme">theme</button>
+</header>
+
+<section class="sprint">
+  <div>
+    <div class="figure">
+      <span class="big" id="spend-tok">—</span>
+      <span class="dim mono" id="spend-usd"></span>
+      <span class="soft" id="spend-of"></span>
+    </div>
+    <div class="meta" id="sprint-meta"></div>
+  </div>
+  <div class="meta" id="week-meta" style="justify-self:end"></div>
+  <div class="gauge" id="gauge"><i style="width:0"></i></div>
+</section>
+
+<main>
+  <div class="col">
+    <section class="panel">
+      <h2>Colony <span class="count" id="colony-count"></span></h2>
+      <div class="body" id="colony"></div>
+    </section>
+    <section class="panel">
+      <h2>Standby <span class="count" id="roster-count"></span></h2>
+      <div class="body">
+        <input class="search" id="roster-q" placeholder="search 270 personas" autocomplete="off">
+        <div id="roster-results" style="display:flex;flex-direction:column;gap:6px"></div>
+      </div>
+    </section>
+  </div>
+
+  <div class="col">
+    <section class="panel">
+      <h2>Board <span class="count" id="board-count"></span></h2>
+      <div class="flow" id="flow"></div>
+      <div class="body" id="stories" style="gap:2px"></div>
+    </section>
+    <section class="panel">
+      <h2>Spend <span class="count" id="spend-count"></span></h2>
+      <div class="body">
+        <svg class="spark" id="spark" preserveAspectRatio="none" aria-hidden="true"></svg>
+        <div id="by-role" style="display:flex;flex-direction:column;gap:7px"></div>
+      </div>
+    </section>
+  </div>
+
+  <div class="col">
+    <section class="panel inbox" id="inbox-panel">
+      <h2>PO Inbox <span class="count" id="inbox-count"></span></h2>
+      <div class="body" id="inbox"></div>
+    </section>
+    <section class="panel">
+      <h2>Pulse log <span class="count" id="pulse-count"></span></h2>
+      <div class="body" id="pulses" style="gap:4px"></div>
+    </section>
+    <section class="panel">
+      <h2>Forge <span class="count" id="forge-count"></span></h2>
+      <div class="body" id="forge"></div>
+    </section>
+  </div>
+</main>
+
+<div class="scrim" id="scrim"></div>
+<aside class="drawer" id="drawer" aria-hidden="true">
+  <header>
+    <div style="flex:1;min-width:0">
+      <div class="mono dim" style="font-size:10px;letter-spacing:.1em;text-transform:uppercase" id="d-eyebrow"></div>
+      <h3 id="d-title"></h3>
+    </div>
+    <button class="link" id="d-close">close</button>
+  </header>
+  <div class="scroll" id="d-body"></div>
+</aside>
+
+<script>
+"use strict";
+
+const $ = (id) => document.getElementById(id);
+const STATUS_LABEL = {
+  "backlog": "backlog", "needs-info": "needs info", "needs-criteria": "needs criteria",
+  "ready": "ready", "in-progress": "running", "po-review": "po review", "accepted": "done",
+};
+
+// ── formatting ──────────────────────────────────────────────────────────────
+// Tokens are the unit; dollars are always the grayed secondary (§6).
+function toks(n) {
+  if (!n) return "—";
+  if (n >= 1e6) return (n / 1e6).toFixed(1) + "M";
+  if (n >= 1e3) return (n / 1e3).toFixed(1) + "k";
+  return String(n);
+}
+function usd(v) { return v ? "$" + Number(v).toFixed(2) : ""; }
+function parseTs(s) { return s ? new Date(s.replace(" ", "T")) : null; }
+function clock(sec) {
+  if (sec == null || isNaN(sec)) return "—";
+  const m = Math.floor(sec / 60), s = Math.floor(sec % 60);
+  return m >= 60 ? Math.floor(m / 60) + "h" + String(m % 60).padStart(2, "0") : m + "m" + String(s).padStart(2, "0");
+}
+function hhmm(s) { return s ? s.slice(11, 16) : ""; }
+function ago(s) {
+  const d = parseTs(s); if (!d) return "";
+  const mins = (Date.now() - d) / 6e4;
+  if (mins < 60) return Math.max(0, Math.round(mins)) + "m ago";
+  if (mins < 1440) return Math.round(mins / 60) + "h ago";
+  return Math.round(mins / 1440) + "d ago";
+}
+function el(tag, cls, text) {
+  const n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (text != null) n.textContent = text;   // textContent, always: ledger text is data, not markup
+  return n;
+}
+
+// ── avatars ─────────────────────────────────────────────────────────────────
+// A hired persona's identity carries from the roster file through to the running
+// agent (§9.3): same seed, same face, every run. Mirrored down the vertical axis
+// so eight bits of noise read as a character.
+function hash32(str) {
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; }
+  return h >>> 0;
+}
+function drawAvatar(canvas, seed, color) {
+  const S = 8, px = 4;
+  canvas.width = S * px; canvas.height = S * px;
+  const ctx = canvas.getContext("2d");
+  let h = hash32(seed || "anon");
+  const rnd = () => { h ^= h << 13; h ^= h >>> 17; h ^= h << 5; h >>>= 0; return h / 4294967296; };
+  const tint = color || `hsl(${Math.floor(hash32(seed || "anon") % 360)} 52% 58%)`;
+  const style = getComputedStyle(document.body);
+  ctx.fillStyle = style.getPropertyValue("--panel-sunk").trim() || "#111";
+  ctx.fillRect(0, 0, S * px, S * px);
+  ctx.fillStyle = tint;
+  for (let y = 1; y < S - 1; y++) {
+    for (let x = 0; x < S / 2; x++) {
+      if (rnd() > 0.5) {
+        ctx.fillRect(x * px, y * px, px, px);
+        ctx.fillRect((S - 1 - x) * px, y * px, px, px);
+      }
+    }
+  }
+}
+
+// ── render ──────────────────────────────────────────────────────────────────
+
+let STATE = null;
+let filter = null;      // board column filter; null = everything
+
+function render(s) {
+  STATE = s;
+  renderSprint(s.sprint);
+  renderColony(s.colony);
+  renderBoard(s.board);
+  renderInbox(s.inbox);
+  renderPulses(s.pulses);
+  renderForge(s.forge);
+  renderSpend(s.spend);
+  $("roster-count").textContent = s.roster.total + " personas";
+}
+
+function renderSprint(sp) {
+  const sprint = sp.sprint, spent = sp.spent || {}, usage = sp.usage;
+  $("goal").textContent = sprint ? (sprint.goal || sprint.name) : "no active sprint";
+  $("spend-tok").textContent = toks(spent.tokens) + " tok";
+  $("spend-usd").textContent = usd(spent.usd);
+
+  const meta = $("sprint-meta");
+  meta.replaceChildren();
+  if (sprint) {
+    const start = parseTs(sprint.starts_on + " 00:00:00"), end = parseTs(sprint.ends_on + " 00:00:00");
+    const day = Math.min(7, Math.max(1, Math.round((Date.now() - start) / 864e5) + 1));
+    const total = Math.max(1, Math.round((end - start) / 864e5));
+    meta.append(
+      tag(sprint.name), tag("day " + day + "/" + total),
+      tag(spent.runs + " run" + (spent.runs === 1 ? "" : "s")),
+      tag("allowance " + Math.round(sprint.budget_pct) + "% of week"),
+    );
+  }
+
+  const week = $("week-meta");
+  week.replaceChildren();
+  if (usage) {
+    week.append(tag("week " + Number(usage.seven_day_pct).toFixed(1) + "%"),
+                tag("5h " + Number(usage.five_hour_pct).toFixed(0) + "%"),
+                tag("resets " + (usage.seven_day_resets_at || "").slice(0, 16)));
+  } else {
+    week.append(tag("no usage sample — is the tray app running?"));
+  }
+
+  // The bar measures spend against the colony's *allowance*, not the whole week:
+  // 35% of the window is the ceiling, so 35% consumed has to read as full.
+  const pct = usage ? Math.min(100, (usage.seven_day_pct / (sprint ? sprint.budget_pct : 35)) * 100) : 0;
+  const g = $("gauge");
+  g.firstElementChild.style.width = pct + "%";
+  g.dataset.state = pct >= 100 ? "hot" : pct >= 80 ? "warm" : "ok";
+  $("spend-of").textContent = usage ? `week ${usage.seven_day_pct.toFixed(0)}% of ${sprint ? sprint.budget_pct : 35}% allowed` : "";
+}
+function tag(text) { const b = el("span"); b.append(el("b", null, text)); return b; }
+
+function renderColony(c) {
+  const box = $("colony");
+  box.replaceChildren();
+  $("colony-count").textContent = c.running.length ? c.running.length + " running" : "idle";
+
+  for (const r of c.running) {
+    const started = parseTs(r.started_at);
+    const node = agentRow({
+      seed: r.avatar_seed || r.agent_role, color: r.color, role: r.agent_role,
+      scope: r.project || "structural",
+      line: (r.ticket_title || "t" + r.ticket_id),
+      tokens: r.tokens, ceiling: r.max_tokens_run, live: true, started,
+    });
+    box.append(node);
+  }
+  for (const a of c.standby) {
+    if (c.running.some((r) => r.agent_role === a.role)) continue;
+    box.append(agentRow({
+      seed: a.avatar_seed, color: a.color, role: a.role, scope: a.project || "structural",
+      line: `${a.model.replace("claude-", "")} · ${a.write_capable ? "write" : "read-only"} · ${a.run_count} run${a.run_count === 1 ? "" : "s"}`,
+      tokens: null, ceiling: a.max_tokens_run, live: false,
+    }));
+  }
+  if (!box.children.length) box.append(el("div", "empty", "nobody hired yet"));
+  tickElapsed();   // paint now; the ticker only refreshes from the next second
+}
+
+function agentRow(o) {
+  const row = el("div", "agent" + (o.live ? "" : " idle"));
+  const cv = document.createElement("canvas");
+  drawAvatar(cv, o.seed, o.color);
+  if (o.live) cv.classList.add("pulsing");
+  const right = el("div");
+  const who = el("div", "who");
+  who.append(el("span", "role", o.role), el("span", "scope", o.scope));
+  right.append(who, el("div", "line", o.line));
+
+  if (o.live) {
+    // Elapsed time is painted by the one global ticker below, not a timer per
+    // row: this panel re-renders on every state push, and a per-row interval
+    // would leave a timer behind for every frame the page has ever drawn.
+    const stat = el("div", "line mono elapsed");
+    stat.dataset.started = o.started.getTime();
+    stat.dataset.tokens = o.tokens || 0;
+    right.append(stat);
+  }
+  // The bar is tokens against this agent's ceiling — Lloyd measures context, we
+  // measure the thing we actually budget.
+  if (o.ceiling) {
+    const bar = el("div", "ceiling");
+    const pct = Math.min(100, ((o.tokens || 0) / o.ceiling) * 100);
+    bar.dataset.state = pct >= 90 ? "hot" : "ok";
+    const fill = el("i"); fill.style.width = pct + "%";
+    bar.append(fill); right.append(bar);
+  }
+  row.append(cv, right);
+  return row;
+}
+
+function tickElapsed() {
+  for (const n of document.querySelectorAll(".elapsed")) {
+    const secs = (Date.now() - Number(n.dataset.started)) / 1000;
+    n.textContent = `${clock(secs)} · ${toks(Number(n.dataset.tokens))} tok`;
+  }
+}
+setInterval(tickElapsed, 1000);
+
+function renderBoard(b) {
+  const flow = $("flow");
+  flow.replaceChildren();
+  let total = 0;
+  for (const c of b.columns) {
+    total += c.n;
+    const btn = el("button");
+    btn.setAttribute("aria-pressed", String(filter === c.status));
+    const n = el("span", "n" + (c.n ? "" : " zero"), String(c.n));
+    btn.append(n, el("span", "lb", STATUS_LABEL[c.status] || c.status));
+    btn.onclick = () => { filter = filter === c.status ? null : c.status; renderBoard(STATE.board); };
+    flow.append(btn);
+  }
+  $("board-count").textContent = total + " open";
+
+  const box = $("stories");
+  box.replaceChildren();
+  const shown = b.stories.filter((s) => !filter || s.status === filter);
+  if (!shown.length) { box.append(el("div", "empty", filter ? "nothing in " + STATUS_LABEL[filter] : "board empty")); return; }
+
+  for (const s of shown) {
+    const card = el("button", "story");
+    card.append(el("span", "t", s.title));
+    const chip = el("span", "chip" + (s.status === "in-progress" ? " live" : ["needs-info", "po-review"].includes(s.status) ? " attn" : ""), STATUS_LABEL[s.status] || s.status);
+    card.append(chip);
+    const sub = el("span", "sub");   // a card is a <button>: phrasing content only
+    if (s.priority === 1) sub.append(el("span", "chip p1", "high"));
+    if (s.project) {
+      // An inference is not a permission. Show the guess, mark it as a guess.
+      const p = el("span", s.project_source === "confirmed" ? "" : "guess", s.project);
+      p.title = s.project_source === "confirmed" ? "confirmed by you" : "inferred — cannot authorise a write";
+      sub.append(p);
+    } else {
+      sub.append(el("span", "dim", "no project"));
+    }
+    if (s.tokens) sub.append(el("span", null, toks(s.tokens) + " tok"));
+    if (s.events) sub.append(el("span", "dim", s.events + " event" + (s.events === 1 ? "" : "s")));
+    sub.append(el("span", "dim", ago(s.updated_at)));
+    card.append(sub);
+    card.onclick = () => openStory(s.id);
+    box.append(card);
+  }
+}
+
+function renderInbox(items) {
+  const box = $("inbox"), panel = $("inbox-panel");
+  box.replaceChildren();
+  $("inbox-count").textContent = items.length || "";
+  panel.classList.toggle("quiet", items.length === 0);
+  if (!items.length) {
+    // An empty Inbox means the system is working. It gets to look like it.
+    box.append(el("div", "empty", "empty — nothing needs you"));
+    return;
+  }
+  for (const e of items) {
+    const card = el("div", "esc");
+    card.append(el("div", "k", e.kind.replace("-", " ")));
+    card.append(el("div", "r", e.reason));
+    if (e.recommendation) card.append(el("div", "rec", "→ " + e.recommendation));
+    const meta = [];
+    if (e.story_title) meta.push(e.story_title);
+    if (e.est_tokens) meta.push(toks(e.est_tokens) + " tok");
+    meta.push(ago(e.raised_at));
+    card.append(el("div", "meta", meta.join("  ·  ")));
+    if (e.story_id) {
+      const b = el("button", "link open", "open story");
+      b.onclick = () => openStory(e.story_id);
+      card.append(b);
+    }
+    box.append(card);
+  }
+}
+
+function renderPulses(rows) {
+  const box = $("pulses");
+  box.replaceChildren();
+  $("pulse-count").textContent = rows.length ? hhmm(rows[0].pulse_at) : "";
+  if (!rows.length) { box.append(el("div", "empty", "no pulses yet")); return; }
+
+  // Consecutive clean ticks roll up; a *missing* hour is drawn in coral. A
+  // heartbeat monitor that only shows the beats it received cannot show a
+  // stopped heart, which is the one thing it exists to show.
+  const out = [];
+  for (let i = 0; i < rows.length; i++) {
+    const p = rows[i], prev = rows[i + 1];
+    if (out.length && out[out.length - 1].roll && p.tier === "tick" && (p.finding || "") === "clean") {
+      out[out.length - 1].roll++; continue;
+    }
+    out.push({ p, roll: p.tier === "tick" && (p.finding || "") === "clean" ? 1 : 0 });
+    if (prev) {
+      const gapH = (parseTs(p.pulse_at) - parseTs(prev.pulse_at)) / 36e5;
+      if (gapH > 1.6) out.push({ gap: Math.round(gapH) });
+    }
+  }
+  for (const item of out) {
+    if (item.gap) {
+      const row = el("div", "pulse gap");
+      row.append(el("span", null, "—"), el("span", "tier", "miss"),
+                 el("span", "find", `no pulse for ~${item.gap}h`), el("span"));
+      box.append(row); continue;
+    }
+    const p = item.p;
+    const row = el("div", "pulse" + (item.roll > 1 ? " rolled" : ""));
+    row.dataset.tier = p.tier;
+    row.append(
+      el("span", null, hhmm(p.pulse_at)),
+      el("span", "tier", p.tier),
+      el("span", "find", item.roll > 1 ? `clean ×${item.roll}` : (p.finding || "")),
+      el("span", "num", p.tokens ? toks(p.tokens) : ""),
+    );
+    row.title = p.pulse_at + " — " + (p.finding || "");
+    box.append(row);
+  }
+}
+
+function renderForge(items) {
+  const box = $("forge");
+  box.replaceChildren();
+  $("forge-count").textContent = items.length || "";
+  if (!items.length) {
+    box.append(el("div", "empty", "no candidates — the forge turns on at M4"));
+    return;
+  }
+  for (const s of items) {
+    const d = el("div");
+    d.append(el("div", "mono", s.name), el("div", "dim", s.summary || ""),
+             el("div", "mono dim", toks(s.tokens_saved) + " tok saved"));
+    box.append(d);
+  }
+}
+
+function renderSpend(sp) {
+  const days = sp.by_day || [];
+  $("spend-count").textContent = days.length ? days.length + "d" : "";
+
+  const svg = $("spark");
+  svg.replaceChildren();
+  if (days.length) {
+    const W = 300, H = 34, max = Math.max(...days.map((d) => d.tokens), 1);
+    svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+    const step = days.length > 1 ? W / (days.length - 1) : W;
+    const pts = days.map((d, i) => [i * step, H - 3 - (d.tokens / max) * (H - 7)]);
+    const line = pts.map((p) => p.join(",")).join(" ");
+    const area = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
+    area.setAttribute("points", `0,${H} ${line} ${(days.length - 1) * step},${H}`);
+    area.setAttribute("fill", "currentColor"); area.setAttribute("opacity", ".10");
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "polyline");
+    path.setAttribute("points", line); path.setAttribute("fill", "none");
+    path.setAttribute("stroke", "currentColor"); path.setAttribute("stroke-width", "1.5");
+    const last = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+    last.setAttribute("cx", pts[pts.length - 1][0] - 1); last.setAttribute("cy", pts[pts.length - 1][1]);
+    last.setAttribute("r", "2.5"); last.setAttribute("fill", "currentColor");
+    svg.style.color = "var(--violet)";
+    svg.append(area, path, last);
+  }
+
+  const box = $("by-role");
+  box.replaceChildren();
+  const max = Math.max(...(sp.by_role || []).map((r) => r.tokens), 1);
+  for (const r of sp.by_role || []) {
+    const d = el("div", "rolebar");
+    d.append(el("span", null, r.agent_role), el("span", null, `${toks(r.tokens)} tok ${usd(r.usd)}`));
+    const track = el("div", "track"); const fill = el("i");
+    fill.style.width = (r.tokens / max) * 100 + "%";
+    track.append(fill); d.append(track);
+    // Cache reads are excluded from every budget number on this page; showing
+    // the raw total next to it is what stops that from looking like a bug.
+    d.append(el("span", "dim", `${r.runs} run${r.runs === 1 ? "" : "s"}`),
+             el("span", "dim", `${toks(r.total_tokens)} incl. cache reads`));
+    box.append(d);
+  }
+  if (!box.children.length) box.append(el("div", "empty", "nothing spent yet"));
+}
+
+// ── drawer ──────────────────────────────────────────────────────────────────
+
+async function openStory(id) {
+  const d = $("drawer"), scrim = $("scrim");
+  d.classList.add("on"); scrim.classList.add("on"); d.setAttribute("aria-hidden", "false");
+  const body = $("d-body");
+  body.replaceChildren(el("div", "empty", "loading…"));
+  let data;
+  try {
+    const res = await fetch("/api/story/" + id);
+    if (!res.ok) throw new Error(res.status);
+    data = await res.json();
+  } catch (err) {
+    body.replaceChildren(el("div", "empty", "could not load story " + id));
+    return;
+  }
+  const s = data.story;
+  $("d-eyebrow").textContent = `story #${s.id} · ${STATUS_LABEL[s.status] || s.status}`;
+  $("d-title").textContent = s.title;
+  body.replaceChildren();
+
+  const facts = el("dl", "kv");
+  const add = (k, v) => { facts.append(el("dt", null, k), el("dd", null, v)); };
+  add("project", s.project ? `${s.project} (${s.project_source})` : "none");
+  add("priority", ["", "high", "medium", "low"][s.priority] || s.priority);
+  add("notion", s.notion_status || "—");
+  add("synced", s.notion_synced_at || "—");
+  if (s.blocked_reason) add("blocked", s.blocked_reason);
+  body.append(facts);
+
+  if (s.description) body.append(sectionBlock("brief", s.description));
+  if (s.acceptance_criteria) body.append(sectionBlock("acceptance criteria", s.acceptance_criteria));
+
+  if (data.runs.length) {
+    const wrap = el("div");
+    wrap.append(el("div", "mono dim", "RUNS"));
+    const box = el("div", "wrap-x");
+    const t = el("table", "runs");
+    const head = el("tr");
+    ["run", "role", "status", "chargeable", "total", "$"].forEach((h) => head.append(el("th", null, h)));
+    t.append(head);
+    for (const r of data.runs) {
+      const tr = el("tr");
+      tr.append(el("td", null, "#" + r.id), el("td", null, r.agent_role), el("td", null, r.status));
+      tr.append(el("td", "num", toks(r.chargeable_tokens || r.total_tokens)),
+                el("td", "num dim", toks(r.total_tokens)),
+                el("td", "num dim", usd(r.cost_usd)));
+      t.append(tr);
+    }
+    box.append(t); wrap.append(box); body.append(wrap);
+  }
+
+  const tl = el("div");
+  tl.append(el("div", "mono dim", "TIMELINE"));
+  if (!data.events.length) tl.append(el("div", "empty", "nothing has happened to this story yet"));
+  for (const e of data.events) {
+    const row = el("div", "ev");
+    row.dataset.kind = e.kind;
+    const spine = el("div", "spine");
+    spine.append(el("div", "node"), el("div", "stem"));
+    const right = el("div");
+    right.append(el("div", "when", `${e.at}  ·  ${e.kind}${e.tokens ? "  ·  " + toks(e.tokens) + " tok" : ""}`));
+    right.append(el("div", "sum", e.summary));
+    if (e.detail) right.append(el("pre", "detail", e.detail));
+    row.append(spine, right);
+    tl.append(row);
+  }
+  body.append(tl);
+}
+
+function sectionBlock(label, text) {
+  const w = el("div");
+  w.append(el("div", "mono dim", label.toUpperCase()), el("pre", "detail", text));
+  return w;
+}
+
+function closeDrawer() {
+  $("drawer").classList.remove("on");
+  $("scrim").classList.remove("on");
+  $("drawer").setAttribute("aria-hidden", "true");
+}
+$("d-close").onclick = closeDrawer;
+$("scrim").onclick = closeDrawer;
+addEventListener("keydown", (e) => { if (e.key === "Escape") closeDrawer(); });
+
+// ── roster search ───────────────────────────────────────────────────────────
+
+let rosterTimer = null;
+$("roster-q").addEventListener("input", (e) => {
+  clearTimeout(rosterTimer);
+  const q = e.target.value;
+  rosterTimer = setTimeout(async () => {
+    const box = $("roster-results");
+    if (!q.trim()) { box.replaceChildren(); return; }
+    const res = await fetch("/api/roster?q=" + encodeURIComponent(q) + "&limit=12");
+    const rows = await res.json();
+    box.replaceChildren();
+    if (!rows.length) { box.append(el("div", "empty", "no persona matches")); return; }
+    for (const p of rows) {
+      const d = el("div", "persona");
+      d.append(el("span", null, p.emoji || "·"), el("span", "nm", p.name), el("span", "dv", p.division));
+      d.title = p.description || "";
+      box.append(d);
+    }
+  }, 140);
+});
+
+// ── theme ───────────────────────────────────────────────────────────────────
+
+const saved = localStorage.getItem("colony-theme");
+if (saved) document.documentElement.dataset.theme = saved;
+$("theme").onclick = () => {
+  const cur = document.documentElement.dataset.theme
+    || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+  const next = cur === "dark" ? "light" : "dark";
+  document.documentElement.dataset.theme = next;
+  localStorage.setItem("colony-theme", next);
+  if (STATE) render(STATE);   // avatars are painted on canvas, so they re-paint
+};
+
+// ── live feed ───────────────────────────────────────────────────────────────
+
+function setConn(live, text) {
+  const c = $("conn");
+  c.dataset.live = String(live);
+  $("conn-text").textContent = text;
+}
+
+let es = null;
+function connect() {
+  es = new EventSource("/events");
+  es.addEventListener("state", (ev) => {
+    setConn(true, "live");
+    render(JSON.parse(ev.data));
+  });
+  es.onopen = () => setConn(true, "live");
+  es.onerror = () => {
+    // Numbers on screen are now of unknown age. Say so rather than let a frozen
+    // page look like a quiet one.
+    setConn(false, "disconnected — retrying");
+    es.close();
+    setTimeout(connect, 3000);
+  };
+}
+fetch("/api/state").then((r) => r.json()).then(render).catch(() => setConn(false, "ledger unreachable"));
+connect();
+</script>

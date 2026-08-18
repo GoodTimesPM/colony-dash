@@ -17,7 +17,11 @@ from . import db, roster as roster_mod, seed as seed_mod
 
 # Dollars are always the grayed secondary; tokens are the unit. ARCHITECTURE.md §6.
 # Piped output gets no escapes — a log file full of \033[2m is worse than plain text.
-_COLOR = sys.stdout.isatty() and not os.environ.get("NO_COLOR")
+# `sys.stdout` is None under pythonw.exe — no console exists at all — and this
+# line runs at import, before main() can repair anything. A windowed launch died
+# here with exit code 1 and no traceback anywhere: the one stream that would
+# have reported the problem was the problem.
+_COLOR = bool(sys.stdout and sys.stdout.isatty()) and not os.environ.get("NO_COLOR")
 DIM = "\033[2m" if _COLOR else ""
 RESET = "\033[0m" if _COLOR else ""
 
@@ -209,6 +213,16 @@ def cmd_mirror(conn: sqlite3.Connection, args) -> int:
     return 0
 
 
+def cmd_dash(conn: sqlite3.Connection, args) -> int:
+    # The dashboard opens its own read-only connection to the ledger; this one
+    # exists only because every command gets handed one. Close it first so the
+    # window is never the reason a write is blocked.
+    conn.close()
+    from . import desktop
+
+    return desktop.launch(port=args.port, window=not args.serve)
+
+
 def cmd_pulse(conn: sqlite3.Connection, args) -> int:
     from . import pulse as pulse_mod
 
@@ -249,6 +263,12 @@ def build_parser() -> argparse.ArgumentParser:
     mir = sub.add_parser("mirror", help="full refresh of the MySQL reporting mirror")
     mir.set_defaults(func=cmd_mirror)
 
+    dash = sub.add_parser("dash", help="open the dashboard window")
+    dash.add_argument("--port", type=int, default=8787)
+    dash.add_argument("--serve", action="store_true",
+                      help="serve only, no window — use a browser at 127.0.0.1")
+    dash.set_defaults(func=cmd_dash)
+
     pul = sub.add_parser("pulse", help="run one pulse (tick, escalating to wake)")
     pul.add_argument("--dry-run", action="store_true", help="report, write nothing")
     pul.add_argument("--no-wake", action="store_true",
@@ -264,12 +284,30 @@ def _force_utf8() -> None:
     to a log file, so without this a clean tick dies on its own output *after*
     the ledger row is committed — a crash that means nothing and looks like
     everything. Never let formatting decide whether a run succeeded.
+
+    Under `pythonw.exe` there is no console at all and both streams are None, so
+    the *first* print raises and the process dies before it does anything. That
+    is how the dashboard is meant to be launched — windowed, no console behind
+    it — so the same rule applies twice over: output is never allowed to decide
+    whether a command runs.
     """
-    for stream in (sys.stdout, sys.stderr):
+    for name in ("stdout", "stderr"):
+        stream = getattr(sys, name)
+        if stream is None:
+            setattr(sys, name, open(os.devnull, "w", encoding="utf-8"))
+            continue
         try:
             stream.reconfigure(encoding="utf-8", errors="replace")
         except (AttributeError, ValueError):
             pass
+        try:
+            # A handle can exist and still be unwritable — a windowed launch with
+            # no redirect hands the child a stream that only fails on first use.
+            # Find that out here, once, instead of somewhere with a ledger open.
+            stream.write("")
+            stream.flush()
+        except OSError:
+            setattr(sys, name, open(os.devnull, "w", encoding="utf-8"))
 
 
 def main(argv: list[str] | None = None) -> int:

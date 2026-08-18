@@ -29,6 +29,8 @@ USAGE_CACHE = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "claude-u
 USAGE_STALE_AFTER = timedelta(minutes=20)
 
 PULSE_INTERVAL = timedelta(hours=1)
+# How long a run may sit in 'running' before the next pulse declares it orphaned.
+STALE_RUN_AFTER = timedelta(minutes=20)
 
 # Folders the colony may be pointed at. Read is the whole tree; write is always
 # one of these, per ticket, after approval. ARCHITECTURE.md §8.1.
@@ -263,6 +265,43 @@ def collect_finished_runs(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     )
 
 
+def reap_orphaned_runs(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    """Close run rows whose process is gone.
+
+    `run_ticket` opens the row *before* spawning, so the cost is recorded even if
+    the machine dies mid-run — but the flip side is that a killed parent leaves a
+    row that says `running` forever. That is exactly what happened at 22:00 on
+    2026-08-17: Task Scheduler's 10-minute `ExecutionTimeLimit` was shorter than
+    two grooms, so it Ctrl+C'd the pulse mid-agent and the dashboard's Colony
+    panel showed an agent that had been working for hours. A dashboard that
+    reports live work which isn't happening is worse than no dashboard.
+
+    The threshold is generous on purpose: nothing the colony runs today comes
+    near 20 minutes (a groom is capped at 7), and a manual `python -m colony
+    pulse` alongside the scheduled one must never reap a run that is genuinely
+    alive. Tokens already spent are left as recorded — an orphan is an unknown
+    ending, not a refund.
+    """
+    cutoff = (datetime.now() - STALE_RUN_AFTER).strftime("%Y-%m-%d %H:%M:%S")
+    orphans = list(
+        conn.execute(
+            "SELECT * FROM runs WHERE status = 'running' AND started_at < ?", (cutoff,)
+        )
+    )
+    for r in orphans:
+        conn.execute(
+            "UPDATE runs SET status = 'timeout', ended_at = ?, "
+            "verdict = COALESCE(verdict, 'orphaned: parent process died mid-run') "
+            "WHERE id = ?",
+            (now(), r["id"]),
+        )
+        conn.execute(
+            "UPDATE tickets SET status = 'blocked' WHERE id = ? AND status = 'running'",
+            (r["ticket_id"],),
+        )
+    return orphans
+
+
 def open_po_decisions(conn: sqlite3.Connection) -> int:
     return conn.execute(
         "SELECT COUNT(*) n FROM escalations "
@@ -317,6 +356,7 @@ def _tick(conn: sqlite3.Connection) -> dict:
     halted = check_halt()
     usage = sample_usage(conn)
     board = sync_notion(conn)
+    orphans = reap_orphaned_runs(conn)
     finished = collect_finished_runs(conn)
     decisions = open_po_decisions(conn)
 
@@ -343,6 +383,11 @@ def _tick(conn: sqlite3.Connection) -> dict:
 
     anomalies = 0
     notes: list[str] = []
+    if orphans:
+        # An anomaly, not a reason to wake: the run is already over, and paying a
+        # model to look at a process that no longer exists buys nothing.
+        notes.append(f"reaped {len(orphans)} orphaned run(s)")
+        anomalies += len(orphans)
     if halted:
         notes.append("HALT present — dispatch disabled")
     if not board["configured"]:

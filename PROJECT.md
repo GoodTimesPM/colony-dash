@@ -1,6 +1,7 @@
 # Colony Dash — Master Memory
 
-**Status:** **M0 and M1 shipped.** The loop is live and grooming on the hour. Priority: **High.**
+**Status:** **M0, M1 and M2 shipped.** The loop is live and grooming on the hour, and there
+is now a window to watch it in. Priority: **High.**
 **Created:** 2026-08-15 (as "PO Dashboard"; renamed **Colony Dash** 2026-08-17)
 
 The orchestrator loop and dashboard where Jordan acts as Product Owner over a colony of
@@ -9,13 +10,15 @@ Jordan's integration with Claude as a whole** — not a side tool.
 
 - `ARCHITECTURE.md` — the full backbone: state model, pulse mechanics, budget, dashboard, forge.
 - `ROSTER.md` — where agents come from (agency-agents) and how they get hired.
-- `colony/` — the code. `python -m colony status` is the dashboard until M2 exists.
+- `colony/` — the code. `python -m colony dash` opens the window; `status` is the text view.
 - This file — status and decisions only.
 
 ## Running it
 
 ```
 python -m colony init                 create + seed the ledger, scan the roster
+python -m colony dash                 open the dashboard window (pywebview)
+python -m colony dash --serve         serve only, no window — browse 127.0.0.1:8787
 python -m colony status               sprint, board, colony, inbox, pulse log
 python -m colony pulse                one heartbeat — free unless it wakes to groom
 python -m colony pulse --no-wake      tick only, guaranteed zero tokens
@@ -131,7 +134,7 @@ proposal, not a decision. The Colony panel is a direct descendant of Lloyd's Ses
 
 ## Build order
 
-**M0 Ledger ✅** → **M1 Pulse ◐** → M2 Dashboard (read view) → M3 Hiring + gates →
+**M0 Ledger ✅** → **M1 Pulse ✅** → **M2 Dashboard ✅** → M3 Hiring + gates →
 M4 Skill forge → M5 Two-way Notion. Details in `ARCHITECTURE.md` §10.
 
 **M0 is done and verified:** 11 tables plus an FTS5 roster index, hash-checked append-only
@@ -148,6 +151,14 @@ make. Guards: HALT, the 35% weekly allowance, a per-run ceiling, 2 stories per w
 `ARCHITECTURE.md` §10.2 — the first wake found a genuine bug in `job-radar/score.py`
 unprompted, and cost about half a dollar to do it.
 
+**M2 is done.** `python -m colony dash` opens a real desktop window (pywebview over a
+localhost-only FastAPI server) with every panel from `ARCHITECTURE.md` §9.2: the sprint band,
+the colony rail with deterministic avatars, the board with click-through story drawers built
+from `story_events`, the PO Inbox, the pulse log, the forge, and spend. Live updates arrive
+by SSE. It is **read-only by construction** — every request opens the ledger with
+`read_only=True`, so the window cannot be the reason state changed. The approve buttons come
+with the M3 gate.
+
 ## Next
 
 - [ ] Answer the Inbox. Five stories are parked on "which project folder?" and
@@ -155,9 +166,9 @@ unprompted, and cost about half a dollar to do it.
       Tracker* and the auto-written *Job Radar Tracker* merge, coexist with a defined
       handoff, or one retire?
 - [ ] Let it run a week, then tune the escalation bar (§4.6) against real logs.
-- [ ] **M2** — the pywebview dashboard. Every panel it needs is already backed by a table.
 - [ ] **M3** — staffing, worktree isolation, and the Inbox write-approval gate. Held on
       purpose: no write-capable dispatch before the gate that governs it exists.
+- [ ] Give the dashboard a Start Menu shortcut, so opening it isn't a terminal command.
 
 ## Finished 2026-08-17
 
@@ -208,6 +219,30 @@ Windows is cp1252, which cannot encode the `→` and `·` the pulse prints. The 
 already been committed — only the printing died — so the loop was healthy and the exit code
 said otherwise. `cli.main()` now calls `_force_utf8()` before anything else. Formatting must
 never decide whether a run succeeded.
+
+### Bug fixed 2026-08-17: the dashboard's first job was to expose a phantom agent
+
+The Colony panel came up showing `investigator` running for over an hour. It wasn't. The
+22:00 pulse had been killed mid-groom by the scheduled task's own `ExecutionTimeLimit` —
+**PT10M, shorter than the two 7-minute grooms the same task was authorised to run** — and
+because `run_ticket` opens the `runs` row *before* spawning (so cost survives a crash), the
+kill left a row saying `running` forever. Two fixes: the limit is now `PT30M`, and every
+pulse calls `reap_orphaned_runs()`, closing any run older than 20 minutes as `timeout` with
+the verdict `orphaned: parent process died mid-run` and blocking its ticket. Tokens already
+spent stay recorded — an orphan is an unknown ending, not a refund. It counts as an anomaly,
+not a reason to wake: paying a model to look at a process that no longer exists buys nothing.
+
+A dashboard reporting live work that isn't happening is worse than no dashboard, and this
+one found that out about itself within a minute of first rendering.
+
+### Bug fixed 2026-08-17: the windowed launch died with no way to say why
+
+`python -m colony dash` worked; launching it with `pythonw.exe` — no console, which is how a
+desktop app is meant to start — exited 1 instantly and silently. Cause: `cli.py` computed
+`_COLOR = sys.stdout.isatty()` at **import** time, and under `pythonw` `sys.stdout` is None.
+The one stream that would have reported the problem *was* the problem. `_COLOR` is now
+None-safe, `_force_utf8()` swaps a missing or unwritable stream for `os.devnull`, and the
+window keeps its own `.colony/dash.log` so a silent GUI death is never debugged by guessing.
 
 ## Why it matters beyond the tooling
 
