@@ -205,47 +205,6 @@ def stale_escalations(conn: sqlite3.Connection, story_id: int, new_hash: str) ->
     return marked
 
 
-def settle_story(conn: sqlite3.Connection, story_id: int, settled_as: str,
-                 notion_status: str) -> None:
-    """File a story the PO has marked Done, Shipped, Shelved, New or Not started.
-
-    Filing is not archiving: the story stays on the board's books, keeps its
-    events, its spend and the workflow status it had, and comes straight back to
-    life the moment the Notion status moves again. What it stops doing is
-    *asking*. Every open question about it is closed as moot and every open
-    ticket goes wontfix, because a question about a shipped story is not a
-    question — it is the colony still holding a conversation the PO walked away
-    from.
-
-    The distinction that matters: an escalation resolved with `po_decision` set
-    is a decision the wake will act on. A moot one is closed with no decision,
-    so nothing downstream treats the filing as an instruction to do work.
-    """
-    conn.execute(
-        """UPDATE stories SET settled_as = ?, blocked_reason = NULL,
-                  updated_at = datetime('now','localtime')
-            WHERE id = ?""",
-        (settled_as, story_id),
-    )
-    conn.execute(
-        """UPDATE escalations SET resolved_at = datetime('now','localtime'),
-                  po_decision = NULL
-            WHERE story_id = ? AND resolved_at IS NULL""",
-        (story_id,),
-    )
-    conn.execute(
-        """UPDATE tickets SET status = 'wontfix', closed_at = datetime('now','localtime')
-            WHERE story_id = ? AND status IN ('open','staffed','blocked')""",
-        (story_id,),
-    )
-    conn.execute(
-        """INSERT INTO story_events (story_id, kind, summary, detail)
-           VALUES (?, 'decided', ?, ?)""",
-        (story_id, f"filed as {settled_as}",
-         f'Notion status is "{notion_status}" — the colony stops asking about this one.'),
-    )
-
-
 def sync_notion(conn: sqlite3.Connection) -> dict:
     """Upsert the board into `stories`. Returns what actually changed."""
     load_env()
@@ -284,16 +243,19 @@ def sync_notion(conn: sqlite3.Connection) -> dict:
         settled = notion.SETTLED_STATUS.get(row["notion_status"])
 
         if prev:
+            # The body columns are only written when a body was actually read.
+            # A filed row is fetched for its status alone, and copying its empty
+            # placeholder over the real brief would mean a story came back from
+            # the shelf with nothing written on it.
+            cols = ["title=?", "notion_status=?", "category=?", "related_link=?",
+                    "priority=?", "notion_hash=?", "notion_synced_at=?", "updated_at=?"]
+            vals = [row["title"], row["notion_status"], row["category"],
+                    row["related_link"], row["priority"], row["hash"], now(), now()]
+            if row.get("body_fetched", True):
+                cols += ["description=?", "done_items=?", "open_items=?"]
+                vals += [row["description"], row["done_items"], row["open_items"]]
             conn.execute(
-                """
-                UPDATE stories SET title=?, description=?, notion_status=?, category=?,
-                       related_link=?, priority=?, notion_hash=?, notion_synced_at=?,
-                       updated_at=?, done_items=?, open_items=?
-                WHERE id = ?
-                """,
-                (row["title"], row["description"], row["notion_status"], row["category"],
-                 row["related_link"], row["priority"], row["hash"], now(), now(),
-                 row["done_items"], row["open_items"], prev["id"]),
+                f"UPDATE stories SET {', '.join(cols)} WHERE id = ?", (*vals, prev["id"])
             )
             story_id = prev["id"]
             result["changed"].append(row["title"])
@@ -306,7 +268,7 @@ def sync_notion(conn: sqlite3.Connection) -> dict:
             was_filed = prev["settled_as"]
             if settled:
                 if was_filed != settled:
-                    settle_story(conn, story_id, settled, row["notion_status"])
+                    control.settle_story(conn, story_id, settled, row["notion_status"])
                     result["filed"].append(row["title"])
             elif was_filed:
                 # Un-filing restores the story exactly as it was left, which is
@@ -314,17 +276,15 @@ def sync_notion(conn: sqlite3.Connection) -> dict:
                 # a view on this story before the PO parked it, and re-deriving
                 # that view would cost a groom run to answer a question that was
                 # already answered.
-                conn.execute(
-                    "UPDATE stories SET settled_as = NULL, "
-                    "updated_at = datetime('now','localtime') WHERE id = ?", (story_id,)
-                )
+                control.revive_story(conn, story_id, row["notion_status"])
                 result["revived"].append(row["title"])
 
             # Boxes ticked in Notion since the last sync. Worth naming in the
             # log on their own: "Jordan finished three things" is the single
             # most useful sentence an idle hour can produce.
             was = set(json.loads(prev["done_items"] or "[]"))
-            newly = [i for i in json.loads(row["done_items"] or "[]") if i not in was]
+            newly = ([i for i in json.loads(row["done_items"] or "[]") if i not in was]
+                     if row.get("body_fetched", True) else [])
             if newly:
                 result["ticked"].extend(newly)
                 conn.execute(
@@ -335,6 +295,13 @@ def sync_notion(conn: sqlite3.Connection) -> dict:
                 )
 
             result["staled"] += stale_escalations(conn, story_id, row["hash"])
+        elif settled:
+            # A row that arrives already filed and has never been seen is not
+            # news. Importing it would fill the board with every idea Jordan has
+            # ever written down, and — worse — the insert path below raises a
+            # "which folder is this?" escalation, which is precisely the
+            # question a not-started row must never produce.
+            continue
         else:
             cur = conn.execute(
                 """
@@ -378,7 +345,8 @@ def sync_notion(conn: sqlite3.Connection) -> dict:
 
         conn.execute(
             "INSERT INTO story_events (story_id, kind, summary, detail) VALUES (?,?,?,?)",
-            (story_id, kind, summary, row["description"]),
+            (story_id, kind, summary,
+             row["description"] if row.get("body_fetched", True) else None),
         )
 
     return result

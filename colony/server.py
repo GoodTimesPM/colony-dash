@@ -361,6 +361,12 @@ def _flight(conn: sqlite3.Connection) -> list[dict[str, Any]]:
         """
         SELECT t.id, t.story_id, t.title, t.intent, t.role, t.status, t.severity,
                t.requires_po, t.est_tokens, t.write_scope, t.created_at,
+               t.po_message_id,
+               -- The reply itself, not the work order. A reply ticket's work
+               -- order is a placeholder until the wake claims it and a 6,000
+               -- character prompt afterwards; what makes the tile readable in
+               -- both states is the sentence the PO actually typed.
+               substr(pm.body, 1, 400) AS po_message,
                s.title AS story_title, s.project,
                r.id           AS run_id,
                r.started_at   AS run_started_at,
@@ -368,6 +374,7 @@ def _flight(conn: sqlite3.Connection) -> list[dict[str, Any]]:
                ro.color, ro.emoji
           FROM tickets t
           LEFT JOIN stories s ON s.id = t.story_id
+          LEFT JOIN po_messages pm ON pm.id = t.po_message_id
           LEFT JOIN runs r ON r.id = (SELECT r2.id FROM runs r2
                                        WHERE r2.ticket_id = t.id AND r2.status = 'running'
                                        ORDER BY r2.started_at DESC LIMIT 1)

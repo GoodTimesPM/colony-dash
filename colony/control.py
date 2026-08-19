@@ -472,6 +472,72 @@ def restore_story(conn: sqlite3.Connection, story_id: int) -> dict[str, Any]:
 # ── talking back to Notion ────────────────────────────────────────────────────
 
 
+def settle_story(conn: sqlite3.Connection, story_id: int, settled_as: str,
+                 notion_status: str) -> None:
+    """File a story the PO has marked Done, Shipped, Shelved, New or Not started.
+
+    Filing is not archiving: the story stays on the board's books, keeps its
+    events, its spend and the workflow status it had, and comes straight back to
+    life the moment the Notion status moves again. What it stops doing is
+    *asking*. Every open question about it is closed as moot and every open
+    ticket goes wontfix, because a question about a shipped story is not a
+    question — it is the colony still holding a conversation the PO walked away
+    from.
+
+    The distinction that matters: an escalation resolved with `po_decision` set
+    is a decision the wake will act on. A moot one is closed with no decision,
+    so nothing downstream treats the filing as an instruction to do work.
+    """
+    conn.execute(
+        """UPDATE stories SET settled_as = ?, blocked_reason = NULL,
+                  updated_at = datetime('now','localtime')
+            WHERE id = ?""",
+        (settled_as, story_id),
+    )
+    conn.execute(
+        """UPDATE escalations SET resolved_at = datetime('now','localtime'),
+                  po_decision = NULL
+            WHERE story_id = ? AND resolved_at IS NULL""",
+        (story_id,),
+    )
+    conn.execute(
+        """UPDATE tickets SET status = 'wontfix', closed_at = datetime('now','localtime')
+            WHERE story_id = ? AND status IN ('open','staffed','blocked')""",
+        (story_id,),
+    )
+    # An unanswered reply on a story that has just been filed is a conversation
+    # its subject walked out of. Leaving it unread would have the next wake buy
+    # an answer to it — and the ticket carrying it was wontfixed a line ago, so
+    # the answer would arrive with nowhere on the page to land.
+    conn.execute(
+        "UPDATE po_messages SET status = 'read' "
+        " WHERE story_id = ? AND author = 'po' AND status = 'unread'",
+        (story_id,),
+    )
+    conn.execute(
+        """INSERT INTO story_events (story_id, kind, summary, detail)
+           VALUES (?, 'decided', ?, ?)""",
+        (story_id, f"filed as {settled_as}",
+         f'Notion status is "{notion_status}" — the colony stops asking about this one.'),
+    )
+
+
+def revive_story(conn: sqlite3.Connection, story_id: int, notion_status: str | None) -> None:
+    """Take a story back off the shelf, exactly where it was left.
+
+    Deliberately touches nothing but `settled_as`. The workflow status, the
+    acceptance criteria and the confirmed project all survived being filed, and
+    re-deriving any of them would spend a groom run answering questions that
+    were answered before the story was parked.
+    """
+    conn.execute(
+        "UPDATE stories SET settled_as = NULL, updated_at = datetime('now','localtime') "
+        "WHERE id = ?", (story_id,)
+    )
+    _event(conn, story_id, "decided", "back on the board",
+           f'Notion status is "{notion_status or "unset"}" again.')
+
+
 def queue_notion(conn: sqlite3.Connection, *, story_id: int, kind: str,
                  payload: dict, record: bool = True) -> int:
     """Queue one upward write. Nothing here touches the network — see outbox.py.
@@ -497,6 +563,21 @@ def queue_notion(conn: sqlite3.Connection, *, story_id: int, kind: str,
                 f"starting work is yours"
             )
         detail = f"Status -> {status}"
+        # Apply the filing here rather than waiting for Notion to say it back.
+        #
+        # The push is a mirror of a decision that has already been made: Jordan
+        # pressed Done, and the story should stop asking at that instant, not up
+        # to an hour later when the next sync happens to read the row. Waiting
+        # on the round trip also makes the ledger hostage to the network — with
+        # `notion_write` off, or the token read-only, the button would appear to
+        # do nothing at all. The sync stays the authority on what Notion says;
+        # this is the colony agreeing with an instruction it was given directly.
+        settled = notion_mod.SETTLED_STATUS.get(status)
+        conn.execute("UPDATE stories SET notion_status = ? WHERE id = ?", (status, story_id))
+        if settled and story["settled_as"] != settled:
+            settle_story(conn, story_id, settled, status)
+        elif not settled and story["settled_as"]:
+            revive_story(conn, story_id, status)
     elif kind == "comment":
         text = ((payload or {}).get("text") or "").strip()
         if not text:
@@ -670,6 +751,27 @@ def reply(conn: sqlite3.Connection, *, escalation_id: int | None = None,
         "INSERT INTO po_messages (escalation_id, story_id, author, body) VALUES (?,?,'po',?)",
         (escalation_id, story_id, body),
     )
+    message_id = int(cur.lastrowid)
+
+    # The reply becomes a ticket now, not when the wake gets to it. `answer_po`
+    # used to create, run and close its own ticket inside a single wake, so the
+    # row was born staffed and died done between two page loads and the Queue
+    # never showed it — from the PO's side, answering a question sent it
+    # nowhere. Queueing it here is what the outbox does for a Notion push, for
+    # the same reason: **the wait is the thing worth showing.**
+    #
+    # `role` is left for the wake to fill. Which tier answers is a budget
+    # decision made at wake time against the ceiling that applies then, and a
+    # role written down an hour early is a guess wearing a fact's clothes.
+    # `work_order` holds what he actually said, so the ticket carries its own
+    # context while it waits; the wake overwrites it with the full prompt.
+    conn.execute(
+        """INSERT INTO tickets (story_id, title, intent, status, work_order,
+                                requires_po, po_message_id)
+           VALUES (?,?,'research','open',?,0,?)""",
+        (story_id, f"Reply to Ordis: {body[:120]}", body[:8000], message_id),
+    )
+
     _record(conn, "note", "escalation" if escalation_id else "story",
             escalation_id or story_id, body[:400])
     if story_id:
@@ -678,7 +780,7 @@ def reply(conn: sqlite3.Connection, *, escalation_id: int | None = None,
     # not the same as being answered.
     if escalation_id:
         conn.execute("UPDATE escalations SET snoozed_until = NULL WHERE id = ?", (escalation_id,))
-    return {"ok": True, "message_id": cur.lastrowid, "queued": True}
+    return {"ok": True, "message_id": message_id, "queued": True}
 
 
 def thread(conn: sqlite3.Connection, escalation_id: int | None = None,

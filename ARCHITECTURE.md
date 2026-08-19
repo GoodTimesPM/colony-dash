@@ -1424,3 +1424,68 @@ one panel guaranteed to eventually own the page. It scrolls inside its own body 
 than capping the section, which keeps the newest beat under the heading where you look
 for it; `PULSE_LIMIT` went 40 → 120, because the limit stopped being what fits on screen
 and became how far back you can scroll — about five days of hourly beats.
+
+### 10.10 The status you filter out is the status you cannot see
+
+**§10.9 built filing and none of it could ever fire.** `notion.fetch_board` sent
+Notion a filter — `Status = In Progress OR Exploring` — which is the right answer
+to *what may the colony work on* and the wrong answer to *what is on the board*.
+The sync needs the second. A row moved to Done left the result set entirely, so
+the sync never saw it move; the story sat in the ledger frozen at its last
+workable status, `settled_as` stayed NULL, and the migration's backfill had
+nothing to backfill because `notion_status` was never a settled value in the
+first place. Two of the six live stories had been marked Done in Notion for a
+day and a half and were still on the board asking questions.
+
+The filter was correct the day it was written, when the sync's only job was
+finding work. It became wrong the moment a second job — noticing that work had
+stopped — was given to the same query. **A predicate that encodes one caller's
+question is a landmine for the second caller**, and it does not announce itself:
+the sync did not fail, it succeeded over the wrong set.
+
+Reading the whole board costs one request for the page list. The expensive part
+is the per-row body fetch, and a filed row does not need one — it is fetched for
+its status alone. So `body_fetched` rides along on the row dict, the sync writes
+the body columns only when a body was actually read, and a story keeps its brief
+on the way to the shelf instead of arriving blank. The same flag suppresses the
+ticked-items diff, which would otherwise report every checked box as newly
+unchecked the first time a filed row synced.
+
+**A filed row that has never been seen is not imported.** The insert path raises
+a "which folder is this?" escalation when it cannot infer a project — so
+importing the whole idea list would have recreated §10.9's bug at ten times the
+volume, with a not-started row producing exactly the question it must never
+produce. Filing therefore only ever applies to stories the colony already knows
+about.
+
+**A button that waits for a round trip is a button that does nothing.** Pressing
+*Done* queued an outbox row and stopped. The story went quiet up to an hour
+later, when the next tick sent the push and the tick after that read it back —
+and with `notion_write` off, or a read-only token, never at all. `queue_notion`
+now applies the filing to the ledger at the moment of the press and queues the
+push as the mirror of a decision already made. The sync stays the authority on
+what Notion *says*; this is the colony agreeing with an instruction it was
+handed directly. `settle_story` and `revive_story` moved to `control.py` for it,
+which is where they belonged anyway — they are ledger decisions, not heartbeat
+bookkeeping.
+
+`WRITABLE_STATUS` lost `"Archived"` in the same pass. It is not an option on the
+Status select, and Notion answers an unknown select option by **creating** it —
+so the one list whose job is to bound what the colony may write was the thing
+that would have added an eighth status to the board.
+
+**A ticket that is born staffed and dies done inside one wake is invisible.**
+`wake.answer_po` created its own ticket, ran it and closed it between two page
+loads, so replying to Ordis produced no row in the Ticket Queue at any moment a
+human could observe. From the PO's side the reply went nowhere. `control.reply`
+now opens the ticket at write time — status `open`, the message itself as both
+title and work order, linked by `tickets.po_message_id` — and the wake *claims*
+that ticket rather than opening a second, filling in the role and the real
+prompt when it does. The role is deliberately left NULL until then: which tier
+answers is a budget decision made against the ceiling that applies at wake time,
+and a role written down an hour early is a guess wearing a fact's clothes.
+
+The tile carries the sentence the PO typed, clamped to two lines, and reads
+`reply · waiting for Ordis` rather than `research · unstaffed` — the mechanism
+was accurate and told him nothing. **This is the outbox lesson a second time:
+the wait is the thing worth showing.**

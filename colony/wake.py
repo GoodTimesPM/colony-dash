@@ -476,12 +476,31 @@ def answer_po(conn: sqlite3.Connection, terms: dict, projects: list[str]) -> lis
                    if h["id"] != msg["id"]]
 
         prompt = reply_prompt(msg, esc, story, projects, history)
-        cur = conn.execute(
-            """INSERT INTO tickets (story_id, title, intent, role, status, work_order, requires_po)
-               VALUES (?,?,'research',?,'staffed',?,0)""",
-            (msg["story_id"], f"Answer the PO: {msg['body'][:120]}", terms["role"], prompt),
-        )
-        ticket_id = cur.lastrowid
+
+        # `control.reply` already opened the ticket the PO has been watching in
+        # the Queue. Claim that one — staffing it and filling in the work order
+        # it could not know an hour ago — rather than opening a second. A reply
+        # written before 010 has no ticket, so one is made here; that branch is
+        # for the rows already in the ledger, not a second way to do this.
+        row = conn.execute(
+            "SELECT id FROM tickets WHERE po_message_id = ? ORDER BY id DESC LIMIT 1",
+            (msg["id"],),
+        ).fetchone()
+        if row:
+            ticket_id = row["id"]
+            conn.execute(
+                "UPDATE tickets SET status = 'staffed', role = ?, work_order = ? WHERE id = ?",
+                (terms["role"], prompt, ticket_id),
+            )
+        else:
+            cur = conn.execute(
+                """INSERT INTO tickets (story_id, title, intent, role, status,
+                                        work_order, requires_po, po_message_id)
+                   VALUES (?,?,'research',?,'staffed',?,0,?)""",
+                (msg["story_id"], f"Reply to Ordis: {msg['body'][:120]}", terms["role"],
+                 prompt, msg["id"]),
+            )
+            ticket_id = cur.lastrowid
 
         result = agent.run_ticket(
             conn, ticket_id=ticket_id, role=terms["role"], prompt=prompt,
