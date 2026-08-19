@@ -23,6 +23,7 @@ from . import db, icon as icon_mod
 HOST = "127.0.0.1"
 DEFAULT_PORT = 8787
 LOG_PATH = db.RUNTIME_DIR / "dash.log"
+WEBVIEW_PROFILE = db.RUNTIME_DIR / "webview"
 
 
 def log(message: str) -> None:
@@ -142,7 +143,16 @@ def launch(port: int = DEFAULT_PORT, *, window: bool = True) -> int:
     )
     threading.Thread(target=_set_window_icon, args=("Colony Dash",), daemon=True).start()
     try:
-        webview.start()
+        # pywebview defaults to `private_mode=True`, which hands WebView2 an
+        # incognito profile: every localStorage key the page writes is thrown
+        # away when the window closes. The theme, the text size, the palette and
+        # the tile layout all live there — deliberately, because how you read the
+        # page is not the colony's business (ARCHITECTURE.md §9.2) — so the
+        # default silently reset the dashboard's whole appearance on every
+        # launch, and looked like a bug in the picker rather than in the shell.
+        # The profile goes next to the ledger, under .colony/, so it is scoped to
+        # this project and disappears with it.
+        webview.start(private_mode=False, storage_path=str(WEBVIEW_PROFILE))
     except Exception:  # no WebView2 runtime, no display, etc.
         log("could not open a window; falling back to the browser URL\n"
             + traceback.format_exc())

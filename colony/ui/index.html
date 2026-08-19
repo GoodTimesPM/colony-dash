@@ -495,6 +495,17 @@
   --h-forge:   color-mix(in oklab, var(--amber) 50%, var(--violet));
   --h-flight:  color-mix(in oklab, var(--mint) 68%, var(--amber));
   --h-sprint:  var(--ink-soft);
+
+  /* What a file's git state is painted in, everywhere it shows: the stacked bar
+     on a project row and the dot beside a file in the tree. They start as the
+     accents because the meanings line up — added is live work, deleted is an
+     anomaly — but they are tokens of their own so that repainting them does not
+     also repaint Ordis and the Colony panel, which is the confusion that comes
+     from editing `--violet` when what you meant was "the modified bar". */
+  --git-added:     var(--mint);
+  --git-modified:  var(--violet);
+  --git-deleted:   var(--coral);
+  --git-untracked: var(--ink-dim);
 }
 
 * { box-sizing: border-box; }
@@ -646,7 +657,26 @@ body.halted .halt-banner { display: flex; }
 .strip h2 .count { color: var(--ink-soft); letter-spacing: 0; }
 .strip.quiet h2 { color: var(--ink-dim); }
 
-.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(310px, 1fr)); gap: 10px; }
+/* The Inbox scrolls rather than growing. Left to itself it wrapped downwards,
+   and a fifth question pushed the whole board off the screen — the panel that
+   exists to say "this needs you" was the one that made everything else
+   unreadable. Capping it costs a scrollbar and buys a page whose shape does not
+   depend on how behind you are. The appearance drawer can override the height. */
+.tiles {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(310px, 1fr));
+  gap: 10px; align-content: start;
+  max-height: var(--inbox-max, 46vh); overflow-y: auto; padding-right: 3px;
+}
+
+/* Empty slots run the grid out to the Ticket Queue so the row always reads as a
+   row. Without them one question sat alone in a third of the width with two
+   thirds of nothing beside it, which looks like a layout that broke rather than
+   an inbox that is nearly clear. A slot is hollow and unlabelled on purpose: it
+   is the shape of a question that has not been asked, not a thing to click. */
+.tile.slot {
+  border: 1px dashed var(--rule); background: none; box-shadow: none;
+  min-height: 74px; pointer-events: none;
+}
 
 .tile {
   display: flex; flex-direction: column; gap: 6px;
@@ -1007,10 +1037,10 @@ button.persona.hired .nm { color: var(--mint); }
 .proj .s { font-family: var(--mono); font-size: var(--step--1); color: var(--ink-soft); }
 .proj .bar { grid-column: 1 / -1; display: flex; height: 3px; border-radius: 2px; overflow: hidden; background: var(--panel-sunk); }
 .proj .bar i { display: block; height: 100%; }
-.proj .bar i.a { background: var(--mint); }
-.proj .bar i.m { background: var(--violet); }
-.proj .bar i.d { background: var(--coral); }
-.proj .bar i.u { background: var(--ink-dim); }
+.proj .bar i.a { background: var(--git-added); }
+.proj .bar i.m { background: var(--git-modified); }
+.proj .bar i.d { background: var(--git-deleted); }
+.proj .bar i.u { background: var(--git-untracked); }
 
 /* ── macros ───────────────────────────────────────────────────────────────── */
 
@@ -1119,10 +1149,10 @@ textarea.compose-box:focus-visible { outline: 2px solid var(--violet); outline-o
 /* State is a dot, not a colour on the filename: the name has to stay legible
    and the dot has to be readable at a glance from across the panel. */
 .tree .node .dot { width: 6px; height: 6px; border-radius: 50%; flex: none; }
-.tree .dot.modified  { background: var(--violet); }
-.tree .dot.added     { background: var(--mint); }
-.tree .dot.deleted   { background: var(--coral); }
-.tree .dot.untracked { background: var(--ink-dim); }
+.tree .dot.modified  { background: var(--git-modified); }
+.tree .dot.added     { background: var(--git-added); }
+.tree .dot.deleted   { background: var(--git-deleted); }
+.tree .dot.untracked { background: var(--git-untracked); }
 .tree .kids { margin-left: 11px; border-left: 1px solid var(--rule-soft); padding-left: 4px; }
 .tree .node.pj .nm { color: var(--amber); }
 @media (prefers-reduced-motion: reduce) { .drawer, .scrim { transition: none } }
@@ -1212,20 +1242,39 @@ section.panel.capped > h2, .strip.capped > h2 {
 .set .val { font-family: var(--mono); font-size: var(--step--1); color: var(--ink-soft);
             min-width: 3.4em; text-align: right; font-variant-numeric: tabular-nums; }
 
-.swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(168px, 1fr)); gap: 7px 14px; }
-.sw { display: flex; align-items: center; gap: 8px; min-width: 0;
+.swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(216px, 1fr)); gap: 10px 16px; }
+.sw { display: flex; align-items: center; gap: 10px; min-width: 0;
       font-family: var(--mono); font-size: var(--step--1); }
+/* Square and large enough to judge. A 26×21 chip is a colour you can identify
+   but not compare, and comparing is the whole job here — the swatch *is* the
+   readout, and the ratio beside it is only the second opinion. */
 .sw input[type=color] {
-  flex: none; width: 26px; height: 21px; padding: 0; cursor: pointer;
-  border: 1px solid var(--rule); border-radius: 4px; background: none;
+  flex: none; width: 38px; height: 38px; padding: 0; cursor: pointer;
+  border: 1px solid var(--rule); border-radius: 5px; background: none;
 }
-.sw .nm { color: var(--ink-soft); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sw .lbl { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.sw .nm { color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* What the colour actually paints, under its name. Fifteen tokens named after
+   their hue told you which colour you were changing and nothing about what
+   would change with it. */
+.sw .does { color: var(--ink-dim); font-size: var(--step--3); line-height: 1.25;
+            overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* The ratio is the whole reason the picker is safe to hand over. A theme is
    fifteen colours holding four relationships, and the one that breaks first is
    always an accent that looked fine against the wrong background. */
 .sw .ratio { margin-left: auto; flex: none; color: var(--ink-dim);
              font-variant-numeric: tabular-nums; font-size: var(--step--3); }
 .sw .ratio.fail { color: var(--coral); }
+
+/* A group of swatches says what it is for before it says what is in it. */
+.grp { display: flex; flex-direction: column; gap: 8px; }
+.grp > .hd { font-family: var(--mono); font-size: var(--step--2); letter-spacing: .12em;
+             text-transform: uppercase; color: var(--ink-soft); }
+.grp > .note { font-size: var(--step--1); color: var(--ink-dim); line-height: 1.4; margin: -4px 0 0; }
+
+/* Revert throws away work — every colour you mixed — so it warns on hover
+   rather than after the click, which is the only moment it can still help. */
+.set .revert:hover, .set .revert:focus-visible { color: var(--coral); }
 
 .lay { display: grid; grid-template-columns: minmax(0,1fr) auto auto auto; gap: 5px 8px;
        align-items: center; font-family: var(--mono); font-size: var(--step--1); }
@@ -1238,6 +1287,45 @@ section.panel.capped > h2, .strip.capped > h2 {
 .preset .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .preset .chips { display: flex; gap: 3px; flex: none; }
 .preset .chips i { width: 11px; height: 11px; border-radius: 2px; border: 1px solid var(--rule); }
+/* ── snap ─────────────────────────────────────────────────────────────────────
+   Dragging a tile is the fastest way to say where it goes and the easiest thing
+   to do by accident, so it is a mode you enter on purpose and leave on purpose.
+   Everything draggable wiggles while the mode is on: the animation is not
+   decoration, it is the only thing on screen that says an ordinary click will
+   now move the page around.
+
+   A drop *inserts* rather than swaps. Swapping means moving one tile silently
+   moves a second one you did not name; inserting pushes the rest down, which is
+   what a list does and what dragging something into a list looks like. */
+
+body.snapping main .col { outline: 1px dashed var(--rule); outline-offset: 5px; border-radius: 10px; }
+body.snapping main [data-panel] {
+  cursor: grab; animation: wiggle 1.6s ease-in-out infinite;
+  box-shadow: 0 0 0 1px var(--violet), var(--shadow);
+}
+body.snapping main [data-panel]:nth-child(even) { animation-delay: -.8s; }
+body.snapping main [data-panel]:hover { box-shadow: 0 0 0 2px var(--violet), var(--shadow); }
+body.snapping main [data-panel].dragging { opacity: .4; animation: none; cursor: grabbing; }
+@keyframes wiggle {
+  0%, 100% { transform: rotate(-.25deg); }
+  50%      { transform: rotate(.25deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  body.snapping main [data-panel] { animation: none; }
+}
+
+/* Where it would land. A line rather than a gap, because a gap that opens as
+   you drag makes the rest of the page move while you are aiming at it. */
+.dropline { height: 3px; border-radius: 2px; background: var(--violet); margin: 3px 0; }
+
+.snapbar {
+  position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%); z-index: 60;
+  display: none; align-items: center; gap: 12px;
+  padding: 9px 15px; border-radius: 8px;
+  background: var(--panel); border: 1px solid var(--violet); box-shadow: var(--shadow);
+  font-family: var(--mono); font-size: var(--step--1); color: var(--ink-soft);
+}
+body.snapping .snapbar { display: flex; }
 </style>
 
 <header class="bar">
@@ -1279,14 +1367,14 @@ section.panel.capped > h2, .strip.capped > h2 {
       <option value="inkwash">ink wash</option>
     </optgroup>
   </select>
-  <button class="link" id="open-appearance" title="text size, colours and tile layout">appearance</button>
+  <button class="link" id="open-appearance" title="text size, colors and tile layout">appearance</button>
   <details class="viewmenu" id="viewmenu">
     <summary title="choose what this page shows">view</summary>
     <div class="menu">
       <div class="lb">panels</div>
       <label><input type="checkbox" data-view="sprint" checked> sprint</label>
       <label><input type="checkbox" data-view="inbox" checked> PO inbox</label>
-      <label><input type="checkbox" data-view="flight" checked> in flight</label>
+      <label><input type="checkbox" data-view="flight" checked> ticket queue</label>
       <label><input type="checkbox" data-view="ordis" checked> Ordis</label>
       <label><input type="checkbox" data-view="colony" checked> colony</label>
       <label><input type="checkbox" data-view="standby" checked> standby</label>
@@ -1305,6 +1393,11 @@ section.panel.capped > h2, .strip.capped > h2 {
     </div>
   </details>
 </header>
+
+<div class="snapbar" id="snapbar">
+  <span>drag a tile where you want it</span>
+  <button class="act go" id="snap-done">done</button>
+</div>
 
 <div class="halt-banner">
   <span>⛔ production halted</span>
@@ -1333,7 +1426,7 @@ section.panel.capped > h2, .strip.capped > h2 {
     <div class="tiles" id="inbox"></div>
   </section>
   <section class="strip flight" id="flight-strip" data-panel="flight">
-    <h2>In Flight <span class="count" id="flight-count"></span></h2>
+    <h2>Ticket Queue <span class="count" id="flight-count"></span></h2>
     <div class="rail" id="flight"></div>
   </section>
 </div>
@@ -2021,7 +2114,7 @@ function renderFlight(items) {
   $("flight-count").textContent = items.length ? String(items.length) : "";
   strip.classList.toggle("quiet", !items.length);
   if (!items.length) {
-    rail.append(el("div", "empty", "nothing in flight"));
+    rail.append(el("div", "empty", "nothing queued"));
     return;
   }
   for (const f of items) rail.append(flightRow(f));
@@ -2124,6 +2217,16 @@ function renderInbox(items) {
     return;
   }
   for (const e of live) box.append(inboxTile(e));
+  padSlots(box, live.length);
+}
+
+// How many tiles fit across, asked of the grid rather than worked out from the
+// track width — `auto-fill` already did that arithmetic, and doing it twice is
+// how the two answers drift apart the first time the text size moves.
+function padSlots(box, count) {
+  const cols = getComputedStyle(box).gridTemplateColumns.split(" ").filter(Boolean).length;
+  if (!cols || count % cols === 0) return;
+  for (let i = count % cols; i < cols; i++) box.append(el("div", "tile slot"));
 }
 
 function inboxTile(e) {
@@ -2143,8 +2246,8 @@ function inboxTile(e) {
     // The marker only appears when there is something to point at. A badge on
     // every tile would be furniture; a badge on three of them is information.
     card.dataset.flight = keys.join(" ");
-    const pin = el("button", "pin", "in flight · " + keys.length);
-    pin.title = "this question has work in flight — hover to find it, click to open the story";
+    const pin = el("button", "pin", "queued · " + keys.length);
+    pin.title = "this question has work in the ticket queue — hover to find it, click to open the story";
     pin.onmouseenter = () => keys.forEach((key) => lightFlight(key, true));
     pin.onmouseleave = () => keys.forEach((key) => lightFlight(key, false));
     pin.onclick = () => {
@@ -2840,7 +2943,13 @@ function closeDrawer() {
 $("d-close").onclick = closeDrawer;
 $("d-back").onclick = goBack;
 $("scrim").onclick = closeDrawer;
-addEventListener("keydown", (e) => { if (e.key === "Escape") closeDrawer(); });
+addEventListener("keydown", (e) => {
+  if (e.key !== "Escape") return;
+  // Snap is a mode, and a mode has to be leavable by the key that leaves every
+  // other mode — otherwise the only way out is a button you have to aim at.
+  if (SNAP) { setSnap(false); return; }
+  closeDrawer();
+});
 
 async function getJSON(url) {
   const res = await fetch(url);
@@ -3393,7 +3502,7 @@ $("theme").onchange = (e) => {
   // is worse than one that asks you to mix again. Named presets are untouched:
   // that is what saving one is for.
   if (Object.keys(VARS).length) { VARS = {}; applyVars(); saveAppearance();
-                                  toast("hand-mixed colours cleared", null); }
+                                  toast("hand-mixed colors cleared", null); }
   if (STATE) render(STATE);   // avatars are painted on canvas, so they re-paint
 };
 $("halt-banner-resume").onclick = () => act("halt", { on: false });
@@ -3428,8 +3537,9 @@ let SCALE = Number(localStorage.getItem(SCALE_KEY) || DEFAULT_SCALE) || DEFAULT_
 let VARS = readJSON(VARS_KEY, {});
 let LAYOUT = readJSON(LAYOUT_KEY, {});
 
-// Name, label, and what the colour has to stay legible against. A row with no
-// audit is a surface colour — it has no single relationship worth one number.
+// Name, label, what it paints, and what it has to stay legible against. A row
+// with no audit is a surface colour — it has no single relationship worth one
+// number.
 //
 // The targets are the ones this design actually holds, measured off the
 // twenty-four shipped palettes rather than copied off a checklist: ink 4.5 on
@@ -3437,23 +3547,72 @@ let LAYOUT = readJSON(LAYOUT_KEY, {});
 // label, which argues for 4.5 — but eight of the shipped themes sit between
 // 3.55 and 4.4 there and none of them is hard to read, and an audit that opens
 // by calling a third of the existing design broken is noise, not signal.
-const TOKENS = [
-  ["--ground",       "ground",      null],
-  ["--panel",        "panel",       null],
-  ["--panel-sunk",   "panel sunk",  null],
-  ["--rule",         "rule",        null],
-  ["--rule-soft",    "rule soft",   null],
-  ["--ink",          "ink",         ["--panel", 4.5]],
-  ["--ink-soft",     "ink soft",    ["--panel", 4.5]],
-  ["--ink-dim",      "ink dim",     ["--panel", 3]],
-  ["--amber",        "amber",       ["--panel", 3]],
-  ["--amber-ground", "amber bed",   ["--amber", 3]],
-  ["--mint",         "mint",        ["--panel", 3]],
-  ["--mint-ground",  "mint bed",    ["--mint", 3]],
-  ["--coral",        "coral",       ["--panel", 3]],
-  ["--coral-ground", "coral bed",   ["--coral", 3]],
-  ["--violet",       "violet",      ["--panel", 3]],
+//
+// The rows are grouped, and every one of them says what it paints, because a
+// palette named after its hues is unusable as a control panel: `violet` is
+// simultaneously Ordis, the Standby and Board titles, the focus ring and the
+// modified-files bar, and a picker that reads "violet" tells you the one thing
+// you already knew — the colour — and none of the four things that will move.
+// So the four accents keep their meanings and stay the *source*, and everything
+// downstream of them is now a token of its own that can be pinned separately.
+const TOKEN_GROUPS = [
+  { label: "surfaces",
+    note: "The page and the cards on it. No contrast target of their own — they are what everything else is measured against.",
+    rows: [
+      ["--ground",     "ground",     "behind the whole page",            null],
+      ["--panel",      "panel",      "the face of every card and panel", null],
+      ["--panel-sunk", "well",       "hovered rows, inset boxes, gauges", null],
+      ["--rule",       "rule",       "borders and dividers",             null],
+      ["--rule-soft",  "rule soft",  "the faintest dividers",            null],
+    ] },
+  { label: "text",
+    note: "Every word on the page sits on panel, so that is what all three are audited against.",
+    rows: [
+      ["--ink",      "ink",      "body text and headlines",        ["--panel", 4.5]],
+      ["--ink-soft", "ink soft", "secondary text, counts, labels", ["--panel", 4.5]],
+      ["--ink-dim",  "ink dim",  "timestamps, hints, empty states", ["--panel", 3]],
+    ] },
+  { label: "the four meanings",
+    note: "The accents, and the source of everything below. Each one says one thing everywhere it appears, which is why there are four and not fourteen. Change one here and every title and bar that borrows it follows — pin those separately below if you would rather they did not.",
+    rows: [
+      ["--amber",        "amber",     "yours: Inbox tiles, anything waiting on you", ["--panel", 3]],
+      ["--amber-ground", "amber bed", "the bed an Inbox tile sits on",               ["--amber", 3]],
+      ["--mint",         "mint",      "live work: running, healthy, go",             ["--panel", 3]],
+      ["--mint-ground",  "mint bed",  "the bed a mint chip sits on",                 ["--mint", 3]],
+      ["--coral",        "coral",     "anomaly: blocked, failed, halted, stop",      ["--panel", 3]],
+      ["--coral-ground", "coral bed", "the bed a coral chip sits on",                ["--coral", 3]],
+      ["--violet",       "violet",    "Ordis himself, and every focus ring",         ["--panel", 3]],
+    ] },
+  { label: "panel titles",
+    note: "One per panel, mixed from the accents above. Set one here and only that title moves.",
+    rows: [
+      ["--h-inbox",   "PO Inbox",    "title and left edge", ["--panel", 3]],
+      ["--h-flight",  "Ticket Queue", "title, queued-push stripe, the link to a tile", ["--panel", 3]],
+      ["--h-ordis",   "Ordis",       "title and left edge", ["--panel", 3]],
+      ["--h-colony",  "Colony",      "title and left edge", ["--panel", 3]],
+      ["--h-standby", "Standby",     "title and left edge", ["--panel", 3]],
+      ["--h-board",   "Board",       "title and left edge", ["--panel", 3]],
+      ["--h-files",   "Files",       "title and left edge", ["--panel", 3]],
+      ["--h-spend",   "Spend",       "title and left edge", ["--panel", 3]],
+      ["--h-macros",  "Macros",      "title and left edge", ["--panel", 3]],
+      ["--h-pulse",   "Pulse log",   "title and left edge", ["--panel", 3]],
+      ["--h-forge",   "Forge",       "title and left edge", ["--panel", 3]],
+      ["--h-sprint",  "Sprint strip", "the figures across the top", ["--panel", 3]],
+    ] },
+  { label: "file changes",
+    note: "The stacked bar on a project row, and the dot beside a file in the tree. The same four states in both places.",
+    rows: [
+      ["--git-added",     "added",     "new files",              ["--panel", 3]],
+      ["--git-modified",  "modified",  "changed files",          ["--panel", 3]],
+      ["--git-deleted",   "deleted",   "removed files",          ["--panel", 3]],
+      ["--git-untracked", "untracked", "files git has not seen", ["--panel", 3]],
+    ] },
 ];
+
+// The base is what randomize rolls and what a preset stores whole; everything
+// after it is derived from the base unless it has been pinned by hand.
+const BASE_TOKENS = TOKEN_GROUPS.slice(0, 3).reduce((a, g) => a.concat(g.rows.map((r) => r[0])), []);
+const TOKENS = TOKEN_GROUPS.reduce((a, g) => a.concat(g.rows), []);
 
 // ── colour arithmetic ───────────────────────────────────────────────────────
 
@@ -3498,12 +3657,28 @@ function toward(h, s, l, bg, target) {
 
 // ── applying ────────────────────────────────────────────────────────────────
 
+// Reading a custom property off the root gives its *text*, and half of these
+// are written as `color-mix(in oklab, var(--mint) 55%, var(--violet))` — a
+// recipe, not a colour. So the browser is asked to cook it: a zero-sized probe
+// takes `color: var(--token)`, and its computed colour is the answer. Chromium
+// hands back `rgb(…)` for a plain colour and `color(srgb …)` for a mix, one in
+// 0–255 and the other in 0–1, so both are parsed rather than one assumed.
+const PROBE = document.createElement("span");
+PROBE.style.cssText = "position:absolute;width:0;height:0;opacity:0;pointer-events:none";
+document.body.append(PROBE);
+
+function parseColor(text) {
+  const nums = String(text).match(/-?[\d.]+(?:e-?\d+)?/g);
+  if (!nums || nums.length < 3) return null;
+  const v = nums.slice(0, 3).map(Number);
+  return String(text).indexOf("srgb") >= 0 ? v.map((n) => n * 255) : v;
+}
+
 function tokenValue(name) {
   if (VARS[name]) return VARS[name];
-  const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-  if (/^#[0-9a-fA-F]{6}$/.test(v)) return v.toLowerCase();
-  if (/^#[0-9a-fA-F]{3}$/.test(v)) return rgb2hex(...hex2rgb(v));
-  return "#808080";
+  PROBE.style.color = "var(" + name + ")";
+  const rgb = parseColor(getComputedStyle(PROBE).color);
+  return rgb ? rgb2hex(rgb[0], rgb[1], rgb[2]) : "#808080";
 }
 
 function applyScale() {
@@ -3530,7 +3705,7 @@ const MAIN_PANELS = ["ordis", "colony", "standby", "board", "files", "spend",
 // would put a scrollbar on something already one line tall.
 const CAPPABLE = ["inbox", "flight"].concat(MAIN_PANELS);
 const PANEL_LABEL = {
-  inbox: "PO Inbox", flight: "In Flight", ordis: "Ordis", colony: "Colony",
+  inbox: "PO Inbox", flight: "Ticket Queue", ordis: "Ordis", colony: "Colony",
   standby: "Standby", board: "Board", files: "Files", spend: "Spend",
   macros: "Macros", pulse: "Pulse log", forge: "Forge",
 };
@@ -3563,21 +3738,38 @@ function applyLayout() {
 
   for (const p of want) if (p.node) cols[p.col].append(p.node);
 
-  // Read the order back out of the DOM and store *that*, so the indices stay
-  // dense however they were arrived at. A move is then always "swap with the
-  // neighbour", never "insert at 2.5 and hope".
-  const nextIn = cols.map(() => 0);
-  for (const p of want) {
-    LAYOUT[p.key] = Object.assign({}, LAYOUT[p.key], { col: p.col, i: nextIn[p.col]++ });
-  }
+  captureLayout();
 
   for (const key of CAPPABLE) {
     const node = panelNode(key);
     if (!node) continue;
     const max = (LAYOUT[key] || {}).max || 0;
+    if (key === "inbox") {
+      // The Inbox already scrolls inside its own grid, so capping the *section*
+      // would nest one scroller in another and give the same list two bars.
+      // Its cap moves the grid's ceiling instead.
+      if (max) node.style.setProperty("--inbox-max", max + "px");
+      else node.style.removeProperty("--inbox-max");
+      continue;
+    }
     node.classList.toggle("capped", max > 0);
     if (max) node.style.setProperty("--tile-max", max + "px");
     else node.style.removeProperty("--tile-max");
+  }
+}
+
+// Read the order back out of the DOM and store *that*, so the indices stay
+// dense however they were arrived at — whether they were arrived at by the
+// arrows, by a column change, or by dragging a tile across the page. A move is
+// then always "swap with the neighbour", never "insert at 2.5 and hope".
+function captureLayout() {
+  for (const [ci, col] of [...document.querySelectorAll("main > .col")].entries()) {
+    let i = 0;
+    for (const node of col.children) {
+      const key = node.dataset && node.dataset.panel;
+      if (!key) continue;
+      LAYOUT[key] = Object.assign({}, LAYOUT[key], { col: ci, i: i++ });
+    }
   }
 }
 
@@ -3593,6 +3785,88 @@ function moveTile(key, delta) {
   LAYOUT[other] = Object.assign({}, LAYOUT[other], { i: mine });
   applyLayout(); saveAppearance(); openAppearance();
 }
+
+// ── snap ────────────────────────────────────────────────────────────────────
+//
+// Dragging is the fastest way to say where a tile goes and the easiest thing to
+// do by accident, so it is a mode with a door at both ends: you enter it from
+// the drawer, and a bar at the bottom of the screen is the only thing on the
+// page while it is on. The tiles wiggle for the same reason — it is the only
+// signal that an ordinary click will now rearrange the page.
+//
+// A drop *inserts* rather than swaps. Swapping moves a second tile you never
+// named; inserting pushes the rest of the column down, which is what dragging
+// something into a list looks like everywhere else.
+
+let SNAP = false, DRAG = null, LINE = null;
+
+function setSnap(on) {
+  SNAP = on;
+  document.body.classList.toggle("snapping", on);
+  for (const key of MAIN_PANELS) {
+    const node = panelNode(key);
+    if (node) node.draggable = on;
+  }
+  if (!on) endDrag();
+}
+
+function endDrag() {
+  if (LINE && LINE.parentNode) LINE.remove();
+  if (DRAG) DRAG.classList.remove("dragging");
+  DRAG = null;
+}
+
+// The first tile whose middle is below the pointer is the one being pushed
+// down; measuring against middles rather than edges means the line flips when
+// you have passed half of a tile, not when you have cleared all of it.
+function insertBefore(col, y) {
+  for (const node of col.children) {
+    if (node === DRAG || node === LINE || !node.dataset.panel) continue;
+    if (node.offsetParent === null) continue;         // hidden by the view menu
+    const box = node.getBoundingClientRect();
+    if (y < box.top + box.height / 2) return node;
+  }
+  return null;
+}
+
+(function wireSnap() {
+  const main = document.querySelector("main");
+  if (!main) return;
+
+  main.addEventListener("dragstart", (e) => {
+    const node = e.target.closest ? e.target.closest("[data-panel]") : null;
+    if (!SNAP || !node || MAIN_PANELS.indexOf(node.dataset.panel) < 0) return;
+    DRAG = node;
+    node.classList.add("dragging");
+    e.dataTransfer.effectAllowed = "move";
+    // Firefox will not start a drag without payload; the panel key is the
+    // smallest true thing to say.
+    e.dataTransfer.setData("text/plain", node.dataset.panel);
+  });
+
+  main.addEventListener("dragover", (e) => {
+    if (!SNAP || !DRAG) return;
+    const col = e.target.closest ? e.target.closest("main > .col") : null;
+    if (!col) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    if (!LINE) LINE = el("div", "dropline");
+    const before = insertBefore(col, e.clientY);
+    if (before) col.insertBefore(LINE, before); else col.append(LINE);
+  });
+
+  main.addEventListener("drop", (e) => {
+    if (!SNAP || !DRAG) return;
+    e.preventDefault();
+    if (LINE && LINE.parentNode) LINE.parentNode.insertBefore(DRAG, LINE);
+    endDrag();
+    captureLayout(); saveAppearance();
+  });
+
+  main.addEventListener("dragend", () => endDrag());
+})();
+
+$("snap-done").onclick = () => { setSnap(false); openAppearance(); };
 
 // ── randomize ───────────────────────────────────────────────────────────────
 //
@@ -3668,8 +3942,13 @@ function savePreset(name) {
   name = (name || "").trim().slice(0, 40);
   if (!name) { toast("a preset needs a name", "bad"); return; }
   const all = presets();
+  // The base is stored resolved, so the look is exact. The derived tokens are
+  // stored only if they were pinned by hand — baking all of them in would make
+  // every preset a palette where moving `--violet` no longer moves Ordis, which
+  // is the behaviour the panel-title rows exist to make optional, not default.
   const full = {};
-  for (const pair of TOKENS) full[pair[0]] = tokenValue(pair[0]);
+  for (const name of BASE_TOKENS) full[name] = tokenValue(name);
+  for (const name of Object.keys(VARS)) full[name] = VARS[name];
   all[name] = { theme: document.documentElement.dataset.theme || "", scale: SCALE, vars: full };
   writePresets(all);
   toast("saved " + name, "good");
@@ -3699,7 +3978,7 @@ function applyPreset(name) {
 function openAppearance() {
   // No `nav` descriptor: this is a control panel, not a place, and a back
   // button that returned you to your own settings would be noise.
-  const body = openDrawer("appearance", "how this page reads");
+  const body = openDrawer("appearance", "Template Palette");
   body.replaceChildren();
   const set = el("div", "set");
 
@@ -3725,9 +4004,16 @@ function openAppearance() {
   set.append(blk("text size", size));
 
   // ── palette
-  const grid = el("div", "swatches");
+  //
+  // Every swatch is repainted after every edit rather than only its own row,
+  // because one colour is never one relationship: nudging `--panel` moves all
+  // fifteen ratios measured against it, and a readout that only refreshed the
+  // row you touched would be telling the truth about one number and stale about
+  // the rest.
   const ratios = [];
+  const swatches = [];
   const paint = () => {
+    for (const w of swatches) if (document.activeElement !== w.node) w.node.value = tokenValue(w.name);
     for (const r of ratios) {
       const got = contrast(tokenValue(r.name), tokenValue(r.against));
       r.node.textContent = got.toFixed(1) + ":1";
@@ -3736,22 +4022,35 @@ function openAppearance() {
                    + (got < r.target ? " — wants " + r.target + ":1" : "");
     }
   };
-  for (const [name, label, audit] of TOKENS) {
-    const row = el("div", "sw");
-    const input = document.createElement("input");
-    input.type = "color"; input.value = tokenValue(name); input.title = name;
-    input.oninput = () => {
-      VARS[name] = input.value;
-      document.documentElement.style.setProperty(name, input.value);
-      saveAppearance(); paint();
-    };
-    row.append(input, el("span", "nm", label));
-    if (audit) {
-      const r = el("span", "ratio");
-      ratios.push({ node: r, name: name, against: audit[0], target: audit[1] });
-      row.append(r);
+
+  const groups = [];
+  for (const g of TOKEN_GROUPS) {
+    const grid = el("div", "swatches");
+    for (const [name, label, does, audit] of g.rows) {
+      const row = el("div", "sw");
+      const input = document.createElement("input");
+      input.type = "color"; input.value = tokenValue(name);
+      input.title = name + " — " + does;
+      input.oninput = () => {
+        VARS[name] = input.value;
+        document.documentElement.style.setProperty(name, input.value);
+        saveAppearance(); paint();
+      };
+      swatches.push({ node: input, name: name });
+      const lbl = el("div", "lbl");
+      lbl.append(el("div", "nm", label), el("div", "does", does));
+      lbl.title = does;
+      row.append(input, lbl);
+      if (audit) {
+        const r = el("span", "ratio");
+        ratios.push({ node: r, name: name, against: audit[0], target: audit[1] });
+        row.append(r);
+      }
+      grid.append(row);
     }
-    grid.append(row);
+    const wrap = el("div", "grp");
+    wrap.append(el("div", "hd", g.label), el("div", "note", g.note), grid);
+    groups.push(wrap);
   }
   paint();
 
@@ -3764,8 +4063,9 @@ function openAppearance() {
     if (STATE) render(STATE);
     openAppearance();
   };
-  const revert = el("button", "link", "back to the theme");
-  revert.title = "drop every override and show " + (document.documentElement.dataset.theme || "system") + " as written";
+  const revert = el("button", "link revert", "revert");
+  revert.title = "throw away every colour mixed here and show "
+               + (document.documentElement.dataset.theme || "system") + " as written";
   revert.onclick = () => {
     VARS = {}; applyVars(); saveAppearance();
     if (STATE) render(STATE);
@@ -3783,8 +4083,8 @@ function openAppearance() {
   saveRow.append(nameBox, keep);
 
   const pal = el("div", "set");
-  pal.append(grid, acts, saveRow);
-  set.append(blk("colours", pal));
+  pal.append(...groups, acts, saveRow);
+  set.append(blk("colors", pal));
 
   // ── presets
   const all = presets();
@@ -3854,9 +4154,13 @@ function openAppearance() {
 
     const cap = document.createElement("select");
     cap.className = "pick";
-    cap.title = "cap the height and this tile scrolls inside itself";
-    for (const [v, label] of [[0, "grows"], [260, "260px"], [380, "380px"],
-                              [520, "520px"], [700, "700px"]]) {
+    cap.title = key === "inbox"
+      ? "how tall the Inbox grid gets before it scrolls"
+      : "cap the height and this tile scrolls inside itself";
+    const heights = key === "inbox"
+      ? [[0, "46vh"], [260, "260px"], [380, "380px"], [520, "520px"], [700, "700px"]]
+      : [[0, "grows"], [260, "260px"], [380, "380px"], [520, "520px"], [700, "700px"]];
+    for (const [v, label] of heights) {
       const o = document.createElement("option");
       o.value = String(v); o.textContent = label;
       cap.append(o);
@@ -3868,10 +4172,15 @@ function openAppearance() {
     };
     lay.append(cap);
   }
+  const layActs = el("div", "row");
+  const snap = el("button", "act", "snap");
+  snap.title = "close this and drag the tiles where you want them";
+  snap.onclick = () => { closeDrawer(); setSnap(true); };
   const layReset = el("button", "link", "back to the designed layout");
   layReset.onclick = () => { LAYOUT = {}; applyLayout(); saveAppearance(); openAppearance(); };
+  layActs.append(snap, layReset);
   const layBox = el("div", "set");
-  layBox.append(lay, layReset);
+  layBox.append(lay, layActs);
   set.append(blk("tiles", layBox));
 
   body.append(set);

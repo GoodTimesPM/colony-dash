@@ -231,6 +231,20 @@ Also shipped with M3, from the same session's asks:
   neutrals but keeps the four accents inside their hue bands, because a "coral" that came out
   green stops saying anomaly; every colour has its lightness solved for the contrast it owes.
   Presets save the palette, the base theme and the text size together and are named.
+- **Appearance survives a relaunch.** pywebview defaults to a private WebView2
+  profile, so every localStorage key — theme, text size, palette, tile layout —
+  was binned when the window closed. The profile now lives at `.colony/webview/`.
+- **In Flight is now the Ticket Queue**, and the PO Inbox scrolls at 46vh rather
+  than wrapping downwards, padding its last row with hollow slots out to the
+  queue so the strip keeps its shape however far behind you are.
+- **The palette editor is grouped and labelled by what each colour paints** —
+  surfaces, text, the four meanings, twelve panel titles and four git states.
+  The titles and git states are tokens of their own, mixed from the accents but
+  pinnable one at a time, so "make the Ordis title greener" no longer also
+  repaints Standby, Board and the modified-files bar. All sixteen clear 3:1 on
+  panel across the twenty-five shipped theme variants.
+- **Snap** turns the whole board into a drag surface: the drawer closes, every
+  tile wiggles, and a drop inserts rather than swaps.
 - **Relative times tick every fifteen seconds.** "last beat 0m ago · next in 60m" used to be
   baked at render and frozen until the next SSE push — an hour of a clock reading *younger*
   than the truth, on the one panel that exists to show the loop is alive.
