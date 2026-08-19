@@ -697,8 +697,33 @@ else is a view over the ledger — the dashboard can never be the reason state c
 | PO Inbox | `escalations WHERE resolved_at IS NULL` | **The only panel that asks for anything.** Empty = close the tab. |
 | In Flight | open `tickets` + unsent `notion_outbox` | Beside the Inbox, because it answers the question the Inbox creates: what did pressing that actually start? Read-only. |
 | Pulse log | `pulses ORDER BY pulse_at DESC` | Heartbeat monitor. Consecutive "clean" rows collapse; a *missing* row renders red. |
+| Files | `projects.scan()` + the lazy tree | What moved on disk. Sortable three ways — see below. |
 | Forge | `skills WHERE status='candidate'` | Promotion queue, ranked by tokens saved. |
 | Spend | `runs` rolled up by day/role/story | Burn rate, most expensive story, tokens per accepted story. |
+
+**The Files list sorts three ways, and the three are not cosmetic variants of each
+other.** *changes* is the pulse's own order — commits first, then sheer volume — and
+answers "what is outstanding". *recent* sorts on the newest mtime under the folder,
+which is close to the opposite question: the folder you were editing a minute ago is
+routinely eighth by volume, and it is the one you came to the panel to find. *name*
+exists for when you already know the answer and want the list to hold still while you
+click it. The timestamp is a file mtime rather than a `git log` date on purpose —
+these rows are *uncommitted* changes, and the last commit says nothing about when
+they happened. Every dirty path is stat'd, not only the forty the drawer shows, because
+a max over a truncated sample lies exactly about the busiest folders. The choice lives
+in localStorage beside the view menu: how you read a panel is not something the server
+needs to know.
+
+**Drawers keep a trail.** A drawer can open another drawer — a beat lists the projects
+that moved, a story lists its tickets — and that used to be a one-way trip, with the
+only route back being to close everything and find the beat again. Now the header grows
+a back button naming where it goes. Nothing at the call sites had to change: `openDrawer`
+runs synchronously at the top of every `open*` function, before its fetch, so "was a
+drawer already on screen when this one opened?" is precisely the question of whether the
+user stepped *down* or started fresh, and it can be asked in one place instead of at the
+dozen places that open a drawer. Views that cannot honestly be restored — the composer,
+with a half-written reply in it — pass no descriptor and so end the trail rather than
+extending it.
 
 **The design rule:** an empty PO Inbox means the system is working and needs nothing.
 Everything else on the page is ambient. If the dashboard nags when the Inbox is empty, it's
