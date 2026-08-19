@@ -25,7 +25,8 @@ python -m colony dash --serve         serve only, no window — browse 127.0.0.1
 python -m colony status               sprint, board, colony, inbox, pulse log
 python -m colony pulse                one heartbeat — free unless it wakes to groom
 python -m colony pulse --no-wake      tick only, guaranteed zero tokens
-python -m colony pulse --dry-run      preview; writes nothing, spends nothing
+python -m colony pulse --dry-run      preview; spends no tokens, rolls back the ledger
+                                      (but still flushes the Notion outbox — see 10.8)
 python -m colony roster "database"    search all 270 personas
 python -m colony agents               who is on the books and what they may touch
 python -m colony sql "SELECT ..."     SELECT-only console

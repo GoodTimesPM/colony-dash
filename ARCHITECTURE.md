@@ -1166,3 +1166,29 @@ Hiding a panel does not stop the colony filling it, and nothing about the choice
 server — a page that phoned home about which panels you had open would be a page you could not
 trust to be only a page. Panels default on and detail defaults off, so a panel added later
 appears for someone who has been using the menu for months.
+
+### 10.8 What the silence taught us
+
+**A heartbeat can die on its own command line.** Eight hours of no beat, and the scheduled task
+was firing every hour, on time, with `LastTaskResult 2` — which reads like `ERROR_FILE_NOT_FOUND`
+and is not. It was the pulse's own exit code: argparse exits 2 on a usage error. The task passed
+`--log D:\ALL STUFF\PROJECTS\...\pulse.log` unquoted, this machine's project root has two
+spaces in it, and the pulse rejected the strays and quit before it reached any colony code. The
+lesson is not "quote your paths" — it is that **an exit code from a scheduler is the child's exit
+code**, so a silent loop should be diagnosed by running the exact registered command line by
+hand rather than by reading the number as the scheduler's own. The proof of the fix is the same
+command line, quoted, exiting 0.
+
+Two things made eight hours of silence possible at all. The task reports success or failure to
+nowhere, so a pulse that dies every hour looks exactly like a pulse that has nothing to say; and
+the log the pulse writes is the log it never got far enough to open. **A heartbeat needs a
+liveness signal that does not depend on the heartbeat running** — the dashboard should read
+`LastTaskResult` and the age of the newest `pulses` row, and say so when the newest beat is older
+than two intervals.
+
+**`--dry-run` wrote to Notion.** It gates the ledger — the whole pulse runs inside a transaction
+that gets rolled back — and `outbox.flush()` sits inside that transaction making live HTTP calls
+to somebody else's server. The rollback un-does the `attempts` increment and the `last_error`, so
+a dry run that really did attempt a board mutation leaves a row that still reads "never tried".
+**A transaction is not a sandbox.** Anything a dry run does over the network is already done, and
+worse, the local record of having done it is the part that gets erased.

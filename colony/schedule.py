@@ -48,7 +48,11 @@ def _run_ps(script: str) -> str:
 def install(*, hour_interval: int = 1) -> str:
     """Create or replace the hourly task. Returns what the scheduler reports."""
     pythonw = shortcut.pythonw()
-    args = f'-m colony pulse --log {LOG_PATH}'
+    # The log path is quoted because this machine's project root has spaces in it.
+    # Unquoted, the scheduler hands pythonw `--log D:\ALL`, `STUFF\PROJECTS\...`,
+    # argparse rejects the strays, and the task exits 2 every hour — a heartbeat
+    # that dies on its own command line before it reaches any colony code.
+    args = f'-m colony pulse --log "{LOG_PATH}"'
     user = getpass.getuser()
 
     # Register-ScheduledTask over schtasks.exe: the XML dialect of schtasks is
