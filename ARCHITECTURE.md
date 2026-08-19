@@ -695,6 +695,7 @@ else is a view over the ledger — the dashboard can never be the reason state c
 | Colony | `runs WHERE status='running'` | Lloyd's Sessions panel. Role, model, status, ticket, elapsed, live tokens. Proof the thing is alive. |
 | Board | `stories GROUP BY status` | Scrum board. Click a column to filter everything below. |
 | PO Inbox | `escalations WHERE resolved_at IS NULL` | **The only panel that asks for anything.** Empty = close the tab. |
+| In Flight | open `tickets` + unsent `notion_outbox` | Beside the Inbox, because it answers the question the Inbox creates: what did pressing that actually start? Read-only. |
 | Pulse log | `pulses ORDER BY pulse_at DESC` | Heartbeat monitor. Consecutive "clean" rows collapse; a *missing* row renders red. |
 | Forge | `skills WHERE status='candidate'` | Promotion queue, ranked by tokens saved. |
 | Spend | `runs` rolled up by day/role/story | Burn rate, most expensive story, tokens per accepted story. |
@@ -702,6 +703,25 @@ else is a view over the ledger — the dashboard can never be the reason state c
 **The design rule:** an empty PO Inbox means the system is working and needs nothing.
 Everything else on the page is ambient. If the dashboard nags when the Inbox is empty, it's
 wrong.
+
+**In Flight is the Inbox's other half, and it is deliberately not a second Inbox.** Every
+control on this page queues rather than acts — a dispatch waits for the next wake, a board
+change waits for the next pulse — which is the right design and leaves one hole in it: from
+the moment you press the button to the moment the pulse runs, the page says nothing. The
+work existed only two clicks deep in a story drawer, so "did that go through?" had no answer
+where the decision was made. The rail sits beside the Inbox because that is where the button
+was, holds both shapes of pending work (a ticket and a queued Notion push are different rows
+but the same question), stripes its left edge with the same four accents the rest of the page
+rations, and asks for nothing — it is a status light, not a list to work through. It scrolls
+at six rows for the same reason: the moment it is tall enough to read end to end, it has
+pushed the board off the screen.
+
+The marker on a tile is the other direction of the same link. A question and the work waiting
+on it are one piece of work — you approve the write in the Inbox, the ticket that was blocked
+on it is in the rail — so a tile with something in flight carries a badge, and hovering it
+lights the rows it means. The badge appears only when it can light something: an escalation
+raised from a ticket that has since closed gets none, because a marker that highlights nothing
+teaches you the link is broken.
 
 ### 9.3 The colony rail — four features taken from Lloyd's sidebar
 

@@ -485,6 +485,7 @@
   --h-macros:  var(--coral);
   --h-pulse:   color-mix(in oklab, var(--violet) 55%, var(--ink-soft));
   --h-forge:   color-mix(in oklab, var(--amber) 50%, var(--violet));
+  --h-flight:  color-mix(in oklab, var(--mint) 68%, var(--amber));
   --h-sprint:  var(--ink-soft);
 }
 
@@ -620,7 +621,15 @@ body.halted .halt-banner { display: flex; }
    that is *about* Jordan, so it is not a column of leftovers in the corner —
    it is the first thing the eye lands on, and it disappears when it is empty. */
 
-.strip { padding: 14px 20px 0; }
+/* The Inbox and what it set in motion share one row: the padding lives on the
+   row so the two panels meet at a gap rather than at doubled gutters. */
+.strip-row {
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(266px, 310px);
+  gap: 16px; align-items: start; padding: 14px 20px 0;
+}
+@media (max-width: 1240px) { .strip-row { grid-template-columns: minmax(0, 1fr); } }
+.strip-row > * { min-width: 0; }
+.strip { padding: 0; }
 .strip h2 {
   margin: 0 0 9px; font-family: var(--mono); font-size: var(--step--1); font-weight: 600;
   letter-spacing: .16em; text-transform: uppercase; color: var(--amber);
@@ -695,6 +704,61 @@ button.act.no   { border-color: var(--coral); color: var(--coral); }
 button.act.warn { border-color: var(--amber); color: var(--amber); }
 button.act.solid { background: var(--coral); border-color: var(--coral); color: var(--panel); }
 
+/* ── in flight ────────────────────────────────────────────────────────────────
+   Beside the Inbox rather than under it, because it answers the question the
+   Inbox creates: you queue something from a tile or a drawer, and then there is
+   nowhere on the page that says it is still queued. Tickets and Notion pushes
+   are different shapes but the same question — the PO pressed something and it
+   has not finished — so they share one rail, distinguished by the stripe down
+   their left edge rather than by being filed apart.
+
+   It is short and it scrolls. This panel is a status light, not a list to work
+   through; the moment it is tall enough to read top to bottom it has pushed the
+   board off the screen, which is a worse trade than scrolling six rows. */
+
+.flight h2 { color: var(--h-flight); }
+.flight .rail {
+  display: flex; flex-direction: column; gap: 6px;
+  max-height: 238px; overflow-y: auto; padding-right: 3px;
+}
+.fl {
+  display: flex; flex-direction: column; gap: 3px;
+  padding: 6px 9px 7px; border-radius: 6px; cursor: pointer;
+  background: var(--panel); border: 1px solid var(--rule);
+  border-left: 2px solid var(--rule); text-align: left;
+  transition: background .12s ease, border-color .12s ease;
+}
+/* The stripe is the state. Mint is running, amber is staffed and waiting on the
+   next pulse, coral is blocked or given up on — the same rationing the rest of
+   the page uses, so no legend is needed. */
+.fl[data-state="running"] { border-left-color: var(--mint); }
+.fl[data-state="staffed"] { border-left-color: var(--amber); }
+.fl[data-state="open"]    { border-left-color: var(--ink-dim); }
+.fl[data-state="blocked"] { border-left-color: var(--coral); }
+.fl[data-state="push"]    { border-left-color: var(--h-flight); }
+.fl[data-state="stuck"]   { border-left-color: var(--coral); background: var(--coral-ground); }
+.fl .t { font-size: var(--step--1); line-height: 1.3; color: var(--ink); }
+.fl .m {
+  display: flex; gap: 7px; align-items: baseline;
+  font-family: var(--mono); font-size: 10px; letter-spacing: .08em;
+  text-transform: uppercase; color: var(--ink-dim);
+}
+.fl .m .st { color: var(--ink-soft); }
+.fl .m .who { margin-left: auto; letter-spacing: 0; text-transform: none; }
+.fl .err { font-family: var(--mono); font-size: 10px; color: var(--coral); }
+
+/* The link between the two panels. One class, applied from either side, so the
+   tile lights the row and the row lights the tile without two mechanisms. */
+.fl.lit    { border-color: var(--h-flight); background: var(--panel-sunk); }
+.tile.lit  { box-shadow: 0 0 0 2px var(--h-flight), var(--shadow); }
+.tile .pin {
+  font-family: var(--mono); font-size: 10px; letter-spacing: .08em;
+  padding: 0 5px; border-radius: 3px; cursor: pointer;
+  border: 1px solid var(--rule); background: var(--panel); color: var(--ink-soft);
+}
+.tile .k .age + .pin, .tile .k .flag + .pin { margin-left: 0; }
+.tile .pin:hover, .tile .pin:focus-visible { color: var(--h-flight); border-color: var(--h-flight); }
+
 /* ── layout ───────────────────────────────────────────────────────────────── */
 
 main {
@@ -740,6 +804,7 @@ section.panel {
 [data-panel="macros"]  { --section-hue: var(--h-macros); }
 [data-panel="pulse"]   { --section-hue: var(--h-pulse); }
 [data-panel="forge"]   { --section-hue: var(--h-forge); }
+[data-panel="flight"]  { --section-hue: var(--h-flight); }
 .panel .body { padding: 11px 13px 13px; display: flex; flex-direction: column; gap: 9px; }
 .empty { color: var(--ink-dim); font-size: var(--step--1); padding: 2px 0 4px; }
 
@@ -1155,6 +1220,7 @@ table.runs td.num { text-align: right; padding-right: 0; }
       <div class="lb">panels</div>
       <label><input type="checkbox" data-view="sprint" checked> sprint</label>
       <label><input type="checkbox" data-view="inbox" checked> PO inbox</label>
+      <label><input type="checkbox" data-view="flight" checked> in flight</label>
       <label><input type="checkbox" data-view="ordis" checked> Ordis</label>
       <label><input type="checkbox" data-view="colony" checked> colony</label>
       <label><input type="checkbox" data-view="standby" checked> standby</label>
@@ -1193,12 +1259,18 @@ table.runs td.num { text-align: right; padding-right: 0; }
   <div class="gauge" id="gauge"><i style="width:0"></i></div>
 </section>
 
-<section class="strip" id="inbox-strip" data-panel="inbox">
-  <h2>PO Inbox <span class="count" id="inbox-count"></span>
-    <button class="link" id="inbox-show-stale" style="display:none" title="stale questions are ones the story has moved past">stale</button>
-  </h2>
-  <div class="tiles" id="inbox"></div>
-</section>
+<div class="strip-row">
+  <section class="strip" id="inbox-strip" data-panel="inbox">
+    <h2>PO Inbox <span class="count" id="inbox-count"></span>
+      <button class="link" id="inbox-show-stale" style="display:none" title="stale questions are ones the story has moved past">stale</button>
+    </h2>
+    <div class="tiles" id="inbox"></div>
+  </section>
+  <section class="strip flight" id="flight-strip" data-panel="flight">
+    <h2>In Flight <span class="count" id="flight-count"></span></h2>
+    <div class="rail" id="flight"></div>
+  </section>
+</div>
 
 <main>
   <div class="col">
@@ -1403,6 +1475,7 @@ function render(s) {
   renderColony(s.colony);
   renderBoard(s.board);
   renderProjects(s.projects);
+  renderFlight(s.flight || []);
   renderInbox(s.inbox);
   renderMacros(s.controls);
   renderPulses(s.pulses);
@@ -1800,6 +1873,92 @@ async function openFile(f) {
   body.replaceChildren(...blocks);
 }
 
+// ── in flight ───────────────────────────────────────────────────────────────
+// Tickets the colony is working or staffed to work, and changes queued for the
+// Notion board that have not left this machine. Two shapes, one question: the
+// PO pressed something and it has not finished yet.
+
+function renderFlight(items) {
+  const rail = $("flight"), strip = $("flight-strip");
+  rail.replaceChildren();
+  $("flight-count").textContent = items.length ? String(items.length) : "";
+  strip.classList.toggle("quiet", !items.length);
+  if (!items.length) {
+    rail.append(el("div", "empty", "nothing in flight"));
+    return;
+  }
+  for (const f of items) rail.append(flightRow(f));
+}
+
+function flightRow(f) {
+  const row = el("div", "fl");
+  row.dataset.flight = f.key;
+  row.dataset.state = f.kind === "push"
+    ? (f.stuck ? "stuck" : "push")
+    : (f.run_id ? "running" : f.status);
+
+  if (f.kind === "push") {
+    // A push says what it would do to the board, in the words of the board —
+    // "→ Done" is the thing the PO clicked, and the row is here precisely so
+    // that click has somewhere to be visible until it lands.
+    const what = f.verb === "status" ? "→ " + f.what
+               : f.verb === "check"  ? (f.checked ? "☑ " : "☐ ") + f.what
+               : "💬 " + (f.what || "").slice(0, 80);
+    row.append(el("div", "t", what));
+    const m = el("div", "m");
+    m.append(el("span", "st", f.stuck ? "gave up" : "queued"),
+             el("span", null, "notion"),
+             el("span", "who", f.story_title || ("story #" + f.story_id)));
+    row.append(m);
+    if (f.last_error) row.append(el("div", "err", f.last_error.slice(0, 120)));
+    row.title = f.stuck
+      ? "tried " + f.attempts + " times and stopped — the pulse will not retry this on its own"
+      : "queued " + ago(f.queued_at) + " — the next pulse sends it. Nothing has changed on the board yet.";
+  } else {
+    row.append(el("div", "t", f.title));
+    const m = el("div", "m");
+    m.append(el("span", "st", f.run_id ? "running" : f.status),
+             el("span", null, f.intent),
+             el("span", "who", f.role || "unstaffed"));
+    row.append(m);
+    row.title = "ticket #" + f.id + " · " + (f.story_title || "") +
+                (f.run_id ? " · run #" + f.run_id + " started " + ago(f.run_started_at)
+                          : " · created " + ago(f.created_at));
+  }
+
+  row.onmouseenter = () => lightFlight(f.key, true);
+  row.onmouseleave = () => lightFlight(f.key, false);
+  if (f.story_id) row.onclick = () => openStory(f.story_id);
+  return row;
+}
+
+// The link between the Inbox and this rail, in one function used from both
+// ends. Keys are whitespace-separated on the tile because one question can sit
+// over several tickets, and `[data-flight~="t7"]` matches a list for free.
+function lightFlight(key, on) {
+  for (const n of document.querySelectorAll('[data-flight~="' + key + '"]')) {
+    n.classList.toggle("lit", on);
+  }
+}
+
+// Which rail rows a given escalation is about: the ticket it was raised from,
+// plus anything else in flight for the same story. A write-approval question
+// and the ticket waiting on that approval are the same piece of work, and the
+// tile is where you decide it.
+function flightKeys(e) {
+  const flight = (STATE && STATE.flight) || [];
+  const keys = [];
+  for (const f of flight) {
+    // A closed ticket is not in flight, so an escalation raised from one gets
+    // no marker: a badge that lights nothing is worse than no badge, because
+    // it teaches you the link does not work.
+    const mine = (e.ticket_id && f.kind === "ticket" && f.id === e.ticket_id) ||
+                 (e.story_id && f.story_id === e.story_id);
+    if (mine && !keys.includes(f.key)) keys.push(f.key);
+  }
+  return keys;
+}
+
 function renderInbox(items) {
   const box = $("inbox"), strip = $("inbox-strip");
   box.replaceChildren();
@@ -1841,6 +2000,22 @@ function inboxTile(e) {
     const flag = el("span", "flag", "stale");
     flag.title = "the story changed after this was asked — the question is about a version that no longer exists";
     k.append(flag);
+  }
+  const keys = flightKeys(e);
+  if (keys.length) {
+    // The marker only appears when there is something to point at. A badge on
+    // every tile would be furniture; a badge on three of them is information.
+    card.dataset.flight = keys.join(" ");
+    const pin = el("button", "pin", "in flight · " + keys.length);
+    pin.title = "this question has work in flight — hover to find it, click to open the story";
+    pin.onmouseenter = () => keys.forEach((key) => lightFlight(key, true));
+    pin.onmouseleave = () => keys.forEach((key) => lightFlight(key, false));
+    pin.onclick = () => {
+      const first = document.querySelector('.fl[data-flight="' + keys[0] + '"]');
+      if (first) first.scrollIntoView({ block: "nearest" });
+      if (e.story_id) openStory(e.story_id);
+    };
+    k.append(pin);
   }
   card.append(k, el("div", "r", e.reason));
   if (e.recommendation) card.append(el("div", "rec", e.recommendation));
@@ -3043,8 +3218,8 @@ $("halt-banner-resume").onclick = () => act("halt", { on: false });
 //      forgot you set is indistinguishable from a bug.
 
 const VIEW_KEY = "colony-view";
-const PANEL_KEYS = ["sprint", "inbox", "ordis", "colony", "standby", "board",
-                    "files", "spend", "macros", "pulse", "forge"];
+const PANEL_KEYS = ["sprint", "inbox", "flight", "ordis", "colony", "standby",
+                    "board", "files", "spend", "macros", "pulse", "forge"];
 let VIEW = {};
 try { VIEW = JSON.parse(localStorage.getItem(VIEW_KEY) || "{}") || {}; } catch (_) { VIEW = {}; }
 

@@ -97,6 +97,7 @@ def snapshot() -> dict[str, Any]:
             "colony": _colony(conn),
             "board": _board(conn),
             "inbox": _inbox(conn),
+            "flight": _flight(conn),
             "pulses": _pulses(conn),
             "forge": _forge(conn),
             "spend": _spend(conn),
@@ -298,6 +299,75 @@ def _inbox(conn: sqlite3.Connection) -> list[dict[str, Any]]:
                   e.raised_at DESC
         """,
     )
+
+
+def _flight(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    """Work already in motion — next to the Inbox, because that is where it is decided.
+
+    Two things belong here and they are not the same shape. A **ticket** is work
+    the colony is doing or is staffed to do. A **push** is a change queued for
+    the Notion board that has not left the machine yet. What they have in common
+    is the only thing this panel is about: the PO pressed something, and it has
+    not finished. Before this existed, both were two clicks deep in a story
+    drawer, which meant "did that go through?" had no answer on the page — and a
+    queued change you cannot see is indistinguishable from one that was dropped.
+
+    Sorted by what is furthest along: running first, then staffed, then waiting.
+    """
+    tickets = rows(
+        conn,
+        """
+        SELECT t.id, t.story_id, t.title, t.intent, t.role, t.status, t.severity,
+               t.requires_po, t.est_tokens, t.write_scope, t.created_at,
+               s.title AS story_title, s.project,
+               r.id           AS run_id,
+               r.started_at   AS run_started_at,
+               COALESCE(r.chargeable_tokens, r.total_tokens) AS run_tokens,
+               ro.color, ro.emoji
+          FROM tickets t
+          LEFT JOIN stories s ON s.id = t.story_id
+          LEFT JOIN runs r ON r.id = (SELECT r2.id FROM runs r2
+                                       WHERE r2.ticket_id = t.id AND r2.status = 'running'
+                                       ORDER BY r2.started_at DESC LIMIT 1)
+          LEFT JOIN agents a ON a.role = t.role
+          LEFT JOIN roster ro ON ro.slug = a.roster_slug
+         WHERE t.status IN ('open','staffed','running','blocked')
+         ORDER BY CASE t.status WHEN 'running' THEN 0 WHEN 'blocked' THEN 1
+                                WHEN 'staffed' THEN 2 ELSE 3 END, t.id DESC
+        """,
+    )
+    pushes = rows(
+        conn,
+        """
+        SELECT o.id, o.story_id, o.kind, o.payload, o.queued_at, o.attempts,
+               o.last_error, o.source, s.title AS story_title
+          FROM notion_outbox o
+          LEFT JOIN stories s ON s.id = o.story_id
+         WHERE o.sent_at IS NULL
+         ORDER BY o.queued_at
+        """,
+    )
+    out: list[dict[str, Any]] = []
+    for t in tickets:
+        out.append({"key": f"t{t['id']}", "kind": "ticket", **t})
+    for p in pushes:
+        try:
+            payload = json.loads(p.pop("payload") or "{}")
+        except ValueError:
+            payload = {}
+        out.append({
+            **p,
+            "key": f"p{p['id']}",
+            "kind": "push",
+            # The outbox's own `kind` becomes `verb`: this panel's `kind` says
+            # which of the two shapes the row is, and the two must not collide.
+            "verb": p["kind"],
+            # What the push actually says, in the words the PO used to say it.
+            "what": payload.get("status") or payload.get("item") or payload.get("text") or "",
+            "checked": payload.get("checked"),
+            "stuck": p["attempts"] >= outbox_mod.MAX_ATTEMPTS,
+        })
+    return out
 
 
 def _pulses(conn: sqlite3.Connection) -> list[dict[str, Any]]:
