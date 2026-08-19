@@ -49,6 +49,27 @@ class NotionRefused(RuntimeError):
     """The colony asked Notion for something its own rules forbid."""
 
 
+class NotionError(RuntimeError):
+    """An API call was refused, carrying Notion's own explanation."""
+
+
+def _why(exc: urllib.error.HTTPError) -> str:
+    """Notion's `code` and `message` for a failed call, or the bare status.
+
+    Every field here is Notion's own prose about its own API. Nothing from the
+    request — and so nothing from the Authorization header — can reach it.
+    """
+    try:
+        body = json.loads(exc.read())
+    except Exception:
+        body = {}
+    code = body.get("code") or ""
+    message = (body.get("message") or "").strip()
+    if not code and not message:
+        return f"HTTP {exc.code} {exc.reason}"
+    return f"{exc.code} {code}: {message}".strip()
+
+
 def _request(path: str, payload: dict | None = None, *, method: str | None = None) -> dict:
     token = os.environ.get("NOTION_TOKEN")
     if not token:
@@ -65,8 +86,20 @@ def _request(path: str, payload: dict | None = None, *, method: str | None = Non
             "Content-Type": "application/json",
         },
     )
-    with urllib.request.urlopen(req, timeout=15) as resp:
-        return json.loads(resp.read())
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            return json.loads(resp.read())
+    except urllib.error.HTTPError as exc:
+        # Notion says *why* in the response body, and urllib throws that body
+        # away: an integration with read-only capabilities fails every write
+        # with a bare "HTTP Error 403: Forbidden", which is indistinguishable
+        # from a sharing problem, a wrong page id or an expired token. The body
+        # says `restricted_resource — Insufficient permissions for this
+        # endpoint`, which names the fix. That sentence is worth more than the
+        # number, so it goes on the exception and from there onto the outbox
+        # row and the In Flight tile.
+        raise NotionError(_why(exc)) from None
+
 
 
 def _plain(rich: list[dict] | None) -> str:

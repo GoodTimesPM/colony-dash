@@ -222,6 +222,18 @@ Also shipped with M3, from the same session's asks:
   reads file mtimes rather than commit dates, because these rows are uncommitted work and the
   last commit says nothing about when it happened. Commit rows in the project drawer show
   their time in a column of their own.
+- **An appearance drawer**, off the header, holding three dials and nothing the server sees:
+  **text size** as a multiplier on the whole type scale (a flat +2px would collapse the scale,
+  so every step carries the same `--ui-scale`); the **fifteen palette tokens** as colour
+  pickers, each showing the contrast ratio it owes and going coral when it breaks; and
+  **tile layout** — which column a panel lives in, its order there, and an optional height cap
+  that makes the tile scroll inside itself with its title bar pinned. *Randomize* rolls the
+  neutrals but keeps the four accents inside their hue bands, because a "coral" that came out
+  green stops saying anomaly; every colour has its lightness solved for the contrast it owes.
+  Presets save the palette, the base theme and the text size together and are named.
+- **Relative times tick every fifteen seconds.** "last beat 0m ago · next in 60m" used to be
+  baked at render and frozen until the next SSE push — an hour of a clock reading *younger*
+  than the truth, on the one panel that exists to show the loop is alive.
 
 What guards the write door: every `/api/act/*` POST must carry an `X-Colony: 1` header (a
 cross-origin form can POST to localhost but cannot set a custom header), the server binds

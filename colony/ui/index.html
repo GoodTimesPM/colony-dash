@@ -51,11 +51,19 @@
   --mono: "Cascadia Code", "Cascadia Mono", Consolas, ui-monospace, "SFMono-Regular", monospace;
   --sans: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif;
 
-  --step--1: 11px;
-  --step-0:  13px;
-  --step-1:  15px;
-  --step-2:  19px;
-  --step-3:  26px;
+  /* One dial moves all of it. Every size on the page is a step and every step
+     is the same multiplier, so "make the text bigger" keeps the *ratios* — a
+     flat +2px would take the 9px label to 11 and the 26px figure to 28, and a
+     type scale whose ends have met is no longer a scale. --ui-scale is set on
+     the root element from the appearance drawer; 1 is the design size. */
+  --ui-scale: 1;
+  --step--3: calc( 9px * var(--ui-scale));
+  --step--2: calc(10px * var(--ui-scale));
+  --step--1: calc(11px * var(--ui-scale));
+  --step-0:  calc(13px * var(--ui-scale));
+  --step-1:  calc(15px * var(--ui-scale));
+  --step-2:  calc(19px * var(--ui-scale));
+  --step-3:  calc(26px * var(--ui-scale));
 }
 
 /* The guard is `:not([data-theme])` — no attribute at all — and not a list of
@@ -547,7 +555,7 @@ header.bar .goal {
   border-radius: 8px; box-shadow: var(--shadow);
 }
 .viewmenu .menu .lb {
-  font-family: var(--mono); font-size: 10px; letter-spacing: .1em;
+  font-family: var(--mono); font-size: var(--step--2); letter-spacing: .1em;
   text-transform: uppercase; color: var(--ink-dim); padding: 2px 0 3px;
 }
 .viewmenu .menu label {
@@ -657,11 +665,11 @@ body.halted .halt-banner { display: flex; }
   margin-left: auto; padding: 1px 5px; border-radius: 3px;
   background: var(--rule); color: var(--ink-soft); letter-spacing: .08em;
 }
-.tile .k { font-family: var(--mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--amber); display: flex; gap: 8px; }
+.tile .k { font-family: var(--mono); font-size: var(--step--2); letter-spacing: .1em; text-transform: uppercase; color: var(--amber); display: flex; gap: 8px; }
 .tile .k .age { margin-left: auto; color: var(--ink-dim); letter-spacing: 0; }
 .tile .r { font-size: var(--step-1); line-height: 1.35; }
 .tile .rec { font-size: var(--step--1); color: var(--ink-soft); white-space: pre-wrap; max-height: 8.5em; overflow-y: auto; }
-.tile .meta { font-family: var(--mono); font-size: 10px; color: var(--ink-dim); }
+.tile .meta { font-family: var(--mono); font-size: var(--step--2); color: var(--ink-dim); }
 .tile .acts { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: auto; padding-top: 4px; }
 /* The picker gets its own row rather than sharing one with the buttons. It is
    the answer to the tile's question; the buttons are what you do with it. */
@@ -676,7 +684,7 @@ body.halted .halt-banner { display: flex; }
 .tile.snoozed .k, .tile.snoozed .r { color: var(--ink-dim); }
 .tile.snoozed:hover { opacity: 1; }
 .tile .snooze-note {
-  font-family: var(--mono); font-size: 10px; color: var(--ink-dim);
+  font-family: var(--mono); font-size: var(--step--2); color: var(--ink-dim);
   letter-spacing: .06em; text-transform: uppercase;
 }
 /* What Ordis said back, on the face of the tile. A reply you have to open a
@@ -687,7 +695,7 @@ body.halted .halt-banner { display: flex; }
   max-height: 7em; overflow-y: auto;
 }
 .tile .waiting {
-  font-family: var(--mono); font-size: 10px; letter-spacing: .06em;
+  font-family: var(--mono); font-size: var(--step--2); letter-spacing: .06em;
   text-transform: uppercase; color: var(--violet);
 }
 
@@ -740,19 +748,19 @@ button.act.solid { background: var(--coral); border-color: var(--coral); color: 
 .fl .t { font-size: var(--step--1); line-height: 1.3; color: var(--ink); }
 .fl .m {
   display: flex; gap: 7px; align-items: baseline;
-  font-family: var(--mono); font-size: 10px; letter-spacing: .08em;
+  font-family: var(--mono); font-size: var(--step--2); letter-spacing: .08em;
   text-transform: uppercase; color: var(--ink-dim);
 }
 .fl .m .st { color: var(--ink-soft); }
 .fl .m .who { margin-left: auto; letter-spacing: 0; text-transform: none; }
-.fl .err { font-family: var(--mono); font-size: 10px; color: var(--coral); }
+.fl .err { font-family: var(--mono); font-size: var(--step--2); color: var(--coral); }
 
 /* The link between the two panels. One class, applied from either side, so the
    tile lights the row and the row lights the tile without two mechanisms. */
 .fl.lit    { border-color: var(--h-flight); background: var(--panel-sunk); }
 .tile.lit  { box-shadow: 0 0 0 2px var(--h-flight), var(--shadow); }
 .tile .pin {
-  font-family: var(--mono); font-size: 10px; letter-spacing: .08em;
+  font-family: var(--mono); font-size: var(--step--2); letter-spacing: .08em;
   padding: 0 5px; border-radius: 3px; cursor: pointer;
   border: 1px solid var(--rule); background: var(--panel); color: var(--ink-soft);
 }
@@ -819,7 +827,7 @@ section.panel {
 .ordis-head { display: grid; grid-template-columns: 34px 1fr; gap: 10px; align-items: center; }
 .ordis-head .sigil {
   width: 34px; height: 34px; border-radius: 8px; display: grid; place-items: center;
-  background: var(--panel-sunk); color: var(--violet); font-size: 17px;
+  background: var(--panel-sunk); color: var(--violet); font-size: calc(17px * var(--ui-scale));
   border: 1px solid var(--rule);
 }
 body.beating .ordis-head .sigil { animation: breathe 3.6s ease-in-out infinite; }
@@ -828,7 +836,7 @@ body.beating .ordis-head .sigil { animation: breathe 3.6s ease-in-out infinite; 
 .ordis-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 .ordis-grid div { background: var(--panel-sunk); border-radius: 6px; padding: 6px 8px; }
 .ordis-grid .n { display: block; font-family: var(--mono); font-size: var(--step-1); }
-.ordis-grid .lb { display: block; font-family: var(--mono); font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-dim); }
+.ordis-grid .lb { display: block; font-family: var(--mono); font-size: var(--step--2); letter-spacing: .06em; text-transform: uppercase; color: var(--ink-dim); }
 .ordis-said { font-size: var(--step--1); color: var(--ink-soft); }
 
 /* ── colony rail ──────────────────────────────────────────────────────────── */
@@ -865,12 +873,12 @@ body.beating .ordis-head .sigil { animation: breathe 3.6s ease-in-out infinite; 
   font-size: var(--step--1); color: var(--ink-soft);
 }
 .skill .waiting {
-  font-family: var(--mono); font-size: 10px; letter-spacing: .06em;
+  font-family: var(--mono); font-size: var(--step--2); letter-spacing: .06em;
   text-transform: uppercase; color: var(--violet); align-self: center;
 }
-.tiny { font-size: 10px; letter-spacing: .04em; }
+.tiny { font-size: var(--step--2); letter-spacing: .04em; }
 .pill {
-  font-family: var(--mono); font-size: 9px; letter-spacing: .1em; text-transform: uppercase;
+  font-family: var(--mono); font-size: var(--step--3); letter-spacing: .1em; text-transform: uppercase;
   padding: 1px 6px; border-radius: 999px; border: 1px solid var(--rule); color: var(--ink-dim);
   white-space: nowrap;
 }
@@ -899,7 +907,7 @@ details.div > summary {
   font-family: var(--mono); font-size: var(--step--1);
 }
 details.div > summary::-webkit-details-marker { display: none; }
-details.div > summary::before { content: "▸"; color: var(--ink-dim); font-size: 9px; width: 9px; }
+details.div > summary::before { content: "▸"; color: var(--ink-dim); font-size: var(--step--3); width: 9px; }
 details.div[open] > summary::before { content: "▾"; }
 details.div > summary:hover { color: var(--violet); }
 details.div > summary .dn { text-transform: capitalize; }
@@ -914,7 +922,7 @@ button.persona {
 button.persona:hover { background: var(--panel-sunk); }
 button.persona:focus-visible { outline: 2px solid var(--violet); outline-offset: -2px; }
 button.persona .nm { color: var(--ink-soft); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-button.persona .dv { margin-left: auto; font-family: var(--mono); color: var(--ink-dim); font-size: 10px; }
+button.persona .dv { margin-left: auto; font-family: var(--mono); color: var(--ink-dim); font-size: var(--step--2); }
 button.persona.hired .nm { color: var(--mint); }
 
 /* ── board ────────────────────────────────────────────────────────────────── */
@@ -930,7 +938,7 @@ button.persona.hired .nm { color: var(--mint); }
 .flow button[aria-pressed="true"] { background: var(--panel-sunk); box-shadow: inset 0 -2px 0 var(--violet); }
 .flow .n { display: block; font-family: var(--mono); font-size: var(--step-2); line-height: 1.1; }
 .flow .n.zero { color: var(--ink-dim); }
-.flow .lb { display: block; font-family: var(--mono); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-dim); }
+.flow .lb { display: block; font-family: var(--mono); font-size: var(--step--2); letter-spacing: .08em; text-transform: uppercase; color: var(--ink-dim); }
 
 .story {
   width: 100%; text-align: left; font: inherit; color: inherit; cursor: pointer;
@@ -966,7 +974,7 @@ button.persona.hired .nm { color: var(--mint); }
 
 .dropped-list { display: flex; flex-direction: column; gap: 2px; padding-top: 4px; }
 .dropped-list .lb {
-  font-family: var(--mono); font-size: 10px; letter-spacing: .1em;
+  font-family: var(--mono); font-size: var(--step--2); letter-spacing: .1em;
   text-transform: uppercase; color: var(--ink-dim); padding: 4px 0 2px;
   border-top: 1px solid var(--rule-soft); margin-top: 4px;
 }
@@ -975,7 +983,7 @@ button.persona.hired .nm { color: var(--mint); }
 .dropped-line .why { font-family: var(--mono); font-size: var(--step--1); color: var(--ink-dim); }
 
 .chip {
-  font-family: var(--mono); font-size: 10px; letter-spacing: .06em; text-transform: uppercase;
+  font-family: var(--mono); font-size: var(--step--2); letter-spacing: .06em; text-transform: uppercase;
   padding: 2px 6px; border-radius: 4px; background: var(--panel-sunk); color: var(--ink-soft); white-space: nowrap;
 }
 .chip.attn  { background: var(--amber-ground); color: var(--amber); }
@@ -1007,7 +1015,7 @@ button.persona.hired .nm { color: var(--mint); }
 /* ── macros ───────────────────────────────────────────────────────────────── */
 
 .macro { display: flex; flex-direction: column; gap: 4px; }
-.macro .lb { font-family: var(--mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-dim); }
+.macro .lb { font-family: var(--mono); font-size: var(--step--2); letter-spacing: .1em; text-transform: uppercase; color: var(--ink-dim); }
 .macro .why { font-size: var(--step--1); color: var(--ink-dim); line-height: 1.4; }
 .macro .row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .macro-rule { border: 0; border-top: 1px solid var(--rule-soft); margin: 3px 0; }
@@ -1073,7 +1081,7 @@ button.pulse[disabled] { cursor: default; }
 .compose .proposal .rec { font-size: var(--step-0); color: var(--ink-soft); white-space: pre-wrap; }
 .compose .thread { display: flex; flex-direction: column; gap: 8px; }
 .msg { display: flex; flex-direction: column; gap: 3px; max-width: 82%; }
-.msg .who { font-family: var(--mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-dim); }
+.msg .who { font-family: var(--mono); font-size: var(--step--2); letter-spacing: .1em; text-transform: uppercase; color: var(--ink-dim); }
 .msg .bubble {
   padding: 8px 11px; border-radius: 8px; white-space: pre-wrap;
   background: var(--panel-sunk); border: 1px solid var(--rule-soft); font-size: var(--step-0);
@@ -1103,11 +1111,11 @@ textarea.compose-box:focus-visible { outline: 2px solid var(--violet); outline-o
 }
 .tree .node:hover { background: var(--panel-sunk); }
 .tree .node:focus-visible { outline: 2px solid var(--violet); outline-offset: -2px; }
-.tree .node .tw { width: 9px; color: var(--ink-dim); font-size: 9px; flex: none; }
+.tree .node .tw { width: 9px; color: var(--ink-dim); font-size: var(--step--3); flex: none; }
 .tree .node .ic { width: 13px; flex: none; color: var(--ink-dim); }
 .tree .node.dir .nm { color: var(--ink); }
 .tree .node .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-soft); }
-.tree .node .n  { color: var(--ink-dim); font-size: 10px; }
+.tree .node .n  { color: var(--ink-dim); font-size: var(--step--2); }
 /* State is a dot, not a colour on the filename: the name has to stay legible
    and the dot has to be readable at a glance from across the panel. */
 .tree .node .dot { width: 6px; height: 6px; border-radius: 50%; flex: none; }
@@ -1131,7 +1139,7 @@ textarea.compose-box:focus-visible { outline: 2px solid var(--violet); outline-o
 .ev[data-kind="escalated"] .node,
 .ev[data-kind="blocked"]   .node { background: var(--amber); }
 .ev[data-kind="groomed"]   .node { background: var(--mint); }
-.ev .when { font-family: var(--mono); font-size: 10px; color: var(--ink-dim); }
+.ev .when { font-family: var(--mono); font-size: var(--step--2); color: var(--ink-dim); }
 .ev .sum  { font-size: var(--step-0); }
 .ev .detail, pre.detail {
   margin: 5px 0 0; padding: 8px 10px; background: var(--panel-sunk); border-radius: 6px;
@@ -1168,7 +1176,7 @@ table.runs td { padding: 3px 8px 3px 0; border-bottom: 1px solid var(--rule-soft
 table.runs td.num { text-align: right; padding-right: 0; }
 .wrap-x { overflow-x: auto; }
 .blk { display: flex; flex-direction: column; gap: 5px; }
-.blk > .lb { font-family: var(--mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-dim); }
+.blk > .lb { font-family: var(--mono); font-size: var(--step--2); letter-spacing: .1em; text-transform: uppercase; color: var(--ink-dim); }
 .form { display: grid; grid-template-columns: auto 1fr; gap: 7px 10px; align-items: center;
         background: var(--panel-sunk); padding: 10px 12px; border-radius: 7px; }
 .form label { font-family: var(--mono); font-size: var(--step--1); color: var(--ink-dim); }
@@ -1185,6 +1193,51 @@ table.runs td.num { text-align: right; padding-right: 0; }
 }
 .toast.bad { border-color: var(--coral); color: var(--coral); }
 .toast.good { border-color: var(--mint); color: var(--mint); }
+
+/* ââ appearance âââââââââââââââââââââââââââââââââââââââââââ
+   A capped tile scrolls inside itself and keeps its own title bar in view,
+   because a scrolled panel whose heading has left the top of it is a list you
+   cannot name. Capping is opt-in per tile: the point of a cap is that *one*
+   long panel stops pushing the rest of the page down, and a page where
+   everything is capped is a page of nine little windows. */
+
+section.panel.capped, .strip.capped { max-height: var(--tile-max); overflow-y: auto; }
+section.panel.capped > h2, .strip.capped > h2 {
+  position: sticky; top: 0; z-index: 2; background: var(--panel);
+}
+
+.set { display: flex; flex-direction: column; gap: 16px; }
+.set .row { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+.set input[type=range] { flex: 1 1 140px; min-width: 120px; accent-color: var(--violet); }
+.set .val { font-family: var(--mono); font-size: var(--step--1); color: var(--ink-soft);
+            min-width: 3.4em; text-align: right; font-variant-numeric: tabular-nums; }
+
+.swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(168px, 1fr)); gap: 7px 14px; }
+.sw { display: flex; align-items: center; gap: 8px; min-width: 0;
+      font-family: var(--mono); font-size: var(--step--1); }
+.sw input[type=color] {
+  flex: none; width: 26px; height: 21px; padding: 0; cursor: pointer;
+  border: 1px solid var(--rule); border-radius: 4px; background: none;
+}
+.sw .nm { color: var(--ink-soft); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The ratio is the whole reason the picker is safe to hand over. A theme is
+   fifteen colours holding four relationships, and the one that breaks first is
+   always an accent that looked fine against the wrong background. */
+.sw .ratio { margin-left: auto; flex: none; color: var(--ink-dim);
+             font-variant-numeric: tabular-nums; font-size: var(--step--3); }
+.sw .ratio.fail { color: var(--coral); }
+
+.lay { display: grid; grid-template-columns: minmax(0,1fr) auto auto auto; gap: 5px 8px;
+       align-items: center; font-family: var(--mono); font-size: var(--step--1); }
+.lay .nm { color: var(--ink-soft); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lay select.pick { padding: 2px 5px; font-size: var(--step--2); }
+.lay .mv { display: flex; gap: 3px; }
+
+.presets { display: flex; flex-direction: column; gap: 4px; }
+.preset { display: flex; align-items: center; gap: 8px; }
+.preset .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.preset .chips { display: flex; gap: 3px; flex: none; }
+.preset .chips i { width: 11px; height: 11px; border-radius: 2px; border: 1px solid var(--rule); }
 </style>
 
 <header class="bar">
@@ -1226,6 +1279,7 @@ table.runs td.num { text-align: right; padding-right: 0; }
       <option value="inkwash">ink wash</option>
     </optgroup>
   </select>
+  <button class="link" id="open-appearance" title="text size, colours and tile layout">appearance</button>
   <details class="viewmenu" id="viewmenu">
     <summary title="choose what this page shows">view</summary>
     <div class="menu">
@@ -1355,7 +1409,7 @@ table.runs td.num { text-align: right; padding-right: 0; }
 <aside class="drawer" id="drawer" aria-hidden="true">
   <header>
     <div style="flex:1;min-width:0">
-      <div class="mono dim" style="font-size:10px;letter-spacing:.1em;text-transform:uppercase" id="d-eyebrow"></div>
+      <div class="mono dim" style="font-size:var(--step--2);letter-spacing:.1em;text-transform:uppercase" id="d-eyebrow"></div>
       <h3 id="d-title"></h3>
     </div>
     <button class="link" id="d-back" style="display:none"></button>
@@ -1557,9 +1611,14 @@ function renderOrdis(o) {
   head.append(el("div", "sigil", "◈"));
   const right = el("div");
   right.append(el("div", "state", o.halted ? "halted" : (o.running ? "working" : "watching")));
-  right.append(el("div", "sub", last
-    ? `last beat ${ago(last.pulse_at)} · next ${until(last.next_pulse_at)}`
-    : "no heartbeat recorded yet"));
+  const sub = el("div", "sub");
+  if (last) {
+    sub.append("last beat ", relNode(null, last.pulse_at, "ago"),
+               " · next ", relNode(null, last.next_pulse_at, "until"));
+  } else {
+    sub.textContent = "no heartbeat recorded yet";
+  }
+  right.append(sub);
   head.append(right);
   box.append(head);
 
@@ -1649,6 +1708,31 @@ function agentRow(o) {
   row.append(cv, right);
   return row;
 }
+
+// Relative times are the only thing on this page that goes stale while the
+// ledger sits perfectly still. Everything else redraws when SSE pushes a new
+// snapshot — but between two beats nothing is pushed for an hour, so "last beat
+// 0m ago · next in 60m" was frozen at the moment of the beat and stayed there,
+// which reads exactly like a heartbeat that has stopped. That is how the pulse
+// outage was found, and a clock that lies in the direction of "everything is
+// fine" is the one kind worth fixing on sight.
+//
+// So a relative time is a node that remembers its own timestamp rather than a
+// string baked at render. Fifteen seconds is the interval because the coarsest
+// unit shown is a minute and nothing here should burn a wakeup per second.
+function relNode(cls, ts, kind) {
+  const n = el("span", cls);
+  n.dataset.rel = ts || "";
+  n.dataset.relKind = kind === "until" ? "until" : "ago";
+  n.textContent = (kind === "until" ? until : ago)(ts);
+  return n;
+}
+function tickRelative() {
+  for (const n of document.querySelectorAll("[data-rel]")) {
+    n.textContent = (n.dataset.relKind === "until" ? until : ago)(n.dataset.rel);
+  }
+}
+setInterval(tickRelative, 15000);
 
 function tickElapsed() {
   for (const n of document.querySelectorAll(".elapsed")) {
@@ -2048,7 +2132,7 @@ function inboxTile(e) {
   if (e.snoozed) card.classList.add("snoozed");
   if (e.stale) card.classList.add("stale");
   const k = el("div", "k");
-  k.append(el("span", null, e.kind.replace("-", " ")), el("span", "age", ago(e.raised_at)));
+  k.append(el("span", null, e.kind.replace("-", " ")), relNode("age", e.raised_at));
   if (e.stale) {
     const flag = el("span", "flag", "stale");
     flag.title = "the story changed after this was asked — the question is about a version that no longer exists";
@@ -3303,9 +3387,500 @@ $("theme").onchange = (e) => {
   const v = e.target.value;
   if (v) { document.documentElement.dataset.theme = v; localStorage.setItem("colony-theme", v); }
   else { delete document.documentElement.dataset.theme; localStorage.removeItem("colony-theme"); }
+  // Picking a theme drops any hand-mixed colours. They were sampled from the
+  // palette you just left — an ember ground held over phosphor is not a third
+  // theme, it is two halves of two — and a picker that appeared to do nothing
+  // is worse than one that asks you to mix again. Named presets are untouched:
+  // that is what saving one is for.
+  if (Object.keys(VARS).length) { VARS = {}; applyVars(); saveAppearance();
+                                  toast("hand-mixed colours cleared", null); }
   if (STATE) render(STATE);   // avatars are painted on canvas, so they re-paint
 };
 $("halt-banner-resume").onclick = () => act("halt", { on: false });
+
+// ── appearance ──────────────────────────────────────────────────────────────
+//
+// Three dials, one drawer, and not a byte of it leaves the machine. Text size,
+// the fifteen palette tokens, and where each tile sits — all localStorage, for
+// the same reason the view menu is: how you read the page is not something the
+// colony needs to know, and a page that phoned home about its font size would
+// be a page you could not trust to be only a page.
+//
+// The palette editor is the part that needed a rule to be safe. Handing over
+// fifteen colour pickers is handing over the ability to make the page
+// unreadable in four clicks, so every relationship that has to hold shows its
+// contrast ratio next to the swatch and goes coral when it breaks. Randomize
+// obeys the same audit rather than rolling dice — see below.
+
+const SCALE_KEY = "colony-scale", VARS_KEY = "colony-vars",
+      PRESET_KEY = "colony-presets", LAYOUT_KEY = "colony-layout";
+
+// The shipped default is 1.15 and not 1: at the design size the body step is
+// 13px, which is right for a wallboard and small for a page you actually read.
+const DEFAULT_SCALE = 1.15;
+
+function readJSON(key, fallback) {
+  try { return JSON.parse(localStorage.getItem(key) || "null") || fallback; }
+  catch (_) { return fallback; }
+}
+
+let SCALE = Number(localStorage.getItem(SCALE_KEY) || DEFAULT_SCALE) || DEFAULT_SCALE;
+let VARS = readJSON(VARS_KEY, {});
+let LAYOUT = readJSON(LAYOUT_KEY, {});
+
+// Name, label, and what the colour has to stay legible against. A row with no
+// audit is a surface colour — it has no single relationship worth one number.
+//
+// The targets are the ones this design actually holds, measured off the
+// twenty-four shipped palettes rather than copied off a checklist: ink 4.5 on
+// panel, everything else 3. An accent on its own chip bed is a 10px uppercase
+// label, which argues for 4.5 — but eight of the shipped themes sit between
+// 3.55 and 4.4 there and none of them is hard to read, and an audit that opens
+// by calling a third of the existing design broken is noise, not signal.
+const TOKENS = [
+  ["--ground",       "ground",      null],
+  ["--panel",        "panel",       null],
+  ["--panel-sunk",   "panel sunk",  null],
+  ["--rule",         "rule",        null],
+  ["--rule-soft",    "rule soft",   null],
+  ["--ink",          "ink",         ["--panel", 4.5]],
+  ["--ink-soft",     "ink soft",    ["--panel", 4.5]],
+  ["--ink-dim",      "ink dim",     ["--panel", 3]],
+  ["--amber",        "amber",       ["--panel", 3]],
+  ["--amber-ground", "amber bed",   ["--amber", 3]],
+  ["--mint",         "mint",        ["--panel", 3]],
+  ["--mint-ground",  "mint bed",    ["--mint", 3]],
+  ["--coral",        "coral",       ["--panel", 3]],
+  ["--coral-ground", "coral bed",   ["--coral", 3]],
+  ["--violet",       "violet",      ["--panel", 3]],
+];
+
+// ── colour arithmetic ───────────────────────────────────────────────────────
+
+function hex2rgb(h) {
+  h = String(h).trim().replace("#", "");
+  if (h.length === 3) h = [...h].map((c) => c + c).join("");
+  return [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16) || 0);
+}
+function rgb2hex(r, g, b) {
+  return "#" + [r, g, b].map((v) =>
+    Math.round(Math.min(255, Math.max(0, v))).toString(16).padStart(2, "0")).join("");
+}
+function hsl2hex(h, s, l) {
+  h = ((h % 360) + 360) % 360;
+  s = Math.min(100, Math.max(0, s)) / 100;
+  l = Math.min(100, Math.max(0, l)) / 100;
+  const k = (n) => (n + h / 30) % 12;
+  const a = s * Math.min(l, 1 - l);
+  const f = (n) => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+  return rgb2hex(f(0) * 255, f(8) * 255, f(4) * 255);
+}
+function lum(hex) {
+  const [r, g, b] = hex2rgb(hex).map((v) => {
+    v /= 255;
+    return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+  });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+function contrast(a, b) {
+  const x = lum(a), y = lum(b);
+  return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
+}
+// Walk lightness *away* from the background until the ratio clears. This is the
+// one function that makes a random palette usable: a hue gets chosen for
+// character, and its lightness is then whatever legibility demands — rather
+// than choosing a colour and hoping it lands somewhere readable.
+function toward(h, s, l, bg, target) {
+  const dir = lum(hsl2hex(h, s, l)) > lum(bg) ? 1 : -1;
+  for (let i = 0; i < 120 && contrast(hsl2hex(h, s, l), bg) < target; i++) l += dir;
+  return hsl2hex(h, s, Math.min(100, Math.max(0, l)));
+}
+
+// ── applying ────────────────────────────────────────────────────────────────
+
+function tokenValue(name) {
+  if (VARS[name]) return VARS[name];
+  const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  if (/^#[0-9a-fA-F]{6}$/.test(v)) return v.toLowerCase();
+  if (/^#[0-9a-fA-F]{3}$/.test(v)) return rgb2hex(...hex2rgb(v));
+  return "#808080";
+}
+
+function applyScale() {
+  document.documentElement.style.setProperty("--ui-scale", String(SCALE));
+}
+
+function applyVars() {
+  const root = document.documentElement.style;
+  for (const pair of TOKENS) root.removeProperty(pair[0]);
+  for (const name of Object.keys(VARS)) root.setProperty(name, VARS[name]);
+}
+
+function saveAppearance() {
+  localStorage.setItem(SCALE_KEY, String(SCALE));
+  localStorage.setItem(VARS_KEY, JSON.stringify(VARS));
+  localStorage.setItem(LAYOUT_KEY, JSON.stringify(LAYOUT));
+}
+
+// ── tile layout ─────────────────────────────────────────────────────────────
+
+const MAIN_PANELS = ["ordis", "colony", "standby", "board", "files", "spend",
+                     "macros", "pulse", "forge"];
+// The sprint strip is one row of figures with no heading of its own; capping it
+// would put a scrollbar on something already one line tall.
+const CAPPABLE = ["inbox", "flight"].concat(MAIN_PANELS);
+const PANEL_LABEL = {
+  inbox: "PO Inbox", flight: "In Flight", ordis: "Ordis", colony: "Colony",
+  standby: "Standby", board: "Board", files: "Files", spend: "Spend",
+  macros: "Macros", pulse: "Pulse log", forge: "Forge",
+};
+const COL_LABEL = ["left", "middle", "right"];
+
+// Read out of the markup before anything is moved, so "back to the designed
+// layout" means the layout the page was built with rather than a second copy
+// of it kept in sync by hand.
+const HOME = {};
+for (const [ci, col] of [...document.querySelectorAll("main > .col")].entries()) {
+  for (const [i, node] of [...col.children].entries()) {
+    if (node.dataset.panel) HOME[node.dataset.panel] = { col: ci, i: i };
+  }
+}
+
+function panelNode(key) { return document.querySelector('[data-panel="' + key + '"]'); }
+
+function applyLayout() {
+  const cols = [...document.querySelectorAll("main > .col")];
+  if (!cols.length) return;
+  const want = MAIN_PANELS.map((key) => {
+    const home = HOME[key] || { col: 1, i: 99 };
+    const set = LAYOUT[key] || {};
+    return {
+      key: key, node: panelNode(key),
+      col: Math.min(cols.length - 1, Math.max(0, set.col === undefined ? home.col : set.col)),
+      i: set.i === undefined ? home.i : set.i,
+    };
+  }).sort((a, b) => a.col - b.col || a.i - b.i);
+
+  for (const p of want) if (p.node) cols[p.col].append(p.node);
+
+  // Read the order back out of the DOM and store *that*, so the indices stay
+  // dense however they were arrived at. A move is then always "swap with the
+  // neighbour", never "insert at 2.5 and hope".
+  const nextIn = cols.map(() => 0);
+  for (const p of want) {
+    LAYOUT[p.key] = Object.assign({}, LAYOUT[p.key], { col: p.col, i: nextIn[p.col]++ });
+  }
+
+  for (const key of CAPPABLE) {
+    const node = panelNode(key);
+    if (!node) continue;
+    const max = (LAYOUT[key] || {}).max || 0;
+    node.classList.toggle("capped", max > 0);
+    if (max) node.style.setProperty("--tile-max", max + "px");
+    else node.style.removeProperty("--tile-max");
+  }
+}
+
+function moveTile(key, delta) {
+  const col = (LAYOUT[key] || {}).col;
+  const siblings = MAIN_PANELS
+    .filter((k) => (LAYOUT[k] || {}).col === col)
+    .sort((a, b) => (LAYOUT[a] || {}).i - (LAYOUT[b] || {}).i);
+  const at = siblings.indexOf(key), to = at + delta;
+  if (at < 0 || to < 0 || to >= siblings.length) return;
+  const other = siblings[to], mine = LAYOUT[key].i;
+  LAYOUT[key] = Object.assign({}, LAYOUT[key], { i: LAYOUT[other].i });
+  LAYOUT[other] = Object.assign({}, LAYOUT[other], { i: mine });
+  applyLayout(); saveAppearance(); openAppearance();
+}
+
+// ── randomize ───────────────────────────────────────────────────────────────
+//
+// Not dice. A palette rolled uniformly is unreadable roughly always, and — more
+// quietly wrong — it breaks the four accents loose from their meanings: a
+// "coral" that came out green stops saying *anomaly*. So the neutrals get a
+// random hue, a random cast and a coin-flip between a dark and a light ground,
+// while the four accents keep their hue *bands* and vary inside them. Every
+// colour then has its lightness solved for the contrast it owes, which is the
+// same audit the twenty-four shipped themes were held to.
+
+function randomPalette() {
+  const rnd = (a, b) => a + Math.random() * (b - a);
+  const hue = rnd(0, 360);
+  const dark = Math.random() < 0.62;
+  const cast = rnd(6, 26);                      // how far the neutrals lean on the hue
+
+  const ground = hsl2hex(hue, cast, dark ? rnd(6, 13) : rnd(92, 96));
+  const panel  = hsl2hex(hue, cast * 0.8, dark ? rnd(12, 18) : rnd(98, 100));
+  const sunk   = hsl2hex(hue, cast * 0.8, dark ? rnd(17, 23) : rnd(93, 96));
+  const rule   = hsl2hex(hue, cast * 0.7, dark ? rnd(24, 30) : rnd(85, 89));
+  const soft   = hsl2hex(hue, cast * 0.7, dark ? rnd(19, 24) : rnd(90, 93));
+
+  // The chip bed is a tint of its own accent, sitting a hair off the panel, and
+  // it is chosen *first*. Solving it the other way round cannot work on a light
+  // theme: if the accent is only just clear of a near-white panel, no bed light
+  // enough to belong on that panel can also be clear of the accent — the bed
+  // walks to #ffffff and the pair still fails. Four thousand sampled palettes
+  // said so before this was written that way.
+  const bed = (h, sat) => hsl2hex(h, sat, dark ? 15 : 95);
+  // An accent has two jobs — a label on its own bed, a heading on the panel —
+  // and its lightness is solved for the harder of the two.
+  const accent = (h, sat, on) => {
+    const dir = dark ? 1 : -1;
+    let l = dark ? 55 : 52;
+    for (let i = 0; i < 120 && l >= 0 && l <= 100; i++, l += dir) {
+      const c = hsl2hex(h, sat, l);
+      if (contrast(c, on) >= 4.0 && contrast(c, panel) >= 3.05) return c;
+    }
+    return hsl2hex(h, sat, Math.min(100, Math.max(0, l)));
+  };
+
+  const hA = rnd(24, 52), hM = rnd(130, 178), hC = rnd(352, 378), hV = rnd(252, 292);
+  const sA = rnd(30, 60), sM = rnd(25, 55), sC = rnd(30, 60);
+  const bedA = bed(hA, sA), bedM = bed(hM, sM), bedC = bed(hC, sC);
+  const amber  = accent(hA, rnd(55, 92), bedA);
+  const mint   = accent(hM, rnd(45, 85), bedM);
+  const coral  = accent(hC, rnd(55, 90), bedC);
+  const violet = accent(hV, rnd(40, 80), panel);
+
+  return {
+    "--ground": ground, "--panel": panel, "--panel-sunk": sunk,
+    "--rule": rule, "--rule-soft": soft,
+    "--ink":      toward(hue, cast * 0.35, dark ? 92 : 12, panel, 9),
+    "--ink-soft": toward(hue, cast * 0.50, dark ? 68 : 34, panel, 4.6),
+    "--ink-dim":  toward(hue, cast * 0.50, dark ? 48 : 52, panel, 3.05),
+    "--amber": amber,  "--amber-ground": bedA,
+    "--mint": mint,    "--mint-ground":  bedM,
+    "--coral": coral,  "--coral-ground": bedC,
+    "--violet": violet,
+  };
+}
+
+// ── presets ─────────────────────────────────────────────────────────────────
+
+function presets() { return readJSON(PRESET_KEY, {}); }
+function writePresets(all) { localStorage.setItem(PRESET_KEY, JSON.stringify(all)); }
+
+// A preset is the whole look and not just the colours: the same palette read at
+// 130% and at 100% is two different designs, and restoring one without the
+// other restores neither.
+function savePreset(name) {
+  name = (name || "").trim().slice(0, 40);
+  if (!name) { toast("a preset needs a name", "bad"); return; }
+  const all = presets();
+  const full = {};
+  for (const pair of TOKENS) full[pair[0]] = tokenValue(pair[0]);
+  all[name] = { theme: document.documentElement.dataset.theme || "", scale: SCALE, vars: full };
+  writePresets(all);
+  toast("saved " + name, "good");
+  openAppearance();
+}
+
+function applyPreset(name) {
+  const p = presets()[name];
+  if (!p) return;
+  if (p.theme) {
+    document.documentElement.dataset.theme = p.theme;
+    localStorage.setItem("colony-theme", p.theme);
+  } else {
+    delete document.documentElement.dataset.theme;
+    localStorage.removeItem("colony-theme");
+  }
+  $("theme").value = p.theme || "";
+  SCALE = Number(p.scale) || DEFAULT_SCALE;
+  VARS = Object.assign({}, p.vars || {});
+  applyScale(); applyVars(); saveAppearance();
+  if (STATE) render(STATE);
+  openAppearance();
+}
+
+// ── the drawer ──────────────────────────────────────────────────────────────
+
+function openAppearance() {
+  // No `nav` descriptor: this is a control panel, not a place, and a back
+  // button that returned you to your own settings would be noise.
+  const body = openDrawer("appearance", "how this page reads");
+  body.replaceChildren();
+  const set = el("div", "set");
+
+  // ── text size
+  const size = el("div", "row");
+  const slider = document.createElement("input");
+  slider.type = "range"; slider.min = "85"; slider.max = "175"; slider.step = "5";
+  slider.value = String(Math.round(SCALE * 100));
+  const val = el("span", "val", Math.round(SCALE * 100) + "%");
+  slider.oninput = () => {
+    SCALE = Number(slider.value) / 100;
+    val.textContent = slider.value + "%";
+    applyScale(); saveAppearance();
+  };
+  const sizeReset = el("button", "link", "reset");
+  sizeReset.onclick = () => {
+    SCALE = DEFAULT_SCALE;
+    slider.value = String(Math.round(SCALE * 100));
+    val.textContent = Math.round(SCALE * 100) + "%";
+    applyScale(); saveAppearance();
+  };
+  size.append(slider, val, sizeReset);
+  set.append(blk("text size", size));
+
+  // ── palette
+  const grid = el("div", "swatches");
+  const ratios = [];
+  const paint = () => {
+    for (const r of ratios) {
+      const got = contrast(tokenValue(r.name), tokenValue(r.against));
+      r.node.textContent = got.toFixed(1) + ":1";
+      r.node.classList.toggle("fail", got < r.target);
+      r.node.title = got.toFixed(2) + ":1 against " + r.against.slice(2)
+                   + (got < r.target ? " — wants " + r.target + ":1" : "");
+    }
+  };
+  for (const [name, label, audit] of TOKENS) {
+    const row = el("div", "sw");
+    const input = document.createElement("input");
+    input.type = "color"; input.value = tokenValue(name); input.title = name;
+    input.oninput = () => {
+      VARS[name] = input.value;
+      document.documentElement.style.setProperty(name, input.value);
+      saveAppearance(); paint();
+    };
+    row.append(input, el("span", "nm", label));
+    if (audit) {
+      const r = el("span", "ratio");
+      ratios.push({ node: r, name: name, against: audit[0], target: audit[1] });
+      row.append(r);
+    }
+    grid.append(row);
+  }
+  paint();
+
+  const acts = el("div", "row");
+  const dice = el("button", "act", "randomize");
+  dice.title = "a new world for the neutrals; the four accents keep their meanings";
+  dice.onclick = () => {
+    VARS = randomPalette();
+    applyVars(); saveAppearance();
+    if (STATE) render(STATE);
+    openAppearance();
+  };
+  const revert = el("button", "link", "back to the theme");
+  revert.title = "drop every override and show " + (document.documentElement.dataset.theme || "system") + " as written";
+  revert.onclick = () => {
+    VARS = {}; applyVars(); saveAppearance();
+    if (STATE) render(STATE);
+    openAppearance();
+  };
+  acts.append(dice, revert);
+
+  const saveRow = el("div", "row");
+  const nameBox = document.createElement("input");
+  nameBox.className = "field"; nameBox.placeholder = "name this look";
+  nameBox.maxLength = 40; nameBox.style.flex = "1 1 140px";
+  nameBox.onkeydown = (e) => { if (e.key === "Enter") savePreset(nameBox.value); };
+  const keep = el("button", "act", "save preset");
+  keep.onclick = () => savePreset(nameBox.value);
+  saveRow.append(nameBox, keep);
+
+  const pal = el("div", "set");
+  pal.append(grid, acts, saveRow);
+  set.append(blk("colours", pal));
+
+  // ── presets
+  const all = presets();
+  const names = Object.keys(all).sort((a, b) => a.localeCompare(b));
+  const box = el("div", "presets");
+  if (!names.length) {
+    box.append(el("div", "empty", "nothing saved yet — mix a palette above and name it"));
+  }
+  for (const name of names) {
+    const row = el("div", "preset");
+    const nm = el("div", "nm");
+    const use = el("button", "link", name);
+    use.onclick = () => applyPreset(name);
+    nm.append(use);
+    const chips = el("div", "chips");
+    for (const t of ["--ground", "--panel", "--amber", "--mint", "--coral", "--violet"]) {
+      const i = el("i");
+      i.style.background = (all[name].vars || {})[t] || "transparent";
+      chips.append(i);
+    }
+    const del = el("button", "link", "forget");
+    del.onclick = () => {
+      const a = presets(); delete a[name]; writePresets(a); openAppearance();
+    };
+    row.append(nm, chips, del);
+    box.append(row);
+  }
+  set.append(blk("presets", box));
+
+  // ── tiles
+  const lay = el("div", "lay");
+  for (const key of CAPPABLE) {
+    const movable = MAIN_PANELS.indexOf(key) >= 0;
+    lay.append(el("div", "nm", PANEL_LABEL[key] || key));
+
+    const where = document.createElement("select");
+    where.className = "pick";
+    if (movable) {
+      for (const [i, label] of COL_LABEL.entries()) {
+        const o = document.createElement("option");
+        o.value = String(i); o.textContent = label;
+        where.append(o);
+      }
+      where.value = String((LAYOUT[key] || {}).col || 0);
+      where.onchange = () => {
+        // Land at the bottom of the new column; applyLayout renumbers.
+        LAYOUT[key] = Object.assign({}, LAYOUT[key], { col: Number(where.value), i: 99 });
+        applyLayout(); saveAppearance(); openAppearance();
+      };
+    } else {
+      const o = document.createElement("option");
+      o.textContent = "top strip"; where.append(o);
+      where.disabled = true;
+      where.title = "the strip across the top is fixed — it is the first thing you read";
+    }
+    lay.append(where);
+
+    const mv = el("div", "mv");
+    if (movable) {
+      const up = el("button", "link", "↑"), down = el("button", "link", "↓");
+      up.title = "move up"; down.title = "move down";
+      up.onclick = () => moveTile(key, -1);
+      down.onclick = () => moveTile(key, 1);
+      mv.append(up, down);
+    }
+    lay.append(mv);
+
+    const cap = document.createElement("select");
+    cap.className = "pick";
+    cap.title = "cap the height and this tile scrolls inside itself";
+    for (const [v, label] of [[0, "grows"], [260, "260px"], [380, "380px"],
+                              [520, "520px"], [700, "700px"]]) {
+      const o = document.createElement("option");
+      o.value = String(v); o.textContent = label;
+      cap.append(o);
+    }
+    cap.value = String((LAYOUT[key] || {}).max || 0);
+    cap.onchange = () => {
+      LAYOUT[key] = Object.assign({}, LAYOUT[key], { max: Number(cap.value) });
+      applyLayout(); saveAppearance();
+    };
+    lay.append(cap);
+  }
+  const layReset = el("button", "link", "back to the designed layout");
+  layReset.onclick = () => { LAYOUT = {}; applyLayout(); saveAppearance(); openAppearance(); };
+  const layBox = el("div", "set");
+  layBox.append(lay, layReset);
+  set.append(blk("tiles", layBox));
+
+  body.append(set);
+}
+
+applyScale();
+applyVars();
+applyLayout();
+$("open-appearance").onclick = () => openAppearance();
 
 // ── what the page shows ─────────────────────────────────────────────────────
 //

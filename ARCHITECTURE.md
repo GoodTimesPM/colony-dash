@@ -725,6 +725,50 @@ dozen places that open a drawer. Views that cannot honestly be restored — the 
 with a half-written reply in it — pass no descriptor and so end the trail rather than
 extending it.
 
+**Appearance is the viewer's, and it never leaves the machine.** One drawer holds three
+dials — text size, the fifteen palette tokens, and where each tile sits — and all of it is
+localStorage beside the view menu, for the reason the view menu is: how you read the page
+is not something the colony needs to know, and a page that phoned home about its font size
+would be a page you could not trust to be only a page.
+
+*Text size is a multiplier, not an offset.* Every size on the page is a step and every step
+carries the same `--ui-scale`, so "make it bigger" keeps the ratios. A flat +2px would take
+the 9px label to 11 and the 26px figure to 28, and a type scale whose ends have met is no
+longer a scale. Getting there meant tokenising the twenty-four hardcoded `10px` and `9px`
+sizes that had accumulated in the stylesheet as `--step--2` and `--step--3`; a dial that
+moves most of the text is worse than no dial, because the parts that did not move are the
+small ones you were trying to read.
+
+*The palette editor shows its work.* Handing over fifteen colour pickers is handing over
+the ability to make the page unreadable in four clicks, so every relationship that has to
+hold shows its contrast ratio beside the swatch and goes coral when it breaks. The targets
+are the ones this design actually holds, measured off the twenty-four shipped palettes
+rather than copied off a checklist: ink 4.5:1 on panel, everything else 3:1. An accent on
+its own chip bed is a 10px uppercase label, which argues for 4.5 — but eight of the shipped
+themes sit between 3.55 and 4.4 there and none of them is hard to read. **An audit that
+opens by declaring a third of the existing design broken is noise, not signal.**
+
+*Randomize is not dice.* A uniformly random palette is unreadable roughly always, and —
+more quietly wrong — it breaks the four accents loose from their meanings: a "coral" that
+came out green stops saying *anomaly*. So the neutrals get a random hue, a random cast and
+a coin-flip between a dark and a light ground, while the four accents keep their hue bands
+and vary inside them; every colour then has its lightness solved for the contrast it owes.
+A preset saves the whole look — palette, base theme and text size together — because the
+same palette read at 130% and at 100% is two different designs.
+
+*A capped tile scrolls inside itself* and keeps its own title bar in view, because a
+scrolled panel whose heading has left the top of it is a list you cannot name. Capping is
+opt-in per tile: the point of a cap is that *one* long panel stops pushing the rest of the
+page down, and a page where everything is capped is a page of nine little windows.
+
+**Relative times tick.** Everything on the page redraws when SSE pushes a snapshot — but
+between two beats nothing is pushed for an hour, so "last beat 0m ago · next in 60m" was
+baked at the moment of the beat and stayed there. A relative time is now a node that
+remembers its own timestamp and is refreshed every fifteen seconds by its own interval.
+This matters more than a cosmetic bug: the frozen clock read *younger* than the truth, and
+a clock that lies in the direction of "everything is fine" is the one kind worth fixing on
+sight.
+
 **The design rule:** an empty PO Inbox means the system is working and needs nothing.
 Everything else on the page is ambient. If the dashboard nags when the Inbox is empty, it's
 wrong.
@@ -1230,6 +1274,30 @@ the log the pulse writes is the log it never got far enough to open. **A heartbe
 liveness signal that does not depend on the heartbeat running** — the dashboard should read
 `LastTaskResult` and the age of the newest `pulses` row, and say so when the newest beat is older
 than two intervals.
+
+**A refusal without its reason is a bug report you cannot act on.** Every queued Notion
+push failed with `HTTPError: HTTP Error 403: Forbidden`, which is what `urllib` says when it
+throws the response body away — and that sentence is consistent with four unrelated causes:
+the page is not shared with the integration, the page id is wrong, the token expired, or the
+integration is read-only. Notion had said which all along, in the body: `restricted_resource
+— Insufficient permissions for this endpoint`. Reads were fine, so the token and the sharing
+were fine; the integration simply had **Read content** and not **Update content**, which is a
+two-click fix nobody could find behind the number. `_request` now raises `NotionError`
+carrying Notion's own `code` and `message`, and the outbox writes that straight onto the row
+rather than prefixing a class name in front of a sentence that already reads as one.
+**Nothing from the request can reach that string** — it is built only from the response — so
+the token cannot leak into a tile.
+
+**An audit is only useful if the thing it audits can pass it.** The palette generator was
+written to solve each chip bed against its accent at 4.5:1, and a four-thousand-sample run
+of the same algorithm failed 78% of the time. The reason is structural rather than a tuning
+problem: on a light theme, if the accent sits just clear of a near-white panel, no bed light
+enough to belong on that panel can also be clear of the accent — the solver walks the bed to
+`#ffffff` and the pair still fails. Choosing the bed *first*, as a tint, and then solving the
+accent for the harder of its two jobs, passes 5000 of 5000 with every worst case above the
+worst shipped theme. **The lesson is to sample the generator, not to eyeball three outputs**:
+three good rolls prove nothing about a space this size, and there is no JS engine on this
+machine, so the algorithm was re-derived in Python and run in bulk instead.
 
 **`--dry-run` wrote to Notion.** It gates the ledger — the whole pulse runs inside a transaction
 that gets rolled back — and `outbox.flush()` sits inside that transaction making live HTTP calls
