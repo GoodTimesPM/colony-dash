@@ -20,6 +20,7 @@ could turn into one.
 
 from __future__ import annotations
 
+import datetime as dt
 import subprocess
 from pathlib import Path
 
@@ -117,7 +118,24 @@ def _bucket(path: str, projects: list[str]) -> str | None:
 
 def _blank(project: str) -> dict:
     return {"project": project, "dirty_files": 0, "added": 0, "modified": 0,
-            "deleted": 0, "untracked": 0, "commits_since": 0, "files": []}
+            "deleted": 0, "untracked": 0, "commits_since": 0, "files": [],
+            "touched_at": None}
+
+
+def _mtime(path: str) -> str | None:
+    """When the working tree last changed under a project, as a wall-clock string.
+
+    Deliberately the file's own mtime rather than a `git log` date: these rows are
+    *uncommitted* changes, so the last commit says nothing about when you last
+    touched them. A deleted file cannot be stat'd and simply does not count — it
+    is the one change whose time git alone would know, and one missing sample out
+    of hundreds does not move a max.
+    """
+    try:
+        ts = (ROOT / path).stat().st_mtime
+    except OSError:
+        return None
+    return dt.datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S")
 
 
 def scan(since: str | None = None) -> list[dict]:
@@ -148,6 +166,12 @@ def scan(since: str | None = None) -> list[dict]:
             row["modified"] += 1
         if len(row["files"]) < 40:
             row["files"].append({"xy": xy.strip() or "?", "path": path})
+        # Every dirty path is stat'd, not just the forty the drawer shows: the
+        # panel sorts on this, and a max taken over a truncated sample is a
+        # timestamp that quietly lies about the busiest folders.
+        seen = _mtime(path)
+        if seen and (row["touched_at"] is None or seen > row["touched_at"]):
+            row["touched_at"] = seen
 
     if since:
         raw = _git("log", f"--since={since}", "--name-only",

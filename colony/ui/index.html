@@ -1150,6 +1150,18 @@ pre.diff .file  { color: var(--ink); font-weight: 600; }
 .kv { display: grid; grid-template-columns: auto 1fr; gap: 3px 14px; font-family: var(--mono); font-size: var(--step--1); }
 .kv dt { color: var(--ink-dim); }
 .kv dd { margin: 0; word-break: break-word; }
+
+/* Recent commits are three columns rather than two, because the time earns its
+   own: the useful reading is *down* that column — when did this folder last
+   actually move — and a date tucked at the end of a wrapping subject line can
+   only be read across. */
+.commits { display: grid; grid-template-columns: auto minmax(0, 1fr) auto;
+           gap: 3px 14px; font-family: var(--mono); font-size: var(--step--1);
+           align-items: baseline; }
+.commits .sha { color: var(--ink-dim); }
+.commits .sub { min-width: 0; overflow-wrap: anywhere; }
+.commits .at  { color: var(--ink-dim); white-space: nowrap; text-align: right;
+                font-variant-numeric: tabular-nums; }
 table.runs { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: var(--step--1); }
 table.runs th { text-align: left; font-weight: 600; color: var(--ink-dim); border-bottom: 1px solid var(--rule); padding: 3px 8px 3px 0; }
 table.runs td { padding: 3px 8px 3px 0; border-bottom: 1px solid var(--rule-soft); white-space: nowrap; }
@@ -1302,6 +1314,9 @@ table.runs td.num { text-align: right; padding-right: 0; }
     </section>
     <section class="panel" data-panel="files">
       <h2>Files <span class="count" id="proj-count"></span>
+        <button class="link" data-sort="changes" title="most changed first — the pulse's own order">changes</button>
+        <button class="link" data-sort="recent" title="whichever folder you touched last, first">recent</button>
+        <button class="link" data-sort="name" title="alphabetical">name</button>
         <button class="link" id="tree-refresh" title="re-read the working tree">refresh</button>
       </h2>
       <div class="body" style="gap:8px">
@@ -1343,6 +1358,7 @@ table.runs td.num { text-align: right; padding-right: 0; }
       <div class="mono dim" style="font-size:10px;letter-spacing:.1em;text-transform:uppercase" id="d-eyebrow"></div>
       <h3 id="d-title"></h3>
     </div>
+    <button class="link" id="d-back" style="display:none"></button>
     <button class="link" id="d-close">close</button>
   </header>
   <div class="scroll" id="d-body"></div>
@@ -1736,21 +1752,58 @@ function renderDropped(rows) {
   box.append(list);
 }
 
+// Three orders, because the list answers three different questions. **changes**
+// is the pulse's own order — commits first, then sheer volume — and is what you
+// want when asking "what is outstanding". **recent** sorts by the newest mtime
+// under the folder, which is nearly the opposite: colony-dash can be eighth by
+// volume and still be the thing you were editing a minute ago. **name** is for
+// when you already know what you are looking for and just want it to hold still.
+// The choice is localStorage like the view menu — how you read the panel is not
+// something the server needs to know.
+const SORT_KEY = "colony-proj-sort";
+let PROJ_SORT = localStorage.getItem(SORT_KEY) || "changes";
+let PROJ_ROWS = [];
+
+const PROJ_SORTS = {
+  changes: (a, b) => (b.commits_since - a.commits_since) ||
+                     (b.dirty_files - a.dirty_files) ||
+                     a.project.localeCompare(b.project),
+  // A folder with no stat-able change sorts last rather than first: "" would
+  // win a descending string compare, and a row with no time is not the newest.
+  recent:  (a, b) => (b.touched_at || "").localeCompare(a.touched_at || "") ||
+                     a.project.localeCompare(b.project),
+  name:    (a, b) => a.project.localeCompare(b.project),
+};
+
+for (const b of document.querySelectorAll("[data-sort]")) {
+  b.onclick = () => {
+    PROJ_SORT = b.dataset.sort;
+    localStorage.setItem(SORT_KEY, PROJ_SORT);
+    renderProjects(PROJ_ROWS);
+  };
+}
+
 function renderProjects(rows) {
   const box = $("projects");
+  PROJ_ROWS = rows;
   box.replaceChildren();
   $("proj-count").textContent = rows.length ? rows.length + " with changes" : "all clean";
+  for (const b of document.querySelectorAll("[data-sort]")) {
+    b.setAttribute("aria-pressed", b.dataset.sort === PROJ_SORT ? "true" : "false");
+  }
   if (!rows.length) { box.append(el("div", "empty", "every project matches its last commit")); return; }
 
   const max = Math.max(...rows.map((r) => r.dirty_files || 1), 1);
-  for (const r of rows) {
+  for (const r of rows.slice().sort(PROJ_SORTS[PROJ_SORT] || PROJ_SORTS.changes)) {
     const b = el("button", "proj");
     b.append(el("span", "p", r.project), el("span", "s", r.summary));
     const bar = el("div", "bar");
     const seg = (n, cls) => { if (!n) return; const i = el("i", cls); i.style.width = (n / max) * 100 + "%"; bar.append(i); };
     seg(r.added, "a"); seg(r.modified, "m"); seg(r.deleted, "d"); seg(r.untracked, "u");
     b.append(bar);
-    b.title = `${r.project} @ ${r.branch || "?"} ${r.head_sha || ""}`;
+    b.title = `${r.project} @ ${r.branch || "?"} ${r.head_sha || ""}` +
+              (r.touched_at ? `
+last touched ${r.touched_at} (${ago(r.touched_at)})` : "");
     b.onclick = () => openProject(r.project);
     box.append(b);
   }
@@ -2639,8 +2692,52 @@ function personaButton(p) {
 
 let ALL_PROJECTS = [];   // every folder with a PROJECT.md, for the confirm pickers
 
+// A drawer can open another drawer — a beat lists the projects that moved, a
+// story lists its tickets — and until now that was a one-way trip: the second
+// view replaced the first, and the only way back was to close everything and
+// find the beat again. So the drawer keeps a trail.
+//
+// Nothing at the call sites had to change. `openDrawer` is called synchronously
+// at the top of every open* function, before the fetch, so "was a drawer already
+// on screen when this one opened?" is exactly the question of whether the user
+// stepped *down* into something or started fresh — and it can be asked here,
+// once, instead of at each of the dozen places that open a drawer.
+let TRAIL = [];        // where we came from, innermost last
+let HERE = null;       // the view on screen, if it is one we know how to re-open
+let GOING_BACK = false;
+
+function drawerViews() {
+  return { story: openStory, persona: openPersona, pulse: openPulse,
+           project: openProject, agent: openAgent };
+}
+
+function renderTrail() {
+  const b = $("d-back");
+  const prev = TRAIL[TRAIL.length - 1];
+  b.style.display = prev ? "" : "none";
+  if (prev) {
+    b.textContent = "← " + prev.label;
+    b.title = "back to " + prev.label;
+  }
+}
+
+function goBack() {
+  const prev = TRAIL.pop();
+  if (!prev) return;
+  GOING_BACK = true;
+  try { drawerViews()[prev.kind](prev.arg); } finally { GOING_BACK = false; }
+}
+
 function openDrawer(eyebrow, title, opts) {
   const d = $("drawer");
+  const nav = opts && opts.nav;
+  if (!d.classList.contains("on")) TRAIL = [];          // opened from the page: a fresh trail
+  else if (nav && HERE && !GOING_BACK) TRAIL.push(HERE);  // opened from a drawer: a step down
+  // The composer and the patch view do not pass a `nav`, so they cannot be
+  // returned to — re-opening a half-written reply from a back button would be a
+  // lie about what was preserved. They end the trail rather than extending it.
+  HERE = nav || null;
+  renderTrail();
   d.classList.add("on"); $("scrim").classList.add("on"); d.setAttribute("aria-hidden", "false");
   d.classList.toggle("wide", !!(opts && opts.wide));
   $("d-eyebrow").textContent = eyebrow;
@@ -2651,11 +2748,13 @@ function openDrawer(eyebrow, title, opts) {
 }
 
 function closeDrawer() {
+  TRAIL = []; HERE = null; renderTrail();
   $("drawer").classList.remove("on");
   $("scrim").classList.remove("on");
   $("drawer").setAttribute("aria-hidden", "true");
 }
 $("d-close").onclick = closeDrawer;
+$("d-back").onclick = goBack;
 $("scrim").onclick = closeDrawer;
 addEventListener("keydown", (e) => { if (e.key === "Escape") closeDrawer(); });
 
@@ -2685,7 +2784,8 @@ function jsonList(raw) {
 // ── story drawer ────────────────────────────────────────────────────────────
 
 async function openStory(id) {
-  const body = openDrawer("story #" + id, "");
+  const body = openDrawer("story #" + id, "", { nav: { kind: "story", arg: id, label: "story #" + id } });
+  const mine = HERE;
   let data;
   try { data = await getJSON("/api/story/" + id); }
   catch { body.replaceChildren(el("div", "empty", "could not load story " + id)); return; }
@@ -2694,6 +2794,8 @@ async function openStory(id) {
   ALL_PROJECTS = data.projects || ALL_PROJECTS;
   $("d-eyebrow").textContent = `story #${s.id} · ${STATUS_LABEL[s.status] || s.status}`;
   $("d-title").textContent = s.title;
+  mine.label = s.title;
+  renderTrail();
   body.replaceChildren();
 
   const facts = el("dl", "kv");
@@ -2884,13 +2986,16 @@ async function openStory(id) {
 // discover afterwards in a diff.
 
 async function openPersona(slug) {
-  const body = openDrawer("persona", slug);
+  const body = openDrawer("persona", slug, { nav: { kind: "persona", arg: slug, label: slug } });
+  const mine = HERE;
   let p;
   try { p = await getJSON("/api/persona?slug=" + encodeURIComponent(slug)); }
   catch { body.replaceChildren(el("div", "empty", "could not read that persona")); return; }
 
   $("d-eyebrow").textContent = `${p.division} · standby`;
   $("d-title").textContent = `${p.emoji || ""} ${p.name}`.trim();
+  mine.label = p.name;
+  renderTrail();
   body.replaceChildren();
 
   const facts = el("dl", "kv");
@@ -2955,12 +3060,15 @@ function hireForm(p) {
 // ── agent, pulse, project, patch drawers ────────────────────────────────────
 
 async function openAgent(id) {
-  const body = openDrawer("agent", "#" + id);
+  const body = openDrawer("agent", "#" + id, { nav: { kind: "agent", arg: id, label: "agent #" + id } });
+  const mine = HERE;
   let a;
   try { a = await getJSON("/api/agent/" + id); }
   catch { body.replaceChildren(el("div", "empty", "could not load that contract")); return; }
   $("d-eyebrow").textContent = `agent · ${a.status}`;
   $("d-title").textContent = a.role;
+  mine.label = a.role;
+  renderTrail();
   body.replaceChildren();
 
   const facts = el("dl", "kv");
@@ -2995,7 +3103,7 @@ async function openAgent(id) {
 }
 
 async function openPulse(id) {
-  const body = openDrawer("pulse #" + id, "");
+  const body = openDrawer("pulse #" + id, "", { nav: { kind: "pulse", arg: id, label: "the beat" } });
   let p;
   try { p = await getJSON("/api/pulse/" + id); }
   catch { body.replaceChildren(el("div", "empty", "could not load that beat")); return; }
@@ -3029,7 +3137,7 @@ async function openPulse(id) {
 }
 
 async function openProject(name) {
-  const body = openDrawer("project", name);
+  const body = openDrawer("project", name, { nav: { kind: "project", arg: name, label: name } });
   let p;
   try { p = await getJSON("/api/project?name=" + encodeURIComponent(name)); }
   catch { body.replaceChildren(el("div", "empty", "could not read that folder")); return; }
@@ -3051,11 +3159,11 @@ async function openProject(name) {
   }
 
   if (p.commits && p.commits.length) {
-    const list = el("div", "blk");
+    const list = el("div", "commits");
     for (const c of p.commits) {
-      const row = el("div", "kv");
-      row.append(el("dt", null, c.sha), el("dd", null, `${c.subject}  —  ${c.when}`));
-      list.append(row);
+      const sub_ = el("span", "sub", c.subject);
+      sub_.title = `${c.sha} · ${c.author} · ${c.at} (${ago(c.at)})`;
+      list.append(el("span", "sha", c.sha), sub_, el("span", "at", c.at));
     }
     body.append(blk("recent commits", list));
   }

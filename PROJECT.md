@@ -215,6 +215,13 @@ Also shipped with M3, from the same session's asks:
   every control on this page queues rather than acts and nothing on screen said so between
   the click and the next pulse. A tile whose story has work in flight carries an *in flight*
   badge; hovering it lights the matching rows, and hovering a row lights the tile.
+- **Drawers keep a trail.** Opening a project from inside a beat used to be a one-way trip;
+  the header now grows a back button naming where it returns to. Views that cannot honestly
+  be restored — the composer, holding a half-written reply — end the trail instead.
+- **The Files list sorts by changes, recent, or name**, remembered in localStorage. *recent*
+  reads file mtimes rather than commit dates, because these rows are uncommitted work and the
+  last commit says nothing about when it happened. Commit rows in the project drawer show
+  their time in a column of their own.
 
 What guards the write door: every `/api/act/*` POST must carry an `X-Colony: 1` header (a
 cross-origin form can POST to localhost but cannot set a custom header), the server binds
