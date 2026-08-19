@@ -205,11 +205,52 @@ def stale_escalations(conn: sqlite3.Connection, story_id: int, new_hash: str) ->
     return marked
 
 
+def settle_story(conn: sqlite3.Connection, story_id: int, settled_as: str,
+                 notion_status: str) -> None:
+    """File a story the PO has marked Done, Shipped, Shelved, New or Not started.
+
+    Filing is not archiving: the story stays on the board's books, keeps its
+    events, its spend and the workflow status it had, and comes straight back to
+    life the moment the Notion status moves again. What it stops doing is
+    *asking*. Every open question about it is closed as moot and every open
+    ticket goes wontfix, because a question about a shipped story is not a
+    question — it is the colony still holding a conversation the PO walked away
+    from.
+
+    The distinction that matters: an escalation resolved with `po_decision` set
+    is a decision the wake will act on. A moot one is closed with no decision,
+    so nothing downstream treats the filing as an instruction to do work.
+    """
+    conn.execute(
+        """UPDATE stories SET settled_as = ?, blocked_reason = NULL,
+                  updated_at = datetime('now','localtime')
+            WHERE id = ?""",
+        (settled_as, story_id),
+    )
+    conn.execute(
+        """UPDATE escalations SET resolved_at = datetime('now','localtime'),
+                  po_decision = NULL
+            WHERE story_id = ? AND resolved_at IS NULL""",
+        (story_id,),
+    )
+    conn.execute(
+        """UPDATE tickets SET status = 'wontfix', closed_at = datetime('now','localtime')
+            WHERE story_id = ? AND status IN ('open','staffed','blocked')""",
+        (story_id,),
+    )
+    conn.execute(
+        """INSERT INTO story_events (story_id, kind, summary, detail)
+           VALUES (?, 'decided', ?, ?)""",
+        (story_id, f"filed as {settled_as}",
+         f'Notion status is "{notion_status}" — the colony stops asking about this one.'),
+    )
+
+
 def sync_notion(conn: sqlite3.Connection) -> dict:
     """Upsert the board into `stories`. Returns what actually changed."""
     load_env()
     result = {"configured": True, "seen": 0, "new": [], "changed": [], "error": None,
-              "staled": 0, "ticked": []}
+              "staled": 0, "ticked": [], "filed": [], "revived": []}
     try:
         rows = notion.fetch_board()
     except notion.NotionUnconfigured as exc:
@@ -220,7 +261,8 @@ def sync_notion(conn: sqlite3.Connection) -> dict:
     existing = {
         r["notion_page_id"]: r
         for r in conn.execute(
-            "SELECT notion_page_id, notion_hash, id, project, done_items FROM stories "
+            "SELECT notion_page_id, notion_hash, id, project, done_items, settled_as "
+            "FROM stories "
             "WHERE notion_page_id IS NOT NULL"
         )
     }
@@ -237,8 +279,9 @@ def sync_notion(conn: sqlite3.Connection) -> dict:
         project, confident = infer_project(row["title"], row["description"])
         # Exploring rows are research-only and never reach 'ready'. In Progress
         # rows land in the backlog for grooming — the PO, not the loop, marks
-        # them ready (gate one).
-        status = "backlog" if row["notion_status"] == notion.WORKABLE_STATUS else "needs-criteria"
+        # them ready (gate one). Everything else is filed, not requested.
+        status = notion.ledger_status(row["notion_status"])
+        settled = notion.SETTLED_STATUS.get(row["notion_status"])
 
         if prev:
             conn.execute(
@@ -255,6 +298,27 @@ def sync_notion(conn: sqlite3.Connection) -> dict:
             story_id = prev["id"]
             result["changed"].append(row["title"])
             kind, summary = "synced", "Notion row changed"
+
+            # Filing is the one thing an hourly sync may change about a story's
+            # standing. It deliberately does not touch `status`: the working
+            # status is the colony's own, and an hourly sync must not reset
+            # `po-review` to `backlog` every time Jordan edits a sentence.
+            was_filed = prev["settled_as"]
+            if settled:
+                if was_filed != settled:
+                    settle_story(conn, story_id, settled, row["notion_status"])
+                    result["filed"].append(row["title"])
+            elif was_filed:
+                # Un-filing restores the story exactly as it was left, which is
+                # the whole reason filing is a column of its own: the colony had
+                # a view on this story before the PO parked it, and re-deriving
+                # that view would cost a groom run to answer a question that was
+                # already answered.
+                conn.execute(
+                    "UPDATE stories SET settled_as = NULL, "
+                    "updated_at = datetime('now','localtime') WHERE id = ?", (story_id,)
+                )
+                result["revived"].append(row["title"])
 
             # Boxes ticked in Notion since the last sync. Worth naming in the
             # log on their own: "Jordan finished three things" is the single
@@ -276,13 +340,13 @@ def sync_notion(conn: sqlite3.Connection) -> dict:
                 """
                 INSERT INTO stories (notion_page_id, title, description, notion_status,
                                      category, related_link, priority, project,
-                                     project_source, status, notion_hash, notion_synced_at,
-                                     done_items, open_items)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                                     project_source, status, settled_as, notion_hash,
+                                     notion_synced_at, done_items, open_items)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (row["notion_page_id"], row["title"], row["description"], row["notion_status"],
                  row["category"], row["related_link"], row["priority"], project,
-                 "inferred", status, row["hash"], now(),
+                 "inferred", status, settled, row["hash"], now(),
                  row["done_items"], row["open_items"]),
             )
             story_id = cur.lastrowid
@@ -477,6 +541,11 @@ def _tick(conn: sqlite3.Connection) -> dict:
     )
 
     orphans = reap_orphaned_runs(conn)
+    # Free housekeeping, done before anything counts the queue: a groom ticket
+    # whose question has been answered is a receipt, not work, and leaving it
+    # `blocked` both duplicates it on the page and spends the story's last
+    # grooming attempt on a version of it that no longer applies.
+    swept = control.clear_spent_groom_tickets(conn)
     finished = collect_finished_runs(conn)
     decisions = open_po_decisions(conn)
     dispatched = pending_builds(conn)
@@ -567,6 +636,12 @@ def _tick(conn: sqlite3.Connection) -> dict:
         notes.append(f"notion: {len(board['ticked'])} item(s) ticked off")
     if board.get("staled"):
         notes.append(f"inbox: {board['staled']} question(s) went stale")
+    if board.get("filed"):
+        notes.append(f"board: {len(board['filed'])} stor(y/ies) filed")
+    if board.get("revived"):
+        notes.append(f"board: {len(board['revived'])} back on the board")
+    if swept:
+        notes.append(f"queue: {swept} answered groom ticket(s) retired")
     if outbox_result["sent"]:
         notes.append(f"notion: pushed {outbox_result['sent']}")
     if outbox_result["failed"]:
@@ -583,7 +658,7 @@ def _tick(conn: sqlite3.Connection) -> dict:
         "tier": tier, "finding": finding, "anomalies": anomalies,
         "usage": usage, "board": board, "reasons": reasons, "notes": notes,
         "finished": len(finished), "halted": halted, "changed": changed,
-        "orphans": len(orphans), "dispatched": dispatched, "groomable": pending,
+        "orphans": len(orphans), "swept": swept, "dispatched": dispatched, "groomable": pending,
         "decisions": decisions, "candidates": candidates, "queued_drafts": queued_drafts,
         "decaying": [dict(r) for r in decayed], "outbox": outbox_result,
     }
@@ -617,6 +692,10 @@ def _detail(ctx: dict) -> str:
         if board.get("staled"):
             lines.append(f"         {board['staled']} open question(s) marked stale — "
                          f"the brief moved under them")
+        for title in board.get("filed") or []:
+            lines.append(f"         filed   {title} — the colony stops asking about it")
+        for title in board.get("revived") or []:
+            lines.append(f"         revived {title} — back on the board")
 
     ob = ctx.get("outbox") or {}
     if any(ob.get(k) for k in ("sent", "failed", "held")):
@@ -631,7 +710,8 @@ def _detail(ctx: dict) -> str:
         lines.append("usage    no cache — is the tray app running?")
 
     lines.append(f"ledger   {ctx['groomable']} groomable · {ctx['dispatched']} dispatched · "
-                 f"{ctx['finished']} unharvested run(s) · {ctx['orphans']} orphan(s) reaped")
+                 f"{ctx['finished']} unharvested run(s) · {ctx['orphans']} orphan(s) reaped"
+                 + (f" · {ctx['swept']} spent groom ticket(s) retired" if ctx.get("swept") else ""))
 
     if changed:
         lines.append(f"projects {len(changed)} folder(s) moved since the last sample")

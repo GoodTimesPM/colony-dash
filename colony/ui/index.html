@@ -906,6 +906,9 @@ body.beating .ordis-head .sigil { animation: breathe 3.6s ease-in-out infinite; 
   font-family: var(--mono); font-size: var(--step--2); letter-spacing: .06em;
   text-transform: uppercase; color: var(--violet); align-self: center;
 }
+/* A queued draft that cannot run is not violet-and-patient, it is blocked, and
+   the two have to look different or "waiting" stops carrying information. */
+.skill .waiting.bad { color: var(--coral); text-transform: none; letter-spacing: .02em; }
 .tiny { font-size: var(--step--2); letter-spacing: .04em; }
 .pill {
   font-family: var(--mono); font-size: var(--step--3); letter-spacing: .1em; text-transform: uppercase;
@@ -1011,6 +1014,12 @@ button.persona.hired .nm { color: var(--mint); }
 .dropped-line { display: flex; align-items: center; gap: 8px; padding: 3px 9px; }
 .dropped-line .t { flex: 1; min-width: 0; color: var(--ink-dim); text-decoration: line-through; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dropped-line .why { font-family: var(--mono); font-size: var(--step--1); color: var(--ink-dim); }
+/* A filed story is finished, parked or not begun. It is not struck through the
+   way a dropped one is — nothing was abandoned, it just is not the colony's
+   business today. */
+.dropped-line .t.filed { text-decoration: none; color: var(--ink-soft); }
+.chip.filed { border-color: var(--rule); color: var(--ink-dim); background: var(--panel-sunk); }
+.chip.filed.done { border-color: var(--mint); color: var(--mint); background: var(--mint-ground); }
 
 .chip {
   font-family: var(--mono); font-size: var(--step--2); letter-spacing: .06em; text-transform: uppercase;
@@ -1077,6 +1086,11 @@ button.pulse[disabled] { cursor: default; }
 .pulse .find { color: var(--ink-soft); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pulse.gap, .pulse.gap .find { color: var(--coral); }
 .pulse.rolled .find { color: var(--ink-dim); }
+/* The log grows by one row an hour and never shrinks, so it is the one panel
+   guaranteed to eventually own the page. It scrolls in its own body rather than
+   capping the section, so the newest beat stays under the heading where you
+   look for it. */
+#pulses { max-height: var(--pulse-max, 40vh); overflow-y: auto; padding-right: 3px; }
 
 /* ── spend ────────────────────────────────────────────────────────────────── */
 
@@ -1388,6 +1402,7 @@ body.snapping .snapbar { display: flex; }
       <div class="lb">detail</div>
       <label><input type="checkbox" data-view="stale"> stale questions</label>
       <label><input type="checkbox" data-view="dropped"> dropped stories</label>
+      <label><input type="checkbox" data-view="filed"> done / shelved / not started</label>
       <label><input type="checkbox" data-view="dense"> dense rows</label>
       <button class="link" id="view-reset">show everything</button>
     </div>
@@ -1454,6 +1469,7 @@ body.snapping .snapbar { display: flex; }
   <div class="col">
     <section class="panel" data-panel="board">
       <h2>Board <span class="count" id="board-count"></span>
+        <button class="link" id="board-filed" style="display:none" title="done, shipped, shelved or not started — the colony asks nothing about these">filed</button>
         <button class="link" id="board-dropped" style="display:none" title="stories you have dropped">dropped</button>
       </h2>
       <div class="flow" id="flow"></div>
@@ -1665,6 +1681,17 @@ function renderSprint(sp) {
     meta.append(
       tag(sprint.name), tag("day " + day + "/" + total),
       tag(spent.runs + " run" + (spent.runs === 1 ? "" : "s")),
+      // A total that has not moved in a day is either a quiet colony or a
+      // broken counter, and the number alone cannot say which.
+      ...(sp.last_run_at ? [(() => {
+        // Built by hand rather than through tag(), because the relative time has
+        // to be a node the fifteen-second ticker can find and rewrite.
+        const wrap = el("span"), inner = el("b");
+        inner.append("last run ", relNode(null, sp.last_run_at, "ago"));
+        wrap.append(inner);
+        wrap.title = "the sprint total only moves when a run ends";
+        return wrap;
+      })()] : []),
       // The designed baseline stays visible next to the exception, so a boosted
       // week never quietly becomes the new normal.
       tag(band.boost
@@ -1854,6 +1881,7 @@ function renderBoard(b) {
   const shown = b.stories.filter((s) => !filter || s.status === filter);
   if (!shown.length) {
     box.append(el("div", "empty", filter ? "nothing in " + STATUS_LABEL[filter] : "board empty"));
+    renderFiled(b.settled || []);
     renderDropped(b.dropped || []);
     return;
   }
@@ -1896,7 +1924,45 @@ function renderBoard(b) {
     box.append(line);
   }
 
+  renderFiled(b.settled || []);
   renderDropped(b.dropped || []);
+}
+
+// ── the filed ───────────────────────────────────────────────────────────────
+//
+// Done, Shipped, Shelved, New and Not started all mean the same thing to the
+// loop — the PO is not asking for anything — so they share one hidden shelf
+// under the board rather than five columns across it. A column is somewhere
+// work passes through; these are where it stops.
+//
+// They are kept visible behind a toggle because "did I finish that, or do I
+// only remember deciding to?" is a question you have while looking at the
+// board, and an answer two clicks into Notion is not an answer.
+const FILED_LABEL = { "done": "done", "shelved": "shelved", "not-started": "not started" };
+
+function renderFiled(rows) {
+  const box = $("stories");
+  const btn = $("board-filed");
+  btn.style.display = rows.length ? "" : "none";
+  btn.textContent = shows("filed") ? "hide filed · " + rows.length : "filed · " + rows.length;
+  if (!shows("filed") || !rows.length) return;
+
+  const list = el("div", "dropped-list");
+  list.append(el("div", "lb", "filed — nothing is being asked about these"));
+  for (const s of rows) {
+    const line = el("div", "dropped-line");
+    const t = el("span", "t filed", s.title);
+    t.title = s.project || "no project";
+    line.append(t);
+    line.append(el("span", "chip filed" + (s.settled_as === "done" ? " done" : ""),
+                   FILED_LABEL[s.settled_as] || s.settled_as));
+    // What Notion actually says, next to what the ledger made of it: the ledger
+    // folds five statuses into three, and hiding that would make "shipped" look
+    // like the dashboard had lost the word.
+    if (s.notion_status) line.append(el("span", "why", s.notion_status));
+    list.append(line);
+  }
+  box.append(list);
 }
 
 // ── the dropped ─────────────────────────────────────────────────────────────
@@ -2681,6 +2747,18 @@ const DETECTOR_LABEL = {
   "po-correction": "you kept fixing it",
 };
 
+// Why a wake would refuse to spend right now, in the words the pulse uses, or
+// null if it would run. The page already holds both numbers; the forge just had
+// no reason to look at them until a draft could sit queued behind them.
+function standdown() {
+  const sp = STATE && STATE.sprint;
+  if (!sp || !sp.usage || !sp.allowance) return null;
+  const ceiling = sp.allowance.effective;
+  const used = Number(sp.usage.seven_day_pct);
+  if (!(used >= ceiling)) return null;
+  return `week at ${used.toFixed(0)}% of the ${ceiling}% allowance`;
+}
+
 function renderForge(f) {
   const box = $("forge");
   const items = (f && f.skills) || [];
@@ -2718,7 +2796,17 @@ function renderForge(f) {
     const bar = el("div", "row-acts");
     if (s.status === "candidate") {
       if (s.draft_requested_at) {
-        bar.append(el("span", "waiting", "Ordis drafts it on the next wake"));
+        // "on the next wake" is true and useless when every wake is standing
+        // down. A request that has been waiting since Tuesday because the week
+        // is over its allowance should say so here, next to the button that
+        // made it, rather than leaving the PO to infer it from the Spend panel.
+        const held = standdown();
+        const w = el("span", held ? "waiting bad" : "waiting",
+                     held ? "requested — held: " + held
+                          : "Ordis drafts it on the next wake");
+        w.title = held ? "raise the allowance in Macros, or wait for the week to reset"
+                       : "queued; it costs nothing until the wake runs";
+        bar.append(w);
       } else {
         const b = el("button", "act go", "ask for a draft");
         b.title = "costs nothing now — the next wake writes it";
@@ -3704,6 +3792,10 @@ const MAIN_PANELS = ["ordis", "colony", "standby", "board", "files", "spend",
 // The sprint strip is one row of figures with no heading of its own; capping it
 // would put a scrollbar on something already one line tall.
 const CAPPABLE = ["inbox", "flight"].concat(MAIN_PANELS);
+
+// Panels whose *contents* scroll rather than the panel itself, and the variable
+// their ceiling lives in. Their heading stays put without needing sticky.
+const SELF_SCROLL = { "inbox": "--inbox-max", "pulse": "--pulse-max" };
 const PANEL_LABEL = {
   inbox: "PO Inbox", flight: "Ticket Queue", ordis: "Ordis", colony: "Colony",
   standby: "Standby", board: "Board", files: "Files", spend: "Spend",
@@ -3744,12 +3836,12 @@ function applyLayout() {
     const node = panelNode(key);
     if (!node) continue;
     const max = (LAYOUT[key] || {}).max || 0;
-    if (key === "inbox") {
-      // The Inbox already scrolls inside its own grid, so capping the *section*
-      // would nest one scroller in another and give the same list two bars.
-      // Its cap moves the grid's ceiling instead.
-      if (max) node.style.setProperty("--inbox-max", max + "px");
-      else node.style.removeProperty("--inbox-max");
+    // Two panels already scroll inside their own body — the Inbox grid and the
+    // pulse log — so capping the *section* would nest one scroller in another
+    // and give the same list two bars. Their cap moves the inner ceiling.
+    if (SELF_SCROLL[key]) {
+      if (max) node.style.setProperty(SELF_SCROLL[key], max + "px");
+      else node.style.removeProperty(SELF_SCROLL[key]);
       continue;
     }
     node.classList.toggle("capped", max > 0);
@@ -4154,11 +4246,12 @@ function openAppearance() {
 
     const cap = document.createElement("select");
     cap.className = "pick";
-    cap.title = key === "inbox"
-      ? "how tall the Inbox grid gets before it scrolls"
+    cap.title = SELF_SCROLL[key]
+      ? "how tall this list gets before it scrolls"
       : "cap the height and this tile scrolls inside itself";
-    const heights = key === "inbox"
-      ? [[0, "46vh"], [260, "260px"], [380, "380px"], [520, "520px"], [700, "700px"]]
+    const heights = SELF_SCROLL[key]
+      ? [[0, key === "pulse" ? "40vh" : "46vh"], [260, "260px"], [380, "380px"],
+         [520, "520px"], [700, "700px"]]
       : [[0, "grows"], [260, "260px"], [380, "380px"], [520, "520px"], [700, "700px"]];
     for (const [v, label] of heights) {
       const o = document.createElement("option");
@@ -4228,6 +4321,7 @@ function applyView() {
   for (const box of document.querySelectorAll("[data-view]")) box.checked = shows(box.dataset.view);
   $("inbox-show-stale").setAttribute("aria-pressed", String(shows("stale")));
   $("board-dropped").setAttribute("aria-pressed", String(shows("dropped")));
+  $("board-filed").setAttribute("aria-pressed", String(shows("filed")));
 }
 
 function setView(key, on) {
@@ -4248,6 +4342,7 @@ $("view-reset").onclick = () => {
 };
 $("inbox-show-stale").onclick = () => setView("stale", !shows("stale"));
 $("board-dropped").onclick = () => setView("dropped", !shows("dropped"));
+$("board-filed").onclick = () => setView("filed", !shows("filed"));
 
 // Click-away close. <details> has no such behaviour of its own, and a menu
 // that stays open over the board while you try to click the board is worse

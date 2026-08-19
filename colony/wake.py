@@ -102,6 +102,10 @@ MAX_ATTEMPTS = 2
 GROOMABLE_WHERE = """
     status IN ('backlog','needs-criteria')
     AND dropped_at IS NULL
+    -- Filed by the PO: Done, Shipped, Shelved, New or Not started. A row he has
+    -- not started is not a row he is waiting on, and grooming it produces a
+    -- question about a decision he has deliberately not made yet.
+    AND settled_as IS NULL
     AND (acceptance_criteria IS NULL OR acceptance_criteria = '')
     AND (SELECT COUNT(*) FROM tickets t
           WHERE t.story_id = stories.id AND t.title LIKE 'Groom:%'

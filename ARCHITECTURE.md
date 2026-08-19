@@ -121,6 +121,7 @@ CREATE TABLE stories (
   est_tokens          INTEGER,              -- Ordis's estimate, in tokens
   est_cost_usd        REAL,                 -- shadow figure, derived from est_tokens
   status              TEXT NOT NULL,        -- backlog|needs-info|needs-criteria|ready|in-progress|po-review|accepted|rejected
+  settled_as          TEXT,                 -- NULL = live; done|shelved|not-started = the PO filed it, colony asks nothing
   blocked_reason      TEXT,                 -- why the colony can't start (surfaces in the Inbox)
   created_at          TIMESTAMP NOT NULL,
   updated_at          TIMESTAMP NOT NULL,
@@ -430,7 +431,7 @@ the colony picks it up on the next tick. Live schema:
 | Property | Type | How the colony reads it |
 | --- | --- | --- |
 | `Idea` | title | → `stories.title` |
-| `Status` | select — New / Exploring / In Progress / Shipped / Shelved | **the intake trigger**, below |
+| `Status` | select — New / Exploring / In Progress / Shipped / Shelved / Done / Not started | **the intake trigger**, below |
 | `Priority` | status — Low / Medium / High | → `stories.priority` (High=1) and queue order |
 | `Category` | multi-select | routing hint for which roster division to hire from |
 | `Related Link` | url | context for the agent |
@@ -438,13 +439,28 @@ the colony picks it up on the next tick. Live schema:
 
 ### 5.1 The intake contract
 
-**`Status = "In Progress"` is the signal to work on it.** Nothing else is picked up.
+**Only two of the seven statuses are an instruction.** The other five are the PO
+filing a row — finished, parked, or not begun — and **a filed row is the absence of a
+request**, not a request of a different shape.
 
-- `New` — captured, not thought through. The colony ignores it entirely.
+- `In Progress` — **in the colony's queue.** Ordered by `Priority`. The only status
+  that can be groomed, staffed and worked.
 - `Exploring` — the colony may run **read-only research** on it if budget allows, and
   attach findings to the Notion page. It will never write code for an `Exploring` row.
-- `In Progress` — **in the colony's queue.** Ordered by `Priority`.
-- `Shipped` / `Shelved` — closed. The colony stops and archives its tickets.
+- `New` / `Not started` — captured, not thought through. Filed as `not-started`.
+- `Done` / `Shipped` — filed as `done`. `Shelved` — filed as `shelved`.
+
+Filing sets `stories.settled_as` and leaves `stories.status` exactly where it was. The
+two are different facts: **`status` is where the colony had the story in its own
+process; `settled_as` is whether the PO is asking for anything at all.** Keeping them
+apart is what makes un-filing lossless — a story reopened after a month rejoins the
+board at the status it actually had, instead of at a guess the colony would have to
+spend a groom run re-deriving.
+
+A filed story leaves the seven live columns for the **filed** shelf under the Board,
+which toggles like the dropped shelf and is hidden when empty. Its open escalations
+close as moot — `resolved_at` set, `po_decision` left NULL, so nothing downstream
+mistakes the filing for an instruction — and its open tickets go `wontfix`.
 
 This uses your board exactly as it already works: dragging a row to *In Progress* is how you
 hand work to the colony, and it's a gesture you'd make anyway.
@@ -1350,3 +1366,61 @@ to somebody else's server. The rollback un-does the `attempts` increment and the
 a dry run that really did attempt a board mutation leaves a row that still reads "never tried".
 **A transaction is not a sandbox.** Anything a dry run does over the network is already done, and
 worse, the local record of having done it is the part that gets erased.
+
+### 10.9 What a note that became a question taught us
+
+**Two lines of code made the colony invent obligations out of notes.** Intake mapped
+`status = "backlog" if notion_status == "In Progress" else "needs-criteria"`, so all six
+of the other Notion statuses became `needs-criteria` — which is inside
+`wake.GROOMABLE_WHERE`. An idea Jordan wrote down and left alone came back an hour later
+as a question in his PO Inbox asking which folder it belonged to. The other line is the
+same mistake from the other end: the *update* path never touched `status` at all, so
+moving a row to Done in Notion changed nothing in the ledger and the story stayed on the
+board looking stale. **A default branch in a status mapping is a claim that every
+unlisted value means the same thing**, and here five of them meant the opposite of the
+one they were folded into.
+
+The fix is a `settled_as` column rather than three more values in `status`. Partly
+mechanical — `status` carries a CHECK constraint, widening it in SQLite means rebuilding
+a table three others hold foreign keys into, inside a `BEGIN;…COMMIT;` executescript
+under `PRAGMA foreign_keys = ON`. But the mechanical obstacle pointed at the real one:
+they are different facts, and a column that has to answer two questions gives a wrong
+answer to one of them the first time they disagree.
+
+**A groom ticket is a receipt with an expiry, and nothing was expiring it.** A groom that
+ends in a question leaves a `blocked` ticket behind. That ticket is useful exactly as
+long as the question is open. Jordan answered both Age of Fate questions by confirming
+the project folder, and saw two identical `Groom: Age of Fate Pack · BLOCKED` tiles in
+the Ticket Queue — because `_flight` shows every ticket in
+`('open','staffed','running','blocked')` and nothing had closed them. The duplicate tiles
+were the cheap half of the bug. The expensive half: `GROOMABLE_WHERE` counts non-`wontfix`
+groom tickets against `MAX_ATTEMPTS = 2`, so **answering the question was precisely what
+froze the story at two attempts, permanently.** `control.clear_spent_groom_tickets` now
+retires blocked groom tickets with no open escalation on every tick — housekeeping rather
+than a migration, so rows already in that state heal on the next beat — and
+`confirm_project` and the reject-criteria path call `regroom_budget` so the answer that
+closes a question also gives the story its attempts back.
+
+**Two spellings of the same predicate drift, and the drift is silent.** `server._ordis`
+had its own hand-written groomable SQL, missing the attempt cap and the `dropped_at`
+check; the rail said 4 while the pulse said 3. It imports `wake.GROOMABLE_WHERE` now.
+There is no version of this where two copies stay equal.
+
+**A number that stops moving because the colony is standing down reads exactly like a
+broken counter.** The sprint header sat at `172.3k tok` for days and Jordan asked if it
+was stale. It was correct — 172,258 chargeable across ten runs, and no run has ended
+since 2026-08-18 01:00. Likewise the forge: detection is free and runs in the tick, three
+candidates exist and two have drafts requested, but drafting runs in the wake behind
+`budget_ok`, and every wake since had logged *"week at 49% is at or past the 35% colony
+allowance"* — into the pulse log, where a PO looking at the forge card would never think
+to look. The header now carries `last run <ago>`, and a queued draft says
+`requested — held: week at 49% of the 35% allowance` in coral, next to the button that
+queued it. **Neither fix is mechanism; both are the page saying out loud what it already
+knew.** A dashboard that shows a stalled value without showing why is asking its reader
+to guess between "working" and "broken", and the guess is free to make wrong.
+
+**The pulse log scrolls now.** It grows by a row an hour and never shrinks, so it was the
+one panel guaranteed to eventually own the page. It scrolls inside its own body rather
+than capping the section, which keeps the newest beat under the heading where you look
+for it; `PULSE_LIMIT` went 40 → 120, because the limit stopped being what fits on screen
+and became how far back you can scroll — about five days of hourly beats.
