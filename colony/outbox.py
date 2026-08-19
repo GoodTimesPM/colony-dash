@@ -39,6 +39,21 @@ FLUSH_LIMIT = 12
 MAX_ATTEMPTS = 11
 
 
+def _reason(exc: Exception) -> str:
+    """What to write on a failed row, for a person reading a tile at a glance.
+
+    Notion's own refusals already read as sentences — "403 restricted_resource:
+    Insufficient permissions for this endpoint" names both the problem and the
+    fix — so stamping `NotionError:` in front of them only spends characters the
+    tile does not have. Anything else keeps its class name, because a bare
+    `[Errno 11001] getaddrinfo failed` needs the word that says it came from
+    Python and not from Notion.
+    """
+    if isinstance(exc, (notion.NotionError, notion.NotionRefused)):
+        return str(exc)[:400]
+    return f"{type(exc).__name__}: {exc}"[:400]
+
+
 def queue(conn: sqlite3.Connection, *, story_id: int | None, page_id: str,
           kind: str, payload: dict, source: str = "dashboard") -> int:
     """Write one intention down. Returns the outbox row id.
@@ -119,7 +134,7 @@ def flush(conn: sqlite3.Connection, *, enabled: bool = True,
         return result
     except Exception as exc:
         result["held"] = len(rows)
-        result["error"] = f"{type(exc).__name__}: {exc}"
+        result["error"] = _reason(exc)
         return result
 
     for row in rows:
@@ -129,7 +144,7 @@ def flush(conn: sqlite3.Connection, *, enabled: bool = True,
         except Exception as exc:
             conn.execute(
                 "UPDATE notion_outbox SET attempts = attempts + 1, last_error = ? WHERE id = ?",
-                (f"{type(exc).__name__}: {exc}"[:400], row["id"]),
+                (_reason(exc), row["id"]),
             )
             result["failed"] += 1
             continue
