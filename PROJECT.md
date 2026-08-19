@@ -210,7 +210,11 @@ Also shipped with M3, from the same session's asks:
   clay — persisted in localStorage.
 - **The PO Inbox is a full-width tile strip**, and each tile now offers only the affordances
   its kind can actually use: a `needs-info` card asks for a folder and *doesn't* show
-  approve/reject, because naming the folder is the only answer it has.
+  approve/reject, because naming the folder is the only answer it has. **An In Flight rail
+  sits to its right**: open tickets and unsent Notion pushes in one scrolling list, because
+  every control on this page queues rather than acts and nothing on screen said so between
+  the click and the next pulse. A tile whose story has work in flight carries an *in flight*
+  badge; hovering it lights the matching rows, and hovering a row lights the tile.
 
 What guards the write door: every `/api/act/*` POST must carry an `X-Colony: 1` header (a
 cross-origin form can POST to localhost but cannot set a custom header), the server binds
