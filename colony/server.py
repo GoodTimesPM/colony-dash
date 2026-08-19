@@ -56,7 +56,16 @@ BOARD_ORDER = [
     "po-review",
     "accepted",
 ]
-PULSE_LIMIT = 40
+
+# Statuses that mean the PO has filed this one: finished, parked, or not begun.
+# They are off the board rather than a column on it, because a column is a place
+# work passes through and these are places work stops. They stay reachable — a
+# board that can only show live work cannot answer "did I finish that?".
+SETTLED_ORDER = ["done", "shelved", "not-started"]
+
+# The pulse log scrolls inside its own panel now, so the limit is what the PO can
+# scroll back through rather than what fits on screen. Five days of hourly beats.
+PULSE_LIMIT = 120
 SSE_INTERVAL_S = 2.0
 
 # The project scan shells out to git, so it is cached rather than run on every
@@ -79,7 +88,7 @@ def rows(conn: sqlite3.Connection, sql: str, params: tuple = ()) -> list[dict[st
     return [dict(r) for r in conn.execute(sql, params).fetchall()]
 
 
-def one(conn: sqlite3.Connection, sql: str, params: tuple = ()) -> dict[str, Any] | None:
+def one(conn: sqlite3.Connection, sql: str, params: tuple | dict = ()) -> dict[str, Any] | None:
     r = conn.execute(sql, params).fetchone()
     return dict(r) if r else None
 
@@ -131,10 +140,17 @@ def _sprint(conn: sqlite3.Connection) -> dict[str, Any]:
         spent = row or spent
 
     band = control.effective_allowance(conn)
+    # When the colony is standing down, the sprint total stops moving — which is
+    # correct, and reads exactly like a number that has broken. Saying when the
+    # last run ended is the cheapest way to tell those two apart.
+    last_run = one(
+        conn, "SELECT MAX(ended_at) AS at FROM runs WHERE ended_at IS NOT NULL"
+    ) or {}
     return {
         "sprint": sprint,
         "usage": usage,
         "spent": spent,
+        "last_run_at": last_run.get("at"),
         # The bar measures the *allowance*, not the week: 35% of the window is
         # the colony's ceiling, so 35% consumed should read as full, not a third.
         "allowance_pct": band["effective"],
@@ -158,10 +174,14 @@ def _ordis(conn: sqlite3.Connection) -> dict[str, Any]:
         "       SUM(CASE WHEN tier='wake' THEN 1 ELSE 0 END) wakes, "
         "       COALESCE(SUM(anomalies),0) anomalies FROM pulses",
     ) or {}
+    # The same predicate the wake actually selects on, not a re-statement of it.
+    # Two spellings of "groomable" drifted apart the moment the attempt cap was
+    # added: the panel promised three stories the loop had already given up on.
+    from . import wake as wake_mod
     groom = one(
         conn,
-        "SELECT COUNT(*) n FROM stories WHERE status IN ('backlog','needs-criteria') "
-        "AND (acceptance_criteria IS NULL OR acceptance_criteria = '')",
+        f"SELECT COUNT(*) n FROM stories WHERE {wake_mod.GROOMABLE_WHERE}",
+        {"max_attempts": wake_mod.MAX_ATTEMPTS},
     ) or {}
     queued = one(
         conn,
@@ -220,7 +240,12 @@ def _colony(conn: sqlite3.Connection) -> dict[str, Any]:
 
 def _board(conn: sqlite3.Connection) -> dict[str, Any]:
     counts = {r["status"]: r["n"] for r in rows(
-        conn, "SELECT status, COUNT(*) n FROM stories GROUP BY status"
+        conn, "SELECT status, COUNT(*) n FROM stories "
+              "WHERE settled_as IS NULL GROUP BY status"
+    )}
+    filed_counts = {r["settled_as"]: r["n"] for r in rows(
+        conn, "SELECT settled_as, COUNT(*) n FROM stories "
+              "WHERE settled_as IS NOT NULL AND dropped_at IS NULL GROUP BY settled_as"
     )}
     stories = rows(
         conn,
@@ -232,7 +257,7 @@ def _board(conn: sqlite3.Connection) -> dict[str, Any]:
                (SELECT COALESCE(SUM(e.tokens), 0) FROM story_events e
                  WHERE e.story_id = s.id)                                      AS tokens
           FROM stories s
-         WHERE s.status NOT IN ('rejected','archived')
+         WHERE s.status NOT IN ('rejected','archived') AND s.settled_as IS NULL
          ORDER BY s.priority, s.id
         """,
     )
@@ -249,10 +274,27 @@ def _board(conn: sqlite3.Connection) -> dict[str, Any]:
              FROM stories WHERE dropped_at IS NOT NULL
             ORDER BY dropped_at DESC LIMIT 20""",
     )
+    # Filed, not dropped, and the difference is who decided. A dropped story is
+    # the PO overruling his own board from here; a settled one is the board
+    # itself saying the work is done, shelved or not begun. Both are hidden by
+    # default and both keep a count in the header, because the count is the only
+    # thing that tells you there is anything behind the toggle.
+    settled = rows(
+        conn,
+        """SELECT id, title, project, priority, status, settled_as, notion_status,
+                  updated_at, notion_page_id
+             FROM stories
+            WHERE settled_as IS NOT NULL AND dropped_at IS NULL
+            ORDER BY CASE settled_as WHEN 'done' THEN 0 WHEN 'not-started' THEN 1 ELSE 2 END,
+                     updated_at DESC
+            LIMIT 60""",
+    )
     return {
         "columns": [{"status": s, "n": counts.get(s, 0)} for s in BOARD_ORDER],
+        "settled_columns": [{"status": s, "n": filed_counts.get(s, 0)} for s in SETTLED_ORDER],
         "stories": stories,
         "dropped": dropped,
+        "settled": settled,
     }
 
 

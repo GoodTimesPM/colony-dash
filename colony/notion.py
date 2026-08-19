@@ -33,10 +33,36 @@ DEFAULT_DATABASE_ID = "1d23280a-add3-41cb-bd14-67c771ee6d88"
 WORKABLE_STATUS = "In Progress"
 RESEARCH_STATUS = "Exploring"
 
+# The other five options on the Notion select, and what they mean here.
+#
+# Only two of the seven statuses are an instruction to the colony. The rest are
+# the PO filing something — finished, parked, or not begun — and a row being
+# filed is the *absence* of a request. Treating them as work was the loop's
+# loudest mistake: an idea Jordan wrote down and left alone came back an hour
+# later as a question in his Inbox asking which folder it belonged to, which is
+# the colony inventing an obligation out of a note.
+SETTLED_STATUS = {
+    "Done":        "done",
+    "Shipped":     "done",
+    "Shelved":     "shelved",
+    "New":         "not-started",
+    "Not started": "not-started",
+}
+
+
+def ledger_status(notion_status: str | None) -> str:
+    """Where in the colony's own workflow a Notion row lands.
+
+    This is orthogonal to whether the row is filed — `stories.settled_as` holds
+    that — so a story parked as Done and later reopened comes back to the
+    workflow status it actually had rather than to a guess.
+    """
+    return "backlog" if notion_status == WORKABLE_STATUS else "needs-criteria"
+
 # What the colony is allowed to set a row to. Notably absent: "In Progress" —
 # only the PO starts work, and a loop that could move a row into its own intake
 # filter would be able to feed itself.
-WRITABLE_STATUS = ("Done", "Exploring", "Not started", "Archived")
+WRITABLE_STATUS = ("Done", "Shipped", "Shelved", "Exploring", "Not started", "Archived")
 
 PRIORITY_RANK = {"High": 1, "Medium": 2, "Low": 3}
 

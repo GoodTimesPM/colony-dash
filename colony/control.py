@@ -235,6 +235,10 @@ def decide(conn: sqlite3.Connection, esc_id: int, decision: str,
             "updated_at = datetime('now','localtime') WHERE id = ?",
             (esc["story_id"],),
         )
+        # Sending it back is only real if the loop is still allowed to pick it
+        # up. Without this the story returns to `needs-criteria` having already
+        # spent both its attempts, and sits there permanently.
+        regroom_budget(conn, esc["story_id"])
         _event(conn, esc["story_id"], "decided",
                "PO rejected the draft criteria — back for re-grooming", note or None)
         outcome = "sent back for re-grooming"
@@ -291,6 +295,47 @@ def _settle_patch(conn: sqlite3.Connection, esc: sqlite3.Row, decision: str,
     return f"{applied['files']} file(s) applied to your working tree, uncommitted"
 
 
+def clear_spent_groom_tickets(conn: sqlite3.Connection) -> int:
+    """Retire blocked groom tickets on stories that have nothing left to ask.
+
+    A groom that ends in a question leaves a `blocked` ticket behind as its
+    receipt. The receipt is useful exactly as long as the question is open —
+    after that it is a duplicate row in the Ticket Queue saying BLOCKED about
+    something already answered, and, worse, it still counts against
+    `wake.MAX_ATTEMPTS`, so answering the question is what stopped the story
+    from ever being re-groomed. Two identical BLOCKED tiles for one story is the
+    visible symptom; a story that can never move again is the actual cost.
+
+    Housekeeping rather than a migration, so rows already in this state heal on
+    the next beat instead of needing a schema step to reach them.
+    """
+    return conn.execute(
+        """UPDATE tickets SET status = 'wontfix', closed_at = datetime('now','localtime')
+            WHERE status = 'blocked' AND title LIKE 'Groom:%'
+              AND story_id IS NOT NULL
+              AND NOT EXISTS (SELECT 1 FROM escalations e
+                               WHERE e.story_id = tickets.story_id
+                                 AND e.resolved_at IS NULL)""",
+    ).rowcount
+
+
+def regroom_budget(conn: sqlite3.Connection, story_id: int) -> int:
+    """Give one story its grooming attempts back.
+
+    `wake.MAX_ATTEMPTS` counts groom tickets that are not `wontfix`, and that is
+    the right rule while the tickets still describe the story as it stands. The
+    moment the PO answers the question those runs were asking, they describe a
+    version of the story that is gone — so retiring them is not tidying up, it
+    is the difference between a story that can be re-groomed with the new
+    information and one that is stuck at two attempts forever.
+    """
+    return conn.execute(
+        """UPDATE tickets SET status = 'wontfix', closed_at = datetime('now','localtime')
+            WHERE story_id = ? AND title LIKE 'Groom:%' AND status <> 'wontfix'""",
+        (story_id,),
+    ).rowcount
+
+
 def confirm_project(conn: sqlite3.Connection, story_id: int, project: str) -> dict[str, Any]:
     """Name the folder a story belongs to — the answer to five of six Inbox items.
 
@@ -330,8 +375,14 @@ def confirm_project(conn: sqlite3.Connection, story_id: int, project: str) -> di
                    OR reason LIKE '%I am guessing%')""",
         (story_id,),
     )
+    # The groom runs that raised those questions were reading a story with no
+    # confirmed folder. That story no longer exists, so their blocked tickets
+    # stop being evidence and start being duplicates in the Ticket Queue.
+    retired = regroom_budget(conn, story_id)
     _event(conn, story_id, "decided", f"PO confirmed the project folder: {note}")
-    return {"ok": True, "project": project, "note": note}
+    return {"ok": True, "project": project, "note": note, "retired": retired,
+            "message": f"project confirmed: {note}"
+                       + (f" · {retired} spent groom ticket(s) retired" if retired else "")}
 
 
 # ── dropping things ───────────────────────────────────────────────────────────

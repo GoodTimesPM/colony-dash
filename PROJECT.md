@@ -231,6 +231,21 @@ Also shipped with M3, from the same session's asks:
   neutrals but keeps the four accents inside their hue bands, because a "coral" that came out
   green stops saying anomaly; every colour has its lightness solved for the contrast it owes.
   Presets save the palette, the base theme and the text size together and are named.
+- **Done, shelved and not-started are a real state now.** Five of the seven Notion
+  statuses are the PO *filing* a row, not asking for anything — they set
+  `stories.settled_as`, leave the working status untouched, close open questions as
+  moot, and move the story to a **filed** shelf under the Board that toggles like the
+  dropped one. Before this, every status that wasn't *In Progress* mapped to
+  `needs-criteria` and was therefore groomable, so an idea written down and left alone
+  came back an hour later as a question in the Inbox.
+- **Answering a groom question no longer freezes the story.** A blocked groom ticket is
+  a receipt; it was outliving its question, showing as a duplicate BLOCKED tile *and*
+  spending the story's last of two grooming attempts. Spent tickets are retired every
+  tick, and confirming a project folder gives the attempts back.
+- **The pulse log scrolls** inside its own body, and keeps 120 beats — about five days.
+- **The header says when the last run ended**, and a queued skill draft says what it is
+  held behind. A frozen token count and an idle forge both read as broken when the real
+  answer is that the week is over its allowance.
 - **Appearance survives a relaunch.** pywebview defaults to a private WebView2
   profile, so every localStorage key — theme, text size, palette, tile layout —
   was binned when the window closed. The profile now lives at `.colony/webview/`.
