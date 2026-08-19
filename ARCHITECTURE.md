@@ -756,6 +756,19 @@ and vary inside them; every colour then has its lightness solved for the contras
 A preset saves the whole look — palette, base theme and text size together — because the
 same palette read at 130% and at 100% is two different designs.
 
+*A palette named after its hues is unusable as a control panel.* `--violet` is
+simultaneously Ordis, the Standby and Board titles, every focus ring and the
+modified-files bar, so a picker labelled "violet" told you the one thing you
+already knew and none of the four things about to move. Every swatch now says
+what it paints, the rows are grouped by what they are for, and everything
+downstream of the four accents is a token of its own — twelve panel titles and
+four git states — so a title can be pinned without repainting the accent it was
+mixed from. The four accents stay the source: pinning is opt-in, because the
+whole point of rationing colour to four meanings is that the meanings propagate.
+All sixteen derived tokens clear 3:1 on panel across all twenty-five shipped
+theme variants, worst case 3.07, so the readout does not open red on a theme
+nobody has touched.
+
 *A capped tile scrolls inside itself* and keeps its own title bar in view, because a
 scrolled panel whose heading has left the top of it is a list you cannot name. Capping is
 opt-in per tile: the point of a cap is that *one* long panel stops pushing the rest of the
@@ -768,6 +781,26 @@ remembers its own timestamp and is refreshed every fifteen seconds by its own in
 This matters more than a cosmetic bug: the frozen clock read *younger* than the truth, and
 a clock that lies in the direction of "everything is fine" is the one kind worth fixing on
 sight.
+
+*Snap is a mode, with a door at both ends.* Dragging is the fastest way to say
+where a tile goes and the easiest thing to do by accident, so it is entered from
+the drawer and left by a bar that is the only new thing on screen while it is on.
+The tiles wiggle because that is the only signal that an ordinary click will now
+rearrange the page rather than open a story. A drop **inserts** rather than
+swaps: swapping moves a second tile the PO never named, while inserting pushes
+the rest of the column down, which is what dragging into a list looks like
+everywhere else.
+
+*The Inbox scrolls rather than wrapping downwards*, and pads its last row with
+hollow slots out to the Ticket Queue. Left to grow, a fifth question pushed the
+whole board off the screen — the panel that exists to say "this needs you" was
+the one making everything else unreadable. The slots are the other half of the
+same idea: one question alone in a third of the width with two thirds of nothing
+beside it reads as a layout that broke, not as an inbox that is nearly clear.
+
+**In Flight is the Ticket Queue.** "In flight" described the mechanism — work
+the colony has picked up — and the PO reads that panel to answer a different
+question: what did I press, and has it landed. The queue is what he queued.
 
 **The design rule:** an empty PO Inbox means the system is working and needs nothing.
 Everything else on the page is ambient. If the dashboard nags when the Inbox is empty, it's
@@ -1274,6 +1307,18 @@ the log the pulse writes is the log it never got far enough to open. **A heartbe
 liveness signal that does not depend on the heartbeat running** — the dashboard should read
 `LastTaskResult` and the age of the newest `pulses` row, and say so when the newest beat is older
 than two intervals.
+
+**The window was throwing away every setting the page saved.** The theme did not
+survive a relaunch, and neither did the text size, the palette or the tile
+layout — all of which live in localStorage on purpose, because how the PO reads
+the page is not the colony's business. The page was innocent: pywebview's
+`webview.start()` defaults to `private_mode=True`, which hands WebView2 an
+incognito profile and bins its storage when the window closes. It presented as a
+bug in the theme picker, which is the wrong file entirely — the picker wrote the
+key, read it back within the session, and was correct every time. The profile now
+lives at `.colony/webview/`, beside the ledger and inside the same gitignore.
+**A default that silently discards state is worse than one that fails**, because
+the failure is attributed to whatever last touched the state.
 
 **A refusal without its reason is a bug report you cannot act on.** Every queued Notion
 push failed with `HTTPError: HTTP Error 403: Forbidden`, which is what `urllib` says when it
