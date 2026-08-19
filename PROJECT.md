@@ -231,6 +231,19 @@ Also shipped with M3, from the same session's asks:
   neutrals but keeps the four accents inside their hue bands, because a "coral" that came out
   green stops saying anomaly; every colour has its lightness solved for the contrast it owes.
   Presets save the palette, the base theme and the text size together and are named.
+- **Marking a story Done in Notion now actually reaches the colony.** The sync
+  had been filtering its Notion query to *In Progress OR Exploring*, so a row
+  moved to Done vanished from the result set instead of being seen to move — the
+  whole of the filing work below could never fire. The sync reads the entire
+  board now, and skips the body fetch for rows it may not act on so the cost is
+  unchanged.
+- **The status buttons file the story immediately**, and queue the Notion push as
+  the mirror. Waiting for the round trip meant the tile stayed loud for up to an
+  hour, and forever if Notion writes were off.
+- **Replying to Ordis puts a ticket in the queue.** It used to be created, run
+  and closed inside one wake, so the reply visibly went nowhere. The ticket now
+  opens when you send the message, carries what you wrote, and says
+  `waiting for Ordis` until the wake claims it.
 - **Done, shelved and not-started are a real state now.** Five of the seven Notion
   statuses are the PO *filing* a row, not asking for anything — they set
   `stories.settled_as`, leave the working status untouched, close open questions as

@@ -774,6 +774,14 @@ button.act.solid { background: var(--coral); border-color: var(--coral); color: 
 .fl[data-state="open"]    { border-left-color: var(--ink-dim); }
 .fl[data-state="blocked"] { border-left-color: var(--coral); }
 .fl[data-state="push"]    { border-left-color: var(--h-flight); }
+/* What the PO typed, on the ticket that is carrying it. Clamped to two lines:
+   enough to recognise which conversation this is, not enough to turn the rail
+   into a transcript. */
+.fl .said {
+  margin-top: 4px; color: var(--ink-soft); font-size: .84em; line-height: 1.35;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden;
+}
 .fl[data-state="stuck"]   { border-left-color: var(--coral); background: var(--coral-ground); }
 .fl .t { font-size: var(--step--1); line-height: 1.3; color: var(--ink); }
 .fl .m {
@@ -2213,10 +2221,15 @@ function flightRow(f) {
   } else {
     row.append(el("div", "t", f.title));
     const m = el("div", "m");
+    // A reply is a ticket like any other, but "research · unstaffed" describes
+    // the mechanism and not the thing: what the PO wants to read here is that
+    // he said something and Ordis has not answered yet.
+    const reply = !!f.po_message_id;
     m.append(el("span", "st", f.run_id ? "running" : f.status),
-             el("span", null, f.intent),
-             el("span", "who", f.role || "unstaffed"));
+             el("span", null, reply ? "reply" : f.intent),
+             el("span", "who", f.role || (reply ? "waiting for Ordis" : "unstaffed")));
     row.append(m);
+    if (reply && f.po_message) row.append(el("div", "said", "“" + f.po_message + "”"));
     row.title = "ticket #" + f.id + " · " + (f.story_title || "") +
                 (f.run_id ? " · run #" + f.run_id + " started " + ago(f.run_started_at)
                           : " · created " + ago(f.created_at));

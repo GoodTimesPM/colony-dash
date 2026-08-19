@@ -62,7 +62,10 @@ def ledger_status(notion_status: str | None) -> str:
 # What the colony is allowed to set a row to. Notably absent: "In Progress" —
 # only the PO starts work, and a loop that could move a row into its own intake
 # filter would be able to feed itself.
-WRITABLE_STATUS = ("Done", "Shipped", "Shelved", "Exploring", "Not started", "Archived")
+# What the colony may set. "Archived" used to be in here and is not an option on
+# the real Status select — Notion answers an unknown option by *creating* it, so
+# the one thing this list exists to prevent is the one thing it would have done.
+WRITABLE_STATUS = ("Done", "Shipped", "Shelved", "Exploring", "New", "Not started")
 
 PRIORITY_RANK = {"High": 1, "Medium": 2, "Low": 3}
 
@@ -206,12 +209,28 @@ def fetch_page_body(page_id: str) -> str:
 
 
 def fetch_board(database_id: str | None = None, *, with_bodies: bool = True) -> list[dict]:
-    """Every row the colony cares about: In Progress and Exploring.
+    """Every row on the board, whatever its status.
+
+    This used to filter the query to `In Progress OR Exploring`, which was the
+    right answer to "what may the colony work on" and the wrong answer to "what
+    is on the board" — and the sync needs the second. A row moved to Done simply
+    vanished from the result set, so the sync never learned it had moved and the
+    story sat in the ledger frozen at its last workable status forever. **A
+    status change you filter out is a status change you cannot observe**, and
+    filing only exists as a concept because the colony can see it happen.
+
+    The cost of reading everything is bounded by not reading the *bodies* of
+    rows the colony may not act on: one request for the page list, plus a body
+    request only for rows that are In Progress or Exploring. That is the same
+    number of body fetches the filtered version made.
 
     Returns dicts shaped for the `stories` table. `hash` covers everything the
     colony reads, so an unchanged row costs the wake tier nothing — and since
     M5 that includes the checklist, because a box getting ticked in Notion is
-    exactly the kind of change the colony must notice.
+    exactly the kind of change the colony must notice. `body_fetched` says
+    whether the body fields in the dict are real or placeholders, because
+    writing a blank description over a real one is how a filed story loses its
+    brief on the way to the shelf.
     """
     load_env()
     database_id = database_id or os.environ.get("NOTION_DATABASE_ID", DEFAULT_DATABASE_ID)
@@ -219,15 +238,7 @@ def fetch_board(database_id: str | None = None, *, with_bodies: bool = True) -> 
     rows: list[dict] = []
     cursor = None
     while True:
-        payload: dict = {
-            "page_size": 100,
-            "filter": {
-                "or": [
-                    {"property": "Status", "select": {"equals": WORKABLE_STATUS}},
-                    {"property": "Status", "select": {"equals": RESEARCH_STATUS}},
-                ]
-            },
-        }
+        payload: dict = {"page_size": 100}
         if cursor:
             payload["start_cursor"] = cursor
         data = _request(f"/databases/{database_id}/query", payload)
@@ -235,12 +246,15 @@ def fetch_board(database_id: str | None = None, *, with_bodies: bool = True) -> 
         for page in data.get("results", []):
             props = page.get("properties", {})
             categories = _prop(props, "Category") or []
-            content = (fetch_page_content(page["id"]) if with_bodies
+            status = _prop(props, "Status")
+            live = status in (WORKABLE_STATUS, RESEARCH_STATUS)
+            content = (fetch_page_content(page["id"]) if with_bodies and live
                        else {"body": "", "done": [], "open": []})
             row = {
                 "notion_page_id": page["id"],
                 "title": _prop(props, "Idea") or "(untitled)",
-                "notion_status": _prop(props, "Status"),
+                "notion_status": status,
+                "body_fetched": bool(with_bodies and live),
                 "priority": PRIORITY_RANK.get(_prop(props, "Priority") or "", 3),
                 "category": json.dumps(categories),
                 "related_link": _prop(props, "Related Link"),
