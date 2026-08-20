@@ -73,7 +73,9 @@ def budget_state(conn: sqlite3.Connection, usage: dict | None) -> dict:
                 "why": "no usage sample — refusing to dispatch blind"}
     used = float(usage["seven_day"])
     if used >= allowance:
-        boosted = f" (35% + {band['boost']:.0f} boost)" if band["boost"] else ""
+        # base and delta, not a hardcoded 35 and a "+" that assumed the dial
+        # only went up — the PO can now walk the allowance down as well.
+        boosted = f" ({band['base']:g}% baseline {band['boost']:+.0f})" if band["boost"] else ""
         return {"ok": False, "allowance": allowance, "used": used,
                 "why": f"week at {used:.0f}% is at or past the {allowance:.0f}% "
                        f"colony allowance{boosted}"}
@@ -214,6 +216,33 @@ Reply with ONLY a JSON object, no prose around it:
   "summary": "one sentence for the dashboard, under 140 characters",
   "learned": "one thing you learned reading the repo that is worth keeping, or null"
 }}"""
+
+
+def _gist(text: str, limit: int = 220) -> str:
+    """The opening of something long, cut at a word rather than mid-syllable."""
+    text = " ".join(str(text).split())
+    if len(text) <= limit:
+        return text
+    cut = text[:limit]
+    space = cut.rfind(" ")
+    return (cut[:space] if space > limit * 0.6 else cut).rstrip(" ,;:-") + "\u2026"
+
+
+def _said(conn, story_id, kind, text, ticket_id=None, tokens=0):
+    """Record something a colonist wrote, without losing the end of it.
+
+    `_event` truncates `summary` at 400 characters, which is right — the summary
+    is a line in a timeline. What was wrong was calling it with the whole thought
+    and no `detail`, because then the 401st character did not exist anywhere: the
+    learnings in the drawer ended mid-word ("...surfacing the direct ATS apply
+    URL over th") and there was nothing to expand to, because nothing had been
+    kept. The gist goes in the summary and the whole thing goes in the detail,
+    and the page decides how much of it to show.
+    """
+    text = str(text).strip()
+    gist = _gist(text)
+    _event(conn, story_id, kind, gist, text if len(text) > len(gist) else None,
+           ticket_id, tokens)
 
 
 def _event(conn, story_id, kind, summary, detail=None, ticket_id=None, tokens=0):
@@ -369,11 +398,11 @@ def groom_story(conn: sqlite3.Connection, story: sqlite3.Row, terms: dict,
                       AND stale_at IS NOT NULL""",
                 (story["id"],),
             )
-        _event(conn, story["id"], "blocked", missing[:400], None, ticket_id, result.chargeable_tokens)
+        _said(conn, story["id"], "blocked", missing, ticket_id, result.chargeable_tokens)
         outcome["verdict"] = "needs info"
 
     if answer.get("learned"):
-        _event(conn, story["id"], "learning", answer["learned"][:400], None, ticket_id, 0)
+        _said(conn, story["id"], "learning", answer["learned"], ticket_id, 0)
 
     return outcome
 
@@ -578,8 +607,7 @@ def answer_po(conn: sqlite3.Connection, terms: dict, projects: list[str]) -> lis
             _event(conn, msg["story_id"], "note", "Ordis answered the PO",
                    text[:2000], ticket_id, result.chargeable_tokens)
             if answer.get("learned"):
-                _event(conn, msg["story_id"], "learning", str(answer["learned"])[:400],
-                       None, ticket_id, 0)
+                _said(conn, msg["story_id"], "learning", answer["learned"], ticket_id, 0)
 
         out.append({"message_id": msg["id"], "tokens": result.chargeable_tokens,
                     "verdict": "answered", "answer": text[:200]})

@@ -577,7 +577,8 @@ def _controls(conn: sqlite3.Connection) -> dict[str, Any]:
         "halted": control.is_halted(),
         "halt_reason": control.get_control(conn, "halt_reason", ""),
         "allowance": band,
-        "max_boost": control.MAX_BOOST_POINTS,
+        "allowance_min": control.MIN_ALLOWANCE_PCT,
+        "allowance_max": control.MAX_ALLOWANCE_PCT,
         "recent": recent,
         # M5. Separate from HALT on purpose: HALT means "spend nothing", and a
         # comment on a Notion page is not a token. One can be on while the other
@@ -998,6 +999,11 @@ def act_halt(body: dict = Body(...), x_colony: str | None = Header(None)) -> dic
 @app.post("/api/act/allowance")
 def act_allowance(body: dict = Body(...), x_colony: str | None = Header(None)) -> dict[str, Any]:
     _guard(x_colony)
+    # Two ways to say the same thing: a step off the baseline, or the number the
+    # PO typed into the box. The box is the one that does not require him to
+    # know what the baseline is.
+    if "allowance" in body:
+        return _act(control.set_allowance_pct, float(body["allowance"]))
     return _act(control.set_allowance, float(body["boost"]))
 
 
