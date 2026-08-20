@@ -1177,6 +1177,30 @@ button.pulse[disabled] { cursor: default; }
 .seg button.on { background: var(--panel-sunk); color: var(--ink); }
 .chartbar .spacer { margin-left: auto; }
 
+/* Paging and the date jump. The arrows move a whole window at a time, the date
+   box lands on one bucket, and the arrow keys walk bucket by bucket — three
+   sizes of step over the same axis, which is why they sit in one group. `now`
+   and the forward arrow grey out once the window already ends at the present,
+   because a control that does nothing is a control that teaches you not to
+   trust the rest of them. */
+.spendnav { display: inline-flex; align-items: center; gap: 6px; }
+.spendnav button {
+  appearance: none; cursor: pointer; padding: 3px 8px;
+  background: none; border: 1px solid var(--rule); border-radius: 6px;
+  color: var(--ink-dim); font-family: var(--mono); font-size: var(--step--2);
+}
+.spendnav button:hover:not(:disabled) { color: var(--ink); background: var(--panel-sunk); }
+.spendnav button:disabled { opacity: .35; cursor: default; }
+.spendnav input[type="date"] {
+  background: var(--panel-sunk); color: var(--ink);
+  border: 1px solid var(--rule); border-radius: 6px; padding: 2px 6px;
+  font-family: var(--mono); font-size: var(--step--2);
+}
+/* The chart takes focus so the arrow keys have somewhere to land, which means
+   it has to be able to show that it has focus. */
+.chart svg:focus { outline: none; }
+.chart svg:focus-visible { outline: 1px solid var(--violet); outline-offset: 2px; }
+
 .rolebar { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; font-family: var(--mono); font-size: var(--step--1); }
 .rolebar .track { grid-column: 1 / -1; height: 3px; background: var(--panel-sunk); border-radius: 2px; overflow: hidden; }
 .rolebar .track i { display: block; height: 100%; background: var(--violet); }
@@ -1413,15 +1437,16 @@ section.panel.capped > h2, .strip.capped > h2 {
    getting it off the page entirely without losing where it lives. The title bar
    stays because it is the handle: it is what you click to bring it back, and a
    row of nine names is still a readable board. */
+/* There was a caret here, and it was printing the string "u25BE" on every
+   heading on the page: `\u25BE` is a JavaScript escape, not a CSS one — CSS
+   spells it `\25BE`, and `\u` in a CSS string is just the letter u. Rather than
+   fix the escape the caret is gone. Nine headings were each carrying a marker
+   for a control most of them will never be used for, and the fold announces
+   itself perfectly well by the tile closing; the pointer cursor on the heading
+   is affordance enough for the rest. */
 section.panel > h2, .strip > h2 { cursor: pointer; user-select: none; }
-section.panel > h2::after, .strip > h2::after {
-  content: "\u25BE"; margin-left: 8px; color: var(--ink-dim);
-  font-size: var(--step--2); line-height: 1;
-}
-.strip > h2::after { margin-left: auto; }
 section.panel.min > *:not(h2), .strip.min > *:not(h2) { display: none; }
 section.panel.min > h2 { border-bottom: 0; }
-section.panel.min > h2::after, .strip.min > h2::after { content: "\u25B8"; }
 /* The strip headings are bare text with no box of their own, so folding one has
    to draw the outline the panels already have — otherwise it reads as a stray
    label rather than a closed tile. */
@@ -1681,6 +1706,12 @@ body.snapping .snapbar { display: flex; }
             <button data-grain="week" title="the last 26 weeks, Monday to Monday">week</button>
             <button data-grain="month" title="the last 12 months">month</button>
             <button data-grain="year" title="the last 5 years">year</button>
+          </div>
+          <div class="spendnav">
+            <button id="spend-prev" title="the window before this one">&#171;</button>
+            <input type="date" id="spend-date" title="jump the window to a date">
+            <button id="spend-next" title="the window after this one">&#187;</button>
+            <button id="spend-now" title="back to the present">now</button>
           </div>
           <div class="seg spacer" id="spend-kind">
             <button data-kind="line" title="spend as a curve over time">line</button>
@@ -2498,6 +2529,9 @@ function renderInbox(items) {
   $("inbox-count").textContent = waiting ? waiting + " waiting on you" : "";
   strip.classList.toggle("quiet", waiting === 0);
   if (!live.length) {
+    // Nothing to run out to a full row, and the observer has to be told so —
+    // `replaceChildren` clears the tiles but not the count written beside them.
+    box.dataset.live = 0;
     // An empty Inbox means the system is working. It gets to look like it —
     // and, up here at full width, it gets to take up almost no room.
     box.append(el("div", "empty", stale.length
@@ -2513,10 +2547,49 @@ function renderInbox(items) {
 // How many tiles fit across, asked of the grid rather than worked out from the
 // track width — `auto-fill` already did that arithmetic, and doing it twice is
 // how the two answers drift apart the first time the text size moves.
+//
+// The catch is *when* you ask. The answer is only true of the width the grid had
+// at that instant, and the render that pads the row is not always standing on a
+// laid-out grid: a fold still opening, a window not yet sized, the first paint
+// of a restored layout. Measured then, the row is padded to a width that no
+// longer exists and the slots stop short of the Ticket Queue — which is exactly
+// the "sometimes they come back, sometimes they don't" of it. So the live count
+// is remembered on the element and the padding is redone whenever the width
+// changes, which turns a one-shot guess into something that keeps being right.
 function padSlots(box, count) {
-  const cols = getComputedStyle(box).gridTemplateColumns.split(" ").filter(Boolean).length;
-  if (!cols || count % cols === 0) return;
-  for (let i = count % cols; i < cols; i++) box.append(el("div", "tile slot"));
+  if (count != null) box.dataset.live = count;
+  const live = Number(box.dataset.live || 0);
+  for (const old of box.querySelectorAll(".tile.slot")) old.remove();
+  if (!live) return;
+  const cols = gridCols(box);
+  if (!cols || live % cols === 0) return;
+  for (let i = live % cols; i < cols; i++) box.append(el("div", "tile slot"));
+}
+
+// The computed value is a list of resolved track sizes once the grid has been
+// laid out, and the unresolved `repeat(auto-fill, minmax(...))` while it has
+// not — a folded panel, a display:none ancestor. Counting words in that second
+// case returns a confident 2, which is a wrong answer wearing a right one's
+// clothes; it is reported as "don't know" instead, and the observer asks again
+// once the box has a width to answer with.
+function gridCols(box) {
+  const t = getComputedStyle(box).gridTemplateColumns;
+  if (!t || t === "none" || t.indexOf("repeat(") >= 0 || t.indexOf("minmax(") >= 0) return 0;
+  return t.split(" ").filter(Boolean).length;
+}
+
+// The Inbox is the full width of the page, so it changes size for reasons the
+// render never hears about: the window, the sidebar, a neighbouring tile being
+// folded away. Width only — padding changes the height, and reacting to that
+// would be a loop.
+if (window.ResizeObserver) {
+  let inboxWidth = 0;
+  new ResizeObserver(() => {
+    const box = $("inbox"), w = box.clientWidth;
+    if (!w || w === inboxWidth) return;
+    inboxWidth = w;
+    padSlots(box, null);
+  }).observe($("inbox"));
 }
 
 function inboxTile(e) {
@@ -3329,6 +3402,12 @@ let SPEND_GRAIN = localStorage.getItem("colony-spend-grain") || "day";
 let SPEND_KIND = localStorage.getItem("colony-spend-kind") || "line";
 let SPEND_SERIES = null;
 let SPEND_WIDTH = 0;
+// Where the window stops. `null` is the live view. It is deliberately not
+// persisted: which grain you read the panel at is a habit, but a date you paged
+// back to is a look you took once, and a dashboard that opens in July because
+// that is where you left it is a dashboard that lies about the present.
+let SPEND_END = null;
+let SPEND_LAND = null;    // which bucket to sit on after a paging load
 
 function svgEl(name, attrs) {
   const n = document.createElementNS(SVGNS, name);
@@ -3345,12 +3424,63 @@ function niceMax(v) {
   return (n <= 1 ? 1 : n <= 2 ? 2 : n <= 2.5 ? 2.5 : n <= 5 ? 5 : 10) * mag;
 }
 
+// One bucket forward or back, `n` of them. Date does the calendar arithmetic —
+// setMonth and setFullYear normalise overflow the same way the server's
+// `_back` does, so 31 March minus a month is the same day on both sides.
+function stepDate(d, grain, n) {
+  const t = new Date(d.getTime());
+  if (grain === "hour") t.setHours(t.getHours() + n);
+  else if (grain === "day") t.setDate(t.getDate() + n);
+  else if (grain === "week") t.setDate(t.getDate() + 7 * n);
+  else if (grain === "month") t.setMonth(t.getMonth() + n);
+  else t.setFullYear(t.getFullYear() + n);
+  return t;
+}
+
+const pad2 = (n) => String(n).padStart(2, "0");
+const wireDate = (d) => d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate());
+const wire = (d) => wireDate(d) + " " + pad2(d.getHours()) + ":" + pad2(d.getMinutes());
+// The keys come back as "YYYY-MM-DD HH:MM". Date.parse would read that as UTC
+// in some engines and local in others; splitting it is the way to be sure.
+function fromKey(k) {
+  const [d, t] = String(k).split(" ");
+  const [Y, M, D] = d.split("-").map(Number);
+  const [h, m] = (t || "0:0").split(":").map(Number);
+  return new Date(Y, M - 1, D, h, m);
+}
+
+function windowEnd() {
+  const pts = SPEND_SERIES && SPEND_SERIES.points;
+  return pts && pts.length ? fromKey(pts[pts.length - 1].key) : new Date();
+}
+
+// A whole window at a time. The new window ends where the old one began, so the
+// two overlap by exactly one bucket — the bucket you were looking at when you
+// pressed the arrow stays on screen, which is what stops paging feeling like a
+// jump cut.
+function pageSpend(dir) {
+  const s = SPEND_SERIES;
+  if (!s) return;
+  const span = s.span || 1;
+  const to = dir < 0 ? fromKey(s.points[0].key)
+                     : stepDate(windowEnd(), s.grain, span - 1);
+  if (dir > 0 && s.live) return;
+  SPEND_END = wire(to);
+  SPEND_LAND = dir < 0 ? "end" : "start";
+  loadSpend();
+}
+
 async function loadSpend() {
+  let url = "/api/spend?grain=" + encodeURIComponent(SPEND_GRAIN);
+  if (SPEND_END) url += "&end=" + encodeURIComponent(SPEND_END);
   try {
-    const r = await fetch("/api/spend?grain=" + encodeURIComponent(SPEND_GRAIN));
+    const r = await fetch(url);
     if (!r.ok) return;
     SPEND_SERIES = await r.json();
   } catch (e) { return; }
+  // The server clamps a window past the present back onto the live one; the
+  // page has to agree, or `now` stays lit on a view that is already now.
+  if (SPEND_SERIES.live) SPEND_END = null;
   SPEND_WIDTH = 0;
   drawSpend();
 }
@@ -3367,11 +3497,19 @@ function spendReadout(p) {
     out.append(el("span", "rr", p.runs ? p.runs + (p.runs === 1 ? " run" : " runs")
                                        : "nothing ran"));
   } else {
-    out.append(el("span", "rl", "this " + s.span + GRAIN_UNIT[s.grain]),
-               el("span", "rt", toks(s.tokens) + " tok"));
+    // Off the live view the span alone is not enough — "this 30d" is a lie
+    // about a window ending in July — so it names its two ends instead.
+    const pts = s.points || [];
+    const span = s.live ? "this " + s.span + GRAIN_UNIT[s.grain]
+                        : pts.length ? pts[0].label + " \u2192 " + pts[pts.length - 1].label
+                                     : s.span + GRAIN_UNIT[s.grain];
+    const aside = [];
+    if (s.outside) aside.push(s.outside + " before");
+    if (s.ahead) aside.push(s.ahead + " after");
+    out.append(el("span", "rl", span), el("span", "rt", toks(s.tokens) + " tok"));
     if (s.usd) out.append(el("span", "ru", usd(s.usd)));
     out.append(el("span", "rr", s.runs + (s.runs === 1 ? " run" : " runs")
-                                + (s.outside ? "  ·  " + s.outside + " older" : "")));
+                                + (aside.length ? "  \u00b7  " + aside.join(", ") : "")));
   }
 }
 
@@ -3387,6 +3525,15 @@ function drawSpend() {
   for (const b of $("spend-grain").children) b.classList.toggle("on", b.dataset.grain === SPEND_GRAIN);
   for (const b of $("spend-kind").children) b.classList.toggle("on", b.dataset.kind === SPEND_KIND);
   $("spend-count").textContent = s.span + GRAIN_UNIT[s.grain];
+
+  // The forward controls are dead on the live view rather than hidden: a button
+  // that vanishes takes the layout with it, and you lose the affordance the
+  // moment you most want to know it exists.
+  $("spend-next").disabled = !!s.live;
+  $("spend-now").disabled = !!s.live;
+  const dateIn = $("spend-date");
+  dateIn.max = wireDate(new Date());
+  dateIn.value = wireDate(windowEnd());
 
   const pts = s.points || [];
   const H = 152, PL = 46, PR = 8, PT = 10, PB = 20;
@@ -3492,14 +3639,47 @@ function drawSpend() {
     hover(Math.max(0, Math.min(pts.length - 1, Math.floor((px - PL) / band))));
   };
   svg.onpointerleave = () => hover(-1);
+
+  // The chart takes focus so it can be read without a mouse. The arrows walk a
+  // bucket at a time and page the window when they run off the end, which makes
+  // the whole ledger reachable from the keyboard rather than only the part the
+  // date box happens to be pointing at.
+  svg.tabIndex = 0;
+  svg.onkeydown = (ev) => {
+    const k = ev.key;
+    if (k === "ArrowLeft" || k === "ArrowRight") {
+      const d = k === "ArrowLeft" ? -1 : 1;
+      let i = hot < 0 ? (d < 0 ? pts.length - 1 : 0) : hot + d;
+      if (i < 0) pageSpend(-1);
+      else if (i > pts.length - 1) pageSpend(1);
+      else hover(i);
+    } else if (k === "Home") hover(0);
+    else if (k === "End") hover(pts.length - 1);
+    else if (k === "PageUp") pageSpend(-1);
+    else if (k === "PageDown") pageSpend(1);
+    else if (k === "Escape") hover(-1);
+    else return;
+    ev.preventDefault();
+  };
+
   spendReadout(null);
+  // A window that was just paged into sits on the bucket that was on screen
+  // before the arrow was pressed — the one the two windows share.
+  if (SPEND_LAND && pts.length) {
+    hover(SPEND_LAND === "end" ? pts.length - 1 : 0);
+    SPEND_LAND = null;
+  }
 
   const note = box.querySelector(".empty-note");
   if (note) note.remove();
   if (!s.tokens) {
-    box.append(el("div", "empty-note", s.outside
-      ? `nothing in the last ${s.span}${GRAIN_UNIT[s.grain]} — ${s.outside} run${s.outside === 1 ? "" : "s"} sit further back`
-      : "nothing spent yet"));
+    const where = s.live ? `the last ${s.span}${GRAIN_UNIT[s.grain]}` : "this window";
+    const side = [];
+    if (s.outside) side.push(`${s.outside} run${s.outside === 1 ? "" : "s"} before it`);
+    if (s.ahead) side.push(`${s.ahead} run${s.ahead === 1 ? "" : "s"} after it`);
+    box.append(el("div", "empty-note", side.length
+      ? `nothing in ${where} — ${side.join(", ")}`
+      : s.live ? "nothing spent yet" : `nothing in ${where}`));
   }
 }
 
@@ -3518,6 +3698,25 @@ for (const seg of ["spend-grain", "spend-kind"]) {
     }
   });
 }
+
+$("spend-prev").addEventListener("click", () => pageSpend(-1));
+$("spend-next").addEventListener("click", () => pageSpend(1));
+$("spend-now").addEventListener("click", () => {
+  SPEND_END = null;
+  SPEND_LAND = null;
+  loadSpend();
+});
+$("spend-date").addEventListener("change", (ev) => {
+  const v = ev.target.value;
+  if (!v) return;
+  // A bare date floors to midnight, which at the hour grain would end the window
+  // at the *start* of the day picked and show the day before it. 23:00 puts the
+  // whole of that day inside the window; every coarser grain floors to the same
+  // bucket either way, so one spelling serves all five.
+  SPEND_END = v + " 23:00";
+  SPEND_LAND = "end";
+  loadSpend();
+});
 
 // A column resize changes the pixel width the chart was measured at. Only the
 // width matters — redrawing on a height change would be a loop, since drawing

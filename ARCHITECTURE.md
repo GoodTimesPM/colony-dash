@@ -1728,3 +1728,53 @@ appears on hover and vanishes on leave makes the panel jump every time the
 pointer crosses it. Grain and shape are localStorage, like the Files sort order:
 how you read a panel is not a decision about the colony, so it does not belong
 in the ledger.
+
+### 10.15 A window you can move, and a row that stays a row
+
+**The spend chart can be pointed somewhere other than now.** `/api/spend` takes
+an `end`, `_series` anchors its buckets there instead of on the clock, and the
+panel grows a pair of paging arrows, a date box and a `now`. Three sizes of step
+over one axis: the arrows move a whole window, the date box lands on a bucket,
+and the arrow *keys* walk one bucket at a time — and run the window on when they
+reach the edge, which is what makes the whole ledger reachable without a mouse.
+
+Paged windows overlap by exactly one bucket: the new window ends where the old
+one began, so the bucket that was under the crosshair when the arrow was pressed
+is still on screen after the load, and paging reads as a pan rather than a jump
+cut. The client does its own calendar arithmetic to get there, because `Date`
+normalises month and year overflow the same way the server's `_back` does — the
+alternative was a second endpoint that exists only to say "one window earlier".
+
+Two consequences of a movable window that were not true of a fixed one. The
+count of runs outside it had to split in **two** — `outside` behind and `ahead`
+in front — because "0 runs" on a paged window is far more often a window pointed
+at the wrong end of the ledger than a quiet fortnight, and only a count on each
+side tells those apart. And the response carries `live`, whether the window
+still ends in the present, which the page uses to grey out the forward controls
+rather than hide them: a button that vanishes takes the layout with it and
+removes the affordance at the moment you most want to know it exists. `end` is
+also deliberately *not* persisted — the grain is a habit worth remembering, but
+a date you paged to is a look you took once, and a dashboard that opens in July
+because that is where you left it is a dashboard lying about the present.
+
+**The Inbox ghost slots were a one-shot measurement.** `padSlots` asks the grid
+how many columns `auto-fill` resolved to, which is the right question — but the
+answer is only true of the width the grid had at that instant, and the render
+that pads the row is not always standing on a laid-out grid: a fold still
+opening, a window not yet sized, the first paint of a restored layout. Measured
+then, the row was padded to a width that no longer existed and the slots stopped
+short of the Ticket Queue; measured a moment later it was fine. That is the
+whole of the "sometimes they come back, sometimes they don't". The live count is
+now kept on the element, the padding is idempotent, and a `ResizeObserver` redoes
+it on every width change. `getComputedStyle` returning an unresolved
+`repeat(auto-fill, minmax(...))` — which is what a display:none ancestor gets —
+is reported as *don't know* rather than counted, because a confident wrong
+column count is worse than no answer when something is about to ask again.
+
+**The fold caret is gone, and was never really there.** `content: "\u25BE"` is a
+JavaScript escape in a CSS declaration; CSS spells it `\25BE`, and `\u` in a CSS
+string is simply the letter `u`. Every heading on the page had been printing the
+literal text `u25BE` since the folding tiles landed. Fixing the escape was the
+smaller change; removing it was the better one. Nine headings were each carrying
+a marker for a control most of them will never be used for, the pointer cursor
+already says the heading is clickable, and a folded tile is unmistakably folded.
