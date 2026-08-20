@@ -251,8 +251,8 @@ def cmd_allowance(conn: sqlite3.Connection, args) -> int:
         control.set_allowance(conn, args.points)
         conn.commit()
     band = control.effective_allowance(conn)
-    print(f"allowance  {band['effective']}% of the week"
-          + (f"   ({band['base']}% baseline + {band['boost']} boost)" if band["boost"]
+    print(f"allowance  {band['effective']:g}% of the week"
+          + (f"   ({band['base']:g}% baseline {band['boost']:+g})" if band["boost"]
              else "   (the designed baseline)"))
     return 0
 
@@ -424,9 +424,9 @@ def build_parser() -> argparse.ArgumentParser:
     res = sub.add_parser("resume", help="let the colony dispatch work again")
     res.set_defaults(func=cmd_halt)
 
-    alw = sub.add_parser("allowance", help="show or boost the sprint's token allowance")
+    alw = sub.add_parser("allowance", help="show or move the sprint's token allowance")
     alw.add_argument("points", nargs="?", type=float,
-                     help="percentage points above the baseline; 0 clears the boost")
+                     help="percentage points off the baseline, signed; 0 clears it")
     alw.set_defaults(func=cmd_allowance)
 
     prj = sub.add_parser("projects", help="what has moved in the projects on disk")

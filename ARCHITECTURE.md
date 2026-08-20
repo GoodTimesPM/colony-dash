@@ -1620,3 +1620,65 @@ dispatch is what this section just made visible.
 way back: every one raised the ceiling, so an overshoot could only be cleared to
 zero and rebuilt. It is −5 / +5 / clear now, the two steps deliberately the same
 size, so a mispress costs exactly one press to undo.
+
+### 10.13 One palette, a dial with a whole range, and a way back out
+
+**The allowance was a ratchet.** `allowance_boost` was clamped at zero on the
+way down and +25 on the way up, and the three buttons were all "up" — so the
+control could only climb, an overshoot could only be cleared to zero and rebuilt,
+and the ceiling on the ceiling was a guess made on the PO's behalf about a quota
+he shares with his own Claude Code sessions and knows more about than the code
+does. The delta is signed now, the only clamp left is 0–100% of the week (an
+allowance outside that is not a number, it is a typo), and there is a box to type
+the figure into — because "I need 80% this week" is a thing you know directly and
+reaching it by counting nine presses is arithmetic the page should be doing.
+Zero is a real setting: the colony stops spending without the finality of HALT.
+
+`control.set_allowance` still stores a *delta from the sprint's baseline* rather
+than overwriting `budget_pct`, so what the sprint was designed around stays
+visible beside whatever the PO has done to it. `set_allowance_pct` is the same
+store reached from the other end.
+
+**Two views of one conversation were colour-coded on two schemes.** The story
+timeline and the reply drawer show the same exchange, and violet meant "a
+learning" in one and "Ordis said it" in the other; amber meant "blocked" in one
+and "you said it" in the other. Reading them side by side meant re-learning the
+colours halfway down the drawer. The timeline now uses the thread's scheme —
+amber is the PO, violet is Ordis, mint is the learning, the prompting question is
+the quiet one — and names the rows the way the drawer names them, because "note"
+twice in a row is not the timeline of a conversation and "you" then "ordis" is.
+
+The two conversational rows are `note` events told apart by their summary, which
+is written at exactly one place each (`control.py` for the PO, `wake.py` for
+Ordis). Their `kind` cannot carry it: `story_events.kind` has a CHECK constraint,
+and adding a value means rebuilding the table — which would still leave every row
+already in the ledger uncoloured.
+
+**A leaf drawer can have somewhere to go back to.** `openDrawer` pushed the trail
+only when the *new* view was itself returnable, which conflated two different
+things: a half-written reply cannot be re-opened by a back button (that would be
+a lie about what was preserved), but it can still know where it came from. The
+cost was the reply drawer — you opened a story, clicked *reply to Ordis* to
+answer the thing you were reading, and the only way back to the story was to
+close everything and find it again. It pushes the trail whatever the new view is
+now, and a reply opened straight off an Inbox tile seeds the trail with its own
+story, which is the one place the question's context lives.
+
+**A truncated learning looked like a finished sentence.** `_event` cuts
+`summary` at 400 characters, which is right for a line in a timeline — but the
+callers passed it the whole thought and `detail=None`, so the 401st character did
+not exist anywhere. The learnings in the drawer ended mid-word and there was
+nothing to expand to, because nothing had been kept. `wake._said` now writes the
+gist to `summary` and the whole text to `detail`, and the page folds any long
+block to a few fading lines with a button that says how much more there is. The
+twelve learnings already in the ledger were written before this and cannot be
+recovered; they stay as they are.
+
+**A tile folds when you click its title.** The heading is the one part of a panel
+that is never content, which makes it the obvious handle and meant no new control
+on nine panels. Folded is a *layout* fact — stored in `LAYOUT` beside the column,
+the order and the height cap — so a tile you put away is still away tomorrow. It
+is distinct from capping: a cap says "this one is long, keep it in a box"; a fold
+says "not this week". Two things the handler must not swallow: the buttons that
+live inside some headings (Board's *filed*, Files' sort order) and a click while
+the board is in snap mode, where dragging a tile by its title is the interaction.

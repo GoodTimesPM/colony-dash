@@ -231,6 +231,16 @@ Also shipped with M3, from the same session's asks:
   neutrals but keeps the four accents inside their hue bands, because a "coral" that came out
   green stops saying anomaly; every colour has its lightness solved for the contrast it owes.
   Presets save the palette, the base theme and the text size together and are named.
+- **Learnings keep their whole text.** They were being cut at 400 characters
+  on the way into the ledger with nothing kept behind them; long ones now fold
+  with a *show the rest* button. The twelve already recorded stay truncated.
+- **Click a panel's title bar to fold it away.** It shrinks to the title bar
+  and stays folded across restarts. Click again to open it.
+- **The token allowance goes anywhere from 0% to 100% of the week**, in ±5
+  steps or by typing the number. It used to stop at 60% and only climb.
+- **The story timeline is colour-coded like the reply drawer** — amber you,
+  violet Ordis, mint a learning — and names the rows the same way.
+- **The reply drawer has a back button** to the story it came from.
 - **A story that is ready to start says so in the Inbox.** Its own mint tile,
   with a *dispatch to build* button — and, when dispatch would refuse, the
   reason on the tile instead of behind the press. Nothing had ever been

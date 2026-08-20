@@ -1108,6 +1108,12 @@ button.big.resume { border-color: var(--mint); background: var(--mint-ground); c
 button.big.resume:hover { background: var(--mint); color: var(--panel); }
 .boostbar { height: 4px; background: var(--panel-sunk); border-radius: 2px; overflow: hidden; }
 .boostbar i { display: block; height: 100%; background: var(--amber); }
+.numbox {
+  width: 5.2em; padding: 4px 6px; border: 1px solid var(--rule); border-radius: 5px;
+  background: var(--panel-sunk); color: var(--ink); font-family: var(--mono);
+  font-size: var(--step--1); font-variant-numeric: tabular-nums;
+}
+.macro .unit { font-size: var(--step--1); color: var(--ink-dim); }
 
 /* ── pulse log ────────────────────────────────────────────────────────────── */
 
@@ -1259,10 +1265,33 @@ textarea.compose-box:focus-visible { outline: 2px solid var(--violet); outline-o
 .ev .node { width: 7px; height: 7px; border-radius: 50%; background: var(--ink-dim); margin-top: 6px; }
 .ev .stem { flex: 1; width: 1px; background: var(--rule); margin-top: 3px; }
 .ev:last-child .stem { display: none; }
-.ev[data-kind="learning"] .node { background: var(--violet); }
-.ev[data-kind="escalated"] .node,
-.ev[data-kind="blocked"]   .node { background: var(--amber); }
-.ev[data-kind="groomed"]   .node { background: var(--mint); }
+/* One palette for one conversation. The timeline and the reply drawer are two
+   views of the same exchange and they were colour-coded on two different
+   schemes — violet meant "a learning" here and "Ordis said it" there, amber
+   meant "blocked" here and "you said it" there. Reading them side by side meant
+   re-learning the colours halfway down the drawer. They agree now, on the
+   thread's scheme: amber is the PO, violet is Ordis, mint is the learning, and
+   the question that prompted a stretch is the quiet one.
+
+   The two conversational events are `note` rows and the page tells them apart
+   by their summary, which is written at exactly one place each (`control.py`
+   for the PO, `wake.py` for Ordis). Their `kind` cannot say it: `story_events`
+   has a CHECK on the column, and adding a value to it means rebuilding the
+   table — which would still leave every row already in the ledger uncoloured. */
+/* The shared shape first, then the four voices on top of it — a `border`
+   shorthand written after a `border-color` would quietly reset it to
+   transparent, and every one of these colours is a border colour. */
+.ev[data-role] .sum { border: 1px solid transparent; border-radius: 7px; padding: 5px 9px; }
+.ev[data-role="po"]    .node { background: var(--amber); }
+.ev[data-role="po"]    .sum  { background: var(--amber-ground); border-color: var(--amber); }
+.ev[data-role="ordis"] .node { background: var(--violet); }
+.ev[data-role="ordis"] .sum  { border-left: 2px solid var(--violet); }
+.ev[data-role="learning"] .node { background: var(--mint); }
+.ev[data-role="learning"] .sum  { background: var(--mint-ground); border-color: var(--mint); }
+.ev[data-role="ask"]   .node { background: var(--ink-dim); }
+.ev[data-role="ask"]   .sum  { color: var(--ink-soft); border: 0;
+                               border-left: 2px solid var(--rule);
+                               border-radius: 0; padding: 2px 0 2px 11px; }
 .ev .when { font-family: var(--mono); font-size: var(--step--2); color: var(--ink-dim); }
 .ev .sum  { font-size: var(--step-0); }
 .ev .detail, pre.detail {
@@ -1271,6 +1300,17 @@ textarea.compose-box:focus-visible { outline: 2px solid var(--violet); outline-o
   overflow-x: auto; max-height: 420px; overflow-y: auto;
 }
 pre.detail.tall { max-height: 60vh; }
+/* Long text, folded to a few lines with the last one fading out, because a
+   timeline where every entry is a paragraph is not a timeline. The fade is the
+   affordance — a hard cut reads as the text having ended, which is exactly the
+   thing that made a truncated learning look like a complete sentence. */
+.long { display: flex; flex-direction: column; align-items: flex-start; }
+.long .detail.clip {
+  max-height: 5.4em; overflow: hidden;
+  -webkit-mask-image: linear-gradient(180deg, #000 55%, transparent);
+  mask-image: linear-gradient(180deg, #000 55%, transparent);
+}
+.long .more { margin-top: 3px; }
 /* A diff is the one place on this page where colour is not rationed — it is
    the whole point of the view. */
 pre.diff { white-space: pre; }
@@ -1329,6 +1369,30 @@ section.panel.capped, .strip.capped { max-height: var(--tile-max); overflow-y: a
 section.panel.capped > h2, .strip.capped > h2 {
   position: sticky; top: 0; z-index: 2; background: var(--panel);
 }
+
+/* Folded. A capped tile is "this one is long, keep it in a box"; a folded one
+   is "not this week" — the difference between rationing a panel's height and
+   getting it off the page entirely without losing where it lives. The title bar
+   stays because it is the handle: it is what you click to bring it back, and a
+   row of nine names is still a readable board. */
+section.panel > h2, .strip > h2 { cursor: pointer; user-select: none; }
+section.panel > h2::after, .strip > h2::after {
+  content: "\u25BE"; margin-left: 8px; color: var(--ink-dim);
+  font-size: var(--step--2); line-height: 1;
+}
+.strip > h2::after { margin-left: auto; }
+section.panel.min > *:not(h2), .strip.min > *:not(h2) { display: none; }
+section.panel.min > h2 { border-bottom: 0; }
+section.panel.min > h2::after, .strip.min > h2::after { content: "\u25B8"; }
+/* The strip headings are bare text with no box of their own, so folding one has
+   to draw the outline the panels already have — otherwise it reads as a stray
+   label rather than a closed tile. */
+.strip.min > h2 {
+  margin: 0; padding: 10px 13px 9px; background: var(--panel);
+  border: 1px solid var(--rule); border-radius: 8px;
+  box-shadow: inset 3px 0 0 var(--section-hue, transparent);
+}
+body.snapping section.panel > h2, body.snapping .strip > h2 { cursor: grab; }
 
 .set { display: flex; flex-direction: column; gap: 16px; }
 .set .row { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
@@ -1648,6 +1712,26 @@ function until(s) {
   if (mins < 90) return "in " + Math.round(mins) + "m";
   return "in " + Math.round(mins / 60) + "h";
 }
+// A block of text folded to a few lines with a way to see the rest. A button
+// rather than a bare <details> so it can say how much more there is: "show all"
+// with no size is a door with nothing written on it.
+function longText(text, limit) {
+  const wrap = el("div", "long");
+  const body = el("pre", "detail", text || "");
+  wrap.append(body);
+  if (!text || text.length <= (limit || 340)) return wrap;
+  body.classList.add("clip");
+  const t = el("button", "link more", "");
+  const paint = () => {
+    t.textContent = body.classList.contains("clip")
+      ? "show the rest (" + text.length + " characters)" : "show less";
+  };
+  t.onclick = () => { body.classList.toggle("clip"); paint(); };
+  paint();
+  wrap.append(t);
+  return wrap;
+}
+
 function el(tag, cls, text) {
   const n = document.createElement(tag);
   if (cls) n.className = cls;
@@ -2644,6 +2728,15 @@ async function openCompose(e, opts) {
   const esc = (opts && opts.storyOnly) ? null : e.id;
   openDrawer(esc ? e.kind.replace("-", " ") + " · #" + esc : "story #" + e.story_id,
              "Reply to Ordis", { wide: true });
+  // Opened straight off an Inbox tile there is no trail to walk back up, but
+  // there is still an obvious "where did this come from": the story the question
+  // is about. Offer that, since it is the one place the reply's context lives.
+  if (!TRAIL.length && e.story_id) {
+    TRAIL.push({ kind: "story", arg: e.story_id,
+                 label: e.story_title || ("story #" + e.story_id) });
+    renderTrail();
+  }
+
   const box = $("d-body");
   box.replaceChildren();
   const wrap = el("div", "compose");
@@ -2747,7 +2840,10 @@ async function openCompose(e, opts) {
         const l = el("div", "msg learned");
         l.append(el("div", "who", "learned · " + ago(m.at)));
         l.append(el("div", "bubble", m.body));
-        if (m.detail) l.title = m.detail;
+        // The learning as stored is a gist; the whole thought is the detail.
+        // It used to be a `title` attribute — a tooltip you had to already know
+        // was there, on the one part of the exchange still worth reading later.
+        if (m.detail) l.append(longText(m.detail));
         thread.append(l);
         continue;
       }
@@ -2849,34 +2945,61 @@ function renderMacros(c) {
   const band = c.allowance;
   const al = el("div", "macro");
   al.append(el("div", "lb", "token allowance"));
+  // The bar measures the whole week now, not the distance travelled inside a
+  // boost cap that no longer exists — so the empty part of it is the share of
+  // the quota left for Jordan's own sessions, which is the number the dial is
+  // actually trading against.
+  const lo = c.allowance_min === undefined ? 0 : c.allowance_min;
+  const hi = c.allowance_max === undefined ? 100 : c.allowance_max;
+  const at = band.effective;
+  const clamp = (v) => Math.max(lo, Math.min(hi, v));
   const bar = el("div", "boostbar");
-  const fill = el("i"); fill.style.width = (band.boost / c.max_boost) * 100 + "%";
+  const fill = el("i"); fill.style.width = ((at - lo) / (hi - lo)) * 100 + "%";
   bar.append(fill); al.append(bar);
   al.append(el("div", "why", band.boost
-    ? `${band.base}% baseline + ${band.boost} boost = ${band.effective}% of the week.`
-    : `${band.base}% of the week, as designed. Add points for a high-volume sprint.`));
-  // One step in each direction, and a way back to nothing. The three sizes
-  // that used to be here — +5, +10, +25 — were three ways to jump and no way to
-  // walk back: every one of them raised the ceiling, so a boost you had
-  // overshot could only be cleared to zero and rebuilt from scratch. A dial you
-  // can only turn one way is not a dial. +5 and -5 are the same size on
-  // purpose, so pressing the wrong one costs exactly one press to undo.
+    ? `${at}% of the week — ${band.base}% baseline, moved ${band.boost > 0 ? "+" : ""}${band.boost}.`
+    : `${band.base}% of the week, as designed.`));
+
+  // A dial, not a ratchet. This was three sizes of "up" (+5, +10, +25) against a
+  // hard +25 ceiling, so the allowance could only climb, and an overshoot could
+  // only be cleared to zero and rebuilt. It walks both ways now over the whole
+  // range: 0% is a real setting — the colony stops spending without the
+  // finality of HALT — and 100% is the PO deciding the week is the colony's.
+  // -5 and +5 are the same size on purpose, so a mispress costs one press.
   const row = el("div", "row");
   const down = el("button", "act", "\u22125");
-  down.title = `lower the boost to ${Math.max(0, band.boost - 5)} points above baseline`;
-  down.disabled = !band.boost;
-  down.onclick = () => act("allowance", { boost: Math.max(0, band.boost - 5) });
+  down.title = `down to ${clamp(at - 5)}% of the week`;
+  down.disabled = at <= lo;
+  down.onclick = () => act("allowance", { allowance: clamp(at - 5) });
   const up = el("button", "act warn", "+5");
-  up.title = `raise the boost to ${Math.min(c.max_boost, band.boost + 5)} points above baseline`;
-  up.disabled = band.boost >= c.max_boost;
-  up.onclick = () => act("allowance", { boost: Math.min(c.max_boost, band.boost + 5) });
+  up.title = `up to ${clamp(at + 5)}% of the week`;
+  up.disabled = at >= hi;
+  up.onclick = () => act("allowance", { allowance: clamp(at + 5) });
   row.append(down, up);
   const clr = el("button", "act", "clear");
   clr.disabled = !band.boost;
-  clr.title = "back to the designed baseline";
+  clr.title = `back to the designed ${band.base}% baseline`;
   clr.onclick = () => act("allowance", { boost: 0 });
   row.append(clr);
   al.append(row);
+
+  // And a box, because "I need 80% this week" is a thing you know directly and
+  // counting nine presses to get there is arithmetic the page should do.
+  const typed = el("div", "row");
+  const num = el("input", "numbox");
+  num.type = "number"; num.min = lo; num.max = hi; num.step = 1; num.value = at;
+  num.title = `the colony's share of the weekly window, ${lo}\u2013${hi}%`;
+  const send = () => {
+    const v = Number(num.value);
+    if (!isFinite(v)) { num.value = at; return; }
+    act("allowance", { allowance: clamp(v) });
+  };
+  num.onkeydown = (ev) => { if (ev.key === "Enter") { ev.preventDefault(); send(); } };
+  const setb = el("button", "act", "set");
+  setb.title = "set the allowance to exactly this";
+  setb.onclick = send;
+  typed.append(num, el("span", "unit", "% of the week"), setb);
+  al.append(typed);
   box.append(al);
   box.append(el("hr", "macro-rule"));
 
@@ -3255,10 +3378,13 @@ function openDrawer(eyebrow, title, opts) {
   const d = $("drawer");
   const nav = opts && opts.nav;
   if (!d.classList.contains("on")) TRAIL = [];          // opened from the page: a fresh trail
-  else if (nav && HERE && !GOING_BACK) TRAIL.push(HERE);  // opened from a drawer: a step down
-  // The composer and the patch view do not pass a `nav`, so they cannot be
-  // returned to — re-opening a half-written reply from a back button would be a
-  // lie about what was preserved. They end the trail rather than extending it.
+  else if (HERE && !GOING_BACK) TRAIL.push(HERE);       // opened from a drawer: a step down
+  // Note the two halves of that: a view without a `nav` cannot be *returned to*
+  // — re-opening a half-written reply from a back button would be a lie about
+  // what was preserved — but it can still have somewhere to go back *to*. That
+  // used to be conflated, and the cost was the reply drawer: you opened a story,
+  // clicked "reply to Ordis" to answer the thing you were reading, and the way
+  // back to the story was to close everything and find it again.
   HERE = nav || null;
   renderTrail();
   d.classList.add("on"); $("scrim").classList.add("on"); d.setAttribute("aria-hidden", "false");
@@ -3513,16 +3639,35 @@ async function openStory(id) {
   for (const e of data.events) {
     const row = el("div", "ev");
     row.dataset.kind = e.kind;
+    const role = evRole(e);
+    if (role) row.dataset.role = role;
     const spine = el("div", "spine");
     spine.append(el("div", "node"), el("div", "stem"));
     const right = el("div");
-    right.append(el("div", "when", `${e.at}  ·  ${e.kind}${e.tokens ? "  ·  " + toks(e.tokens) + " tok" : ""}`));
+    // Named the way the reply drawer names them. "note" twice in a row is not
+    // a timeline of a conversation; "you" and then "ordis" is.
+    right.append(el("div", "when", `${e.at}  ·  ${EV_VOICE[role] || e.kind}` +
+                                   `${e.tokens ? "  ·  " + toks(e.tokens) + " tok" : ""}`));
     right.append(el("div", "sum", e.summary));
-    if (e.detail) right.append(el("pre", "detail", e.detail));
+    if (e.detail) right.append(longText(e.detail));
     row.append(spine, right);
     tl.append(row);
   }
   body.append(tl);
+}
+
+// Which voice an event is in, if it is in one. Everything else — a Notion sync,
+// a status filing, a groom that failed — is bookkeeping and stays grey, which
+// is what makes the four coloured ones findable in a list of thirty.
+const EV_VOICE = { po: "you", ordis: "ordis", learning: "learned", ask: "ordis asked" };
+
+function evRole(e) {
+  if (e.kind === "learning") return "learning";
+  if (e.kind === "blocked" || e.kind === "escalated") return "ask";
+  if (e.kind !== "note") return null;
+  if (e.summary === "PO wrote to Ordis about this") return "po";
+  if (e.summary === "Ordis answered the PO") return "ordis";
+  return null;
 }
 
 // ── persona drawer ──────────────────────────────────────────────────────────
@@ -4105,6 +4250,9 @@ function applyLayout() {
   for (const key of CAPPABLE) {
     const node = panelNode(key);
     if (!node) continue;
+    // Folded is a layout fact, not a session one: it lives in LAYOUT beside
+    // the column and the cap, so a tile you put away is still away tomorrow.
+    node.classList.toggle("min", !!(LAYOUT[key] || {}).min);
     const max = (LAYOUT[key] || {}).max || 0;
     // Two panels already scroll inside their own body — the Inbox grid and the
     // pulse log — so capping the *section* would nest one scroller in another
@@ -4133,6 +4281,36 @@ function captureLayout() {
       LAYOUT[key] = Object.assign({}, LAYOUT[key], { col: ci, i: i++ });
     }
   }
+}
+
+function foldTile(key, on) {
+  LAYOUT[key] = Object.assign({}, LAYOUT[key], { min: on });
+  applyLayout(); saveAppearance();
+}
+
+// Clicking the title bar folds it. The heading is already the one part of a
+// tile that is never content, which makes it the obvious handle and means no
+// new control had to be added to nine panels. Two things it must not swallow:
+// the buttons that live inside some headings (Board's "filed", Files' sort
+// order), and a click while the board is in snap mode, where dragging a tile by
+// its title is the whole interaction.
+for (const key of CAPPABLE) {
+  const node = panelNode(key);
+  const h = node && node.querySelector(":scope > h2");
+  if (!h) continue;
+  h.title = "click to fold this away";
+  h.tabIndex = 0;
+  h.setAttribute("role", "button");
+  h.addEventListener("click", (ev) => {
+    if (SNAP || ev.target.closest("button, input, a")) return;
+    foldTile(key, !node.classList.contains("min"));
+  });
+  h.addEventListener("keydown", (ev) => {
+    if (ev.key !== "Enter" && ev.key !== " ") return;
+    if (SNAP || ev.target.closest("button, input, a")) return;
+    ev.preventDefault();
+    foldTile(key, !node.classList.contains("min"));
+  });
 }
 
 function moveTile(key, delta) {

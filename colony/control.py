@@ -35,10 +35,20 @@ from . import attachments as attach, db
 
 HALT_FILE = db.RUNTIME_DIR / "HALT"
 
-# The ceiling on the ceiling. `allowance_boost` exists for a genuinely heavy
-# sprint, not for turning the guard off: 35% + 25% still leaves the majority of
-# the week for Jordan's own Claude Code sessions, which share the same quota.
-MAX_BOOST_POINTS = 25.0
+# The whole dial, end to end. `allowance_boost` is stored as a *signed* delta
+# from the sprint's designed baseline, so the baseline stays visible next to
+# whatever the PO has done to it — and the PO can take it to the whole week or
+# down to nothing. It used to stop at +25 and refuse to go below the baseline
+# at all, which made it a ratchet rather than a dial: every press raised the
+# ceiling and the only way down was to drop the boost entirely and rebuild it.
+#
+# The cap is gone because the cap was a guess on the PO's behalf. The quota is
+# shared with Jordan's own Claude Code sessions and he is the one who knows what
+# he needs this week; the honest job of this control is to show him the number,
+# not to hold it down. Zero is a real setting too — it stops the colony spending
+# without the finality of HALT.
+MAX_ALLOWANCE_PCT = 100.0
+MIN_ALLOWANCE_PCT = 0.0
 
 
 class Refused(Exception):
@@ -112,42 +122,58 @@ def halt(conn: sqlite3.Connection, on: bool, reason: str = "") -> dict[str, Any]
     return {"halted": on, "reason": reason}
 
 
-def set_allowance(conn: sqlite3.Connection, boost_points: float) -> dict[str, Any]:
-    """Raise the colony's share of the weekly window for a heavy sprint.
-
-    The sprint's `budget_pct` is left alone and a *boost* is stored separately,
-    so the baseline the colony was designed around stays visible next to the
-    exception. Clearing the boost is the same call with 0 — there is no separate
-    reset path to forget about.
-    """
-    asked = float(boost_points)
-    if asked > MAX_BOOST_POINTS:
-        raise Refused(
-            f"boost is capped at +{MAX_BOOST_POINTS:.0f} points. The weekly quota is shared "
-            f"with your own Claude Code sessions; the colony does not get to take the week."
-        )
-    # A negative boost is not an error, it is someone reaching for the reset —
-    # and the reset is the same call with 0, so let it mean that.
-    boost = max(0.0, asked)
-    _record(conn, "allowance", "sprint", None,
-            f"boost +{boost:g} points" if boost else "boost cleared — back to the baseline")
-    set_control(conn, "allowance_boost", f"{boost:g}",
-                "extra allowance for a high-volume sprint")
-    return {"boost": boost}
-
-
-def effective_allowance(conn: sqlite3.Connection) -> dict[str, Any]:
-    """What the budget guard should actually compare against, base + boost."""
+def _baseline(conn: sqlite3.Connection) -> float:
+    """The share of the week the active sprint was designed around."""
     row = conn.execute(
         "SELECT budget_pct FROM sprints WHERE status = 'active' ORDER BY id DESC LIMIT 1"
     ).fetchone()
-    base = float(row["budget_pct"]) if row else 35.0
+    return float(row["budget_pct"]) if row else 35.0
+
+
+def set_allowance(conn: sqlite3.Connection, boost_points: float) -> dict[str, Any]:
+    """Move the colony's share of the weekly window off its designed baseline.
+
+    The sprint's `budget_pct` is left alone and a *delta* is stored separately,
+    so the baseline the colony was designed around stays visible next to the
+    exception. Clearing is the same call with 0 — there is no separate reset
+    path to forget about.
+
+    The delta is signed and the only clamp left is the range of the thing being
+    described: an allowance below 0% or above 100% of the week is not a number,
+    it is a typo.
+    """
+    base = _baseline(conn)
+    boost = max(MIN_ALLOWANCE_PCT - base,
+                min(MAX_ALLOWANCE_PCT - base, float(boost_points)))
+    eff = base + boost
+    _record(conn, "allowance", "sprint", None,
+            f"allowance {eff:g}% of the week ({base:g}% baseline {boost:+g})" if boost
+            else f"allowance back to the {base:g}% baseline")
+    set_control(conn, "allowance_boost", f"{boost:g}",
+                "how far the PO has moved the allowance off the sprint baseline")
+    return {"boost": boost, "base": base, "effective": eff}
+
+
+def set_allowance_pct(conn: sqlite3.Connection, pct: float) -> dict[str, Any]:
+    """Set the allowance to a number the PO typed, rather than to a step.
+
+    Same store, same clamp — this exists because "I need 80% this week" is a
+    thing you know directly, and reaching it by counting +5s is arithmetic the
+    dashboard should be doing rather than asking for.
+    """
+    return set_allowance(conn, float(pct) - _baseline(conn))
+
+
+def effective_allowance(conn: sqlite3.Connection) -> dict[str, Any]:
+    """What the budget guard should actually compare against, base + delta."""
+    base = _baseline(conn)
     try:
         boost = float(get_control(conn, "allowance_boost", "0") or 0)
     except ValueError:
         boost = 0.0
-    boost = max(0.0, min(MAX_BOOST_POINTS, boost))
-    return {"base": base, "boost": boost, "effective": base + boost}
+    boost = max(MIN_ALLOWANCE_PCT - base, min(MAX_ALLOWANCE_PCT - base, boost))
+    return {"base": base, "boost": boost, "effective": base + boost,
+            "min": MIN_ALLOWANCE_PCT, "max": MAX_ALLOWANCE_PCT}
 
 
 # ── the Inbox gate ────────────────────────────────────────────────────────────
