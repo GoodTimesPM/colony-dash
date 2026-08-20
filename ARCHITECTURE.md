@@ -1778,3 +1778,52 @@ literal text `u25BE` since the folding tiles landed. Fixing the escape was the
 smaller change; removing it was the better one. Nine headings were each carrying
 a marker for a control most of them will never be used for, the pointer cursor
 already says the heading is clickable, and a folded tile is unmistakably folded.
+
+### 10.16 Modified against what, and moved by whom
+
+Three complaints about the same missing sentence, which is that a number on a
+dashboard is only information next to the thing it is a number *of*.
+
+**"What is modified relative to?"** One commit, the same one for every folder:
+the whole of `D:\ALL STUFF\PROJECTS` is a single git repo, so `modified` means
+"different from HEAD" sixty times over. The panel had never said so. `head()`
+now carries the subject and date alongside the sha, `scan()` stamps the branch
+and sha on every row, and the drawer opens with **compared with** before it
+shows a single count. The buckets are named in the reader's vocabulary rather
+than git's: `untracked` is a statement about git's index, and "new, never
+committed" is the same fact stated about the file — which is the one that
+explains a folder full of changes nobody remembers making. The Files heading
+names the baseline too, and each row carries when it was last written, because
+"why is this dirty when I never opened it" is usually answered by a timestamp
+two weeks old.
+
+The drawer's eyebrow read **"undefined · undefined"** on every project, for the
+plain reason that it was reading `branch` and `head_sha` off a scan row that had
+never carried either. They belong to the repo, so `/api/project` returns the
+repo's head.
+
+**"8 PO decision(s) to act on" over an Inbox holding one item.** The count was
+`WHERE resolved_at IS NOT NULL AND po_decision IS NOT NULL` — every escalation
+he had *ever* decided, with nothing to clear it. It only went up. From his first
+approval onward every tick had a standing reason to wake, forever. Two separate
+things were wrong. The count is now scoped to the window, so it decays like the
+other reasons. And the wording had the direction backwards: `control.decide`
+applies an approval at the moment it is made, so these are decisions *he made*,
+not decisions waiting on him — what the wake picks up afterwards is the
+consequence, which already has its own reason in the list.
+
+**"Projects that moved" was a list of names.** `project_changes` stored a level
+— how many files were dirty at that instant — and the drawer rendered it under a
+heading that promised a change. A folder sitting at fourteen untracked files all
+week read exactly like one that gained fourteen in the hour. Migration 012 adds
+the four deltas against the previous sample, the file list behind them, when the
+newest of those files was written, and `moved_by`. They are stored rather than
+recomputed because the drawer is reading a beat from hours ago: by then "the
+previous sample" is a different row and the files have moved on.
+
+`moved_by` is the honest half of *why*. The colony's only route into the working
+tree is a patch the PO approved, so the ledger can say with certainty when a
+change was not its doing — and "not the colony" is the sentence that answers
+"I genuinely didn't touch those things". What it deliberately does not do is
+guess *what* wrote them; a dashboard that invented an author would be worse than
+one that admits the machine has other programs on it.
