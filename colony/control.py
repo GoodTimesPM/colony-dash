@@ -798,18 +798,88 @@ def reply(conn: sqlite3.Connection, *, escalation_id: int | None = None,
 
 def thread(conn: sqlite3.Connection, escalation_id: int | None = None,
            story_id: int | None = None) -> list[dict[str, Any]]:
-    """The whole conversation about one item, oldest first."""
-    if escalation_id:
-        rows = conn.execute(
-            "SELECT * FROM po_messages WHERE escalation_id = ? ORDER BY id", (escalation_id,)
-        ).fetchall()
-    elif story_id:
+    """Every message in one conversation, oldest first.
+
+    Keyed on the **story** whenever there is one, not on the escalation. This
+    used to be the other way around and it was quietly deleting Jordan's
+    history: Ordis closes a question when he believes his answer resolved it,
+    the next groom raises a fresh escalation about the same story an hour
+    later, and a thread scoped to `escalation_id` opens *empty* on the new one.
+    Everything either of them had said stopped existing from the PO's side, at
+    the exact moment he went looking for it.
+
+    An escalation is an episode. The story is the thread. Two people talking
+    about one piece of work are having one conversation, however many times the
+    colony re-raises its hand.
+    """
+    if story_id is None and escalation_id:
+        row = conn.execute("SELECT story_id FROM escalations WHERE id = ?",
+                           (escalation_id,)).fetchone()
+        story_id = row["story_id"] if row else None
+    if story_id:
         rows = conn.execute(
             "SELECT * FROM po_messages WHERE story_id = ? ORDER BY id", (story_id,)
+        ).fetchall()
+    elif escalation_id:
+        rows = conn.execute(
+            "SELECT * FROM po_messages WHERE escalation_id = ? ORDER BY id", (escalation_id,)
         ).fetchall()
     else:
         rows = []
     return [dict(r) for r in rows]
+
+
+def conversation(conn: sqlite3.Connection, escalation_id: int | None = None,
+                 story_id: int | None = None) -> list[dict[str, Any]]:
+    """The thread as a timeline, with the things that are not messages in it.
+
+    Four different things happen in a conversation with the colony and only one
+    of them was ever on screen. The PO writes. Ordis answers. The colony raises
+    a question — which is the thing that *starts* most of these conversations
+    and was invisible inside them, so a reply arrived with no sign of what it
+    was replying to. And Ordis records a learning, which is the only durable
+    output of the whole exchange and lived two clicks away in the story
+    timeline.
+
+    They are returned as one list because they happened in one order, and the
+    order is most of the meaning. What the page does with them is give each a
+    colour, so the shape of the conversation can be read before any of it is.
+    """
+    if story_id is None and escalation_id:
+        row = conn.execute("SELECT story_id FROM escalations WHERE id = ?",
+                           (escalation_id,)).fetchone()
+        story_id = row["story_id"] if row else None
+
+    out: list[dict[str, Any]] = []
+    for m in thread(conn, escalation_id, story_id):
+        out.append({
+            "kind": "po" if m["author"] == "po" else "ordis",
+            "at": m["at"], "id": m["id"], "body": m["body"],
+            "status": m["status"], "escalation_id": m["escalation_id"],
+            "attachments": m.get("attachments"), "tokens": m.get("tokens") or 0,
+        })
+
+    if story_id:
+        for e in conn.execute(
+            "SELECT id, kind, reason, raised_at, resolved_at, po_decision "
+            "FROM escalations WHERE story_id = ? ORDER BY raised_at", (story_id,)
+        ):
+            out.append({
+                "kind": "question", "at": e["raised_at"], "id": e["id"],
+                "body": e["reason"], "esc_kind": e["kind"],
+                "closed_at": e["resolved_at"], "decision": e["po_decision"],
+            })
+        for ev in conn.execute(
+            "SELECT id, at, summary, detail FROM story_events "
+            "WHERE story_id = ? AND kind = 'learning' ORDER BY at", (story_id,)
+        ):
+            out.append({"kind": "learning", "at": ev["at"], "id": ev["id"],
+                        "body": ev["summary"], "detail": ev["detail"]})
+
+    # A question raised in the same second as the message that answers it sorts
+    # first: the colony asks, then someone replies, never the other way round.
+    out.sort(key=lambda r: ((r["at"] or ""), 0 if r["kind"] == "question" else 1, r["id"]))
+    return out
 
 
 def unread_messages(conn: sqlite3.Connection, limit: int = 4) -> list[sqlite3.Row]:

@@ -105,7 +105,7 @@ def snapshot() -> dict[str, Any]:
             "ordis": _ordis(conn),
             "colony": _colony(conn),
             "board": _board(conn),
-            "inbox": _inbox(conn),
+            "inbox": _ready(conn) + _inbox(conn),
             "flight": _flight(conn),
             "pulses": _pulses(conn),
             "forge": _forge(conn),
@@ -315,13 +315,23 @@ def _inbox(conn: sqlite3.Connection) -> list[dict[str, Any]]:
         """
         SELECT e.*, s.title AS story_title, s.project, s.project_source, s.status AS story_status,
                t.title AS ticket_title,
-               (SELECT COUNT(*) FROM po_messages m WHERE m.escalation_id = e.id)  AS messages,
-               (SELECT COUNT(*) FROM po_messages m WHERE m.escalation_id = e.id
-                  AND m.author = 'po' AND m.status = 'unread')                    AS awaiting_ordis,
-               (SELECT m.body FROM po_messages m WHERE m.escalation_id = e.id
-                  AND m.author = 'ordis' ORDER BY m.id DESC LIMIT 1)              AS last_reply,
-               (SELECT m.at FROM po_messages m WHERE m.escalation_id = e.id
-                  ORDER BY m.id DESC LIMIT 1)                                     AS last_message_at,
+               -- Scoped to the *story*, not to this escalation. A tile that
+               -- counted only its own episode showed "reply to Ordis" on a
+               -- story with six messages behind it, because the escalation it
+               -- happened to be attached to was two minutes old. The counts
+               -- and the last answer belong to the conversation, and the
+               -- conversation belongs to the story (see `control.thread`).
+               (SELECT COUNT(*) FROM po_messages m
+                 WHERE m.escalation_id = e.id OR m.story_id = e.story_id)          AS messages,
+               (SELECT COUNT(*) FROM po_messages m
+                 WHERE (m.escalation_id = e.id OR m.story_id = e.story_id)
+                   AND m.author = 'po' AND m.status = 'unread')                    AS awaiting_ordis,
+               (SELECT m.body FROM po_messages m
+                 WHERE (m.escalation_id = e.id OR m.story_id = e.story_id)
+                   AND m.author = 'ordis' ORDER BY m.id DESC LIMIT 1)              AS last_reply,
+               (SELECT m.at FROM po_messages m
+                 WHERE m.escalation_id = e.id OR m.story_id = e.story_id
+                 ORDER BY m.id DESC LIMIT 1)                                       AS last_message_at,
                CASE WHEN e.snoozed_until IS NOT NULL
                      AND e.snoozed_until > datetime('now','localtime')
                     THEN 1 ELSE 0 END                                             AS snoozed,
@@ -341,6 +351,67 @@ def _inbox(conn: sqlite3.Connection) -> list[dict[str, Any]]:
                   e.raised_at DESC
         """,
     )
+
+
+def _ready(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    """Stories that have cleared the criteria gate and are waiting to be started.
+
+    **Not an escalation.** An escalation is an event: raised once, answered
+    once, closed forever. Readiness is not an event, it is a state the story
+    stays in until somebody dispatches it — so raising it as a question would
+    make it dismissable while it was still true, which is the one failure this
+    Inbox exists to prevent. Derived instead: the tile exists for exactly as
+    long as the story is ready, and it is gone the moment the ticket is cut.
+
+    It also carries what is still in the way. `control.dispatch` enforces three
+    preconditions and the only way to discover which one you have failed was to
+    press the button and read the refusal. Approving the criteria is the moment
+    the PO thinks the work has started; a tile that says "ready — except nobody
+    is hired to write in that folder" is the difference between a colony that is
+    waiting on him and a colony he believes is working.
+    """
+    out: list[dict[str, Any]] = []
+    halted = control.is_halted()
+    for s in rows(conn, """
+        SELECT s.id, s.title, s.project, s.project_source, s.updated_at,
+               (SELECT COUNT(*) FROM agents a
+                 WHERE a.project = s.project AND a.write_capable = 1
+                   AND a.status <> 'retired')                            AS writers,
+               (SELECT COUNT(*) FROM tickets t
+                 WHERE t.story_id = s.id AND t.intent = 'implement'
+                   AND t.status IN ('open','staffed','running'))         AS queued,
+               (SELECT COUNT(*) FROM po_messages m WHERE m.story_id = s.id) AS messages,
+               (SELECT COUNT(*) FROM po_messages m WHERE m.story_id = s.id
+                  AND m.author = 'po' AND m.status = 'unread')           AS awaiting_ordis
+          FROM stories s
+         WHERE s.status = 'ready' AND s.dropped_at IS NULL AND s.settled_as IS NULL
+         ORDER BY s.updated_at DESC
+    """):
+        if s["queued"]:
+            continue           # already dispatched — the Ticket Queue has it now
+        blockers = []
+        if not s["project"] or s["project_source"] != "confirmed":
+            blockers.append("its project folder is still a guess — confirm it here")
+        if not s["writers"]:
+            blockers.append(
+                f"nobody is hired to write in {s['project'] or 'that folder'} — open "
+                f"Standby, pick a persona and hire them with write scope on it")
+        if halted:
+            blockers.append("the colony is halted — resume it in Macros")
+        out.append({
+            "id": None, "kind": "ready", "story_id": s["id"], "story_title": s["title"],
+            "project": s["project"], "project_source": s["project_source"],
+            "reason": f"\u201c{s['title']}\u201d is ready to start.",
+            "recommendation": ("Everything it was waiting on is answered. Dispatch cuts an "
+                               "implement ticket; the next wake opens a git worktree and "
+                               "writes, and the patch comes back for you to read."
+                               if not blockers else
+                               "Its criteria are accepted. " + blockers[0][:1].upper() + blockers[0][1:] + "."),
+            "blockers": blockers, "raised_at": s["updated_at"],
+            "messages": s["messages"], "awaiting_ordis": s["awaiting_ordis"],
+            "snoozed": 0, "stale": 0, "est_tokens": None, "ticket_id": None,
+        })
+    return out
 
 
 def _flight(conn: sqlite3.Connection) -> list[dict[str, Any]]:
@@ -912,7 +983,8 @@ def thread(escalation_id: int | None = None, story_id: int | None = None) -> dic
     """The conversation about one item. Read-only, like everything on this side."""
     conn = _conn()
     try:
-        return {"messages": control.thread(conn, escalation_id, story_id)}
+        return {"messages": control.thread(conn, escalation_id, story_id),
+                "entries": control.conversation(conn, escalation_id, story_id)}
     finally:
         conn.close()
 
