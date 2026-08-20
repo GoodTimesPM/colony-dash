@@ -1552,3 +1552,71 @@ story took a full-size board title and dropped it into a dim one-line stub with
 its end cut off. It wraps now, and it is a button back into the story: the shelf
 is where you go to ask "did I finish that?", and an answer you cannot click is
 half an answer.
+
+### 10.12 The conversation belongs to the story, and readiness is not a question
+
+**A thread scoped to the escalation was deleting the history.** `control.thread`
+keyed on `escalation_id`, and an escalation is an episode: Ordis closes one when
+he believes his answer resolved it, the next groom raises a fresh one about the
+same story an hour later, and the drawer opens *empty* on the new question with
+four messages sitting one row away in the ledger. Jordan opened "reply to
+Ordis" on story 1 and found nothing there — the three "15 Part Job Search cannot
+start yet" escalations (#6, #8, #13) are one conversation that the schema had
+cut into three, two of them already closed.
+
+Worse: the answer he never saw was written into escalation #8 at 20:07:25 and
+the same wake closed #8 at 20:07:56. **The reply and the door closing on it were
+thirty-one seconds apart.** A tile that vanishes carries its own contents out of
+the room. The Inbox's `messages` / `last_reply` / `awaiting_ordis` subqueries had
+the identical bug one layer up, so the new tile also reported zero messages on a
+story with a four-message history.
+
+The thread keys on the **story** now, and the tile's counts with it. *An
+escalation is an episode; the story is the thread.*
+
+**And the thread shows the things that were not messages.** Four kinds of thing
+happen in one of these conversations and only one was ever drawn: the PO writes,
+Ordis answers, the colony *raises a question* — which is what starts most of
+them, and was invisible inside them, so a reply arrived with no sign of what it
+replied to — and Ordis *records a learning*, the only part of the exchange still
+worth anything a month later, which lived two clicks away in the story timeline.
+`control.conversation` merges all four into one time-ordered list and the page
+gives each a colour on the existing rationing: amber is the PO, violet is Ordis,
+mint is the learning, and the question is deliberately the quiet one because it
+is a heading for what follows rather than another voice.
+
+**Ready-to-start is derived, not raised.** Nothing had ever been dispatched, and
+the reason is that nothing tells you when a story becomes dispatchable. Accepting
+the criteria closes the last escalation, the tile disappears, and the story sits
+in `ready` behind a button two clicks into a drawer — the moment the PO thinks
+the work has begun is the moment the colony goes silent about it.
+
+The fix is *not* another escalation. An escalation is an event: raised once,
+answered once, closed forever — and readiness is a **state**, true until someone
+dispatches. Raised as a question it could be dismissed while still being true,
+which is the one failure this Inbox exists to prevent. So `server._ready` derives
+the tile from the story: it exists for exactly as long as the story is ready, and
+it is gone the instant the ticket is cut. It has no `id`, nothing to approve and
+nothing to snooze; the only two useful controls are *start it* and *here is what
+is still in the way*.
+
+That last part matters as much as the tile. `control.dispatch` enforces three
+preconditions — criteria accepted, project confirmed, somebody hired with write
+scope — and the only way to learn which one you failed was to press the button
+and read the refusal. The tile carries the blockers on its face. **A gate that
+only speaks when you push it is indistinguishable from a gate that is open.**
+
+**Why only two agents have ever run.** Nothing is wrong with the roster; the
+colony has only ever done one kind of work. `wake.run` loads exactly one
+contract — `contract(conn, "investigator")` — and grooming, answering the PO and
+drafting skills are all research, so all three go to the same desk. The seeded
+`reviewer` has no caller. The 270 personas in `roster` are a hiring pool nobody
+has hired from. The rest of the org is behind `build.py`, whose contract is
+looked up per *project* (`contract(conn, role, project)`) and which only ever
+runs from a dispatched ticket — so the org chart unlocks at dispatch, and
+dispatch is what this section just made visible.
+
+**The allowance dial turns both ways.** +5 / +10 / +25 were three ways up and no
+way back: every one raised the ceiling, so an overshoot could only be cleared to
+zero and rebuilt. It is −5 / +5 / clear now, the two steps deliberately the same
+size, so a mispress costs exactly one press to undo.

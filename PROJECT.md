@@ -231,6 +231,17 @@ Also shipped with M3, from the same session's asks:
   neutrals but keeps the four accents inside their hue bands, because a "coral" that came out
   green stops saying anomaly; every colour has its lightness solved for the contrast it owes.
   Presets save the palette, the base theme and the text size together and are named.
+- **A story that is ready to start says so in the Inbox.** Its own mint tile,
+  with a *dispatch to build* button — and, when dispatch would refuse, the
+  reason on the tile instead of behind the press. Nothing had ever been
+  dispatched because nothing ever announced that it could be.
+- **A conversation belongs to the story, not to the question.** Opening *reply
+  to Ordis* on a re-raised question used to show an empty thread while the real
+  history sat under a closed escalation. It shows the whole exchange now.
+- **The thread shows questions and learnings too**, colour-coded: amber is you,
+  violet is Ordis, mint is what he learned, and the dim line is the question
+  that started that stretch.
+- **The token allowance moves in ±5 steps.** It used to only go up.
 - **You can highlight and copy text.** The pywebview shell defaults
   `text_select` to False and enforces it with `user-select: none` across the
   whole document, so nothing on the page could be selected. It is on now.

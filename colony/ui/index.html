@@ -686,6 +686,20 @@ body.halted .halt-banner { display: flex; }
 }
 .tile[data-kind="write-approval"] { border-width: 2px; }
 
+/* Ready to start. Amber across the rest of this panel means "this needs you",
+   and it does need him — but it needs a go, not an answer, and a tile that
+   looks like every unanswered question is one more thing to feel behind on.
+   Mint is live work everywhere else on the page; this is work that is one
+   press from being live. */
+.tile[data-kind="ready"] { background: var(--mint-ground); border-color: var(--mint); }
+.tile[data-kind="ready"] .k { color: var(--mint); }
+/* Why the button is grey. `dispatch` enforces three preconditions and the only
+   way to find out which one you failed was to press it and read the refusal. */
+.tile .blocker {
+  font-size: var(--step--1); color: var(--ink-soft);
+  border-left: 2px solid var(--coral); padding: 3px 0 3px 8px;
+}
+
 /* A stale tile is drained of the amber that means "this needs you", because it
    does not: it needs re-asking. It keeps the border so it still reads as a
    card and not as a note, and the flag says which of the two it is. */
@@ -1154,11 +1168,30 @@ button.pulse[disabled] { cursor: default; }
   padding: 8px 11px; border-radius: 8px; white-space: pre-wrap;
   background: var(--panel-sunk); border: 1px solid var(--rule-soft); font-size: var(--step-0);
 }
+/* Four things happen in one of these conversations and each gets its own
+   colour, on the page's existing rationing: amber is the PO, violet is Ordis,
+   mint is the thing that outlives the exchange. A question the colony raised is
+   deliberately the quiet one — it is context for the reply under it, not
+   another voice. */
 .msg.po { align-self: flex-end; }
 .msg.po .who { text-align: right; }
 .msg.po .bubble { background: var(--amber-ground); border-color: var(--amber); }
 .msg.ordis .bubble { border-left: 2px solid var(--violet); }
 .msg.pending .bubble { border-style: dashed; }
+/* The question that started this stretch of the conversation. Full width and
+   dim, because it is a heading for what follows rather than a turn in it. */
+.msg.ask { max-width: 100%; }
+.msg.ask .bubble {
+  background: none; border: 0; border-left: 2px solid var(--rule);
+  border-radius: 0; padding: 2px 0 2px 11px; color: var(--ink-soft);
+  font-size: var(--step--1);
+}
+.msg.ask.closed .bubble { color: var(--ink-dim); }
+/* What Ordis took away from it. The only part of the exchange that is still
+   worth anything a month later, and it used to live two clicks away in the
+   story timeline where nobody reading the conversation would find it. */
+.msg.learned .bubble { background: var(--mint-ground); border-color: var(--mint); }
+.msg.learned .who { color: var(--mint); }
 textarea.compose-box {
   width: 100%; min-height: 210px; resize: vertical;
   background: var(--panel-sunk); color: var(--ink);
@@ -2394,6 +2427,8 @@ function inboxTile(e) {
       " queued — Ordis answers on the next pulse"));
   }
 
+  for (const b of (e.blockers || [])) card.append(el("div", "blocker", b));
+
   const meta = [];
   if (e.story_title) meta.push(e.story_title);
   if (e.est_tokens) meta.push(toks(e.est_tokens) + " tok");
@@ -2450,7 +2485,23 @@ function inboxTile(e) {
     acts.append(row);
   }
 
-  if (e.kind === "write-approval") {
+  if (e.kind === "ready") {
+    // Not an escalation — there is no `e.id` here and nothing to approve or
+    // snooze. It is a state the story is in, rendered for exactly as long as
+    // it is true (see `_ready` in server.py), so the only two useful controls
+    // are "start it" and "here is what is still in the way".
+    const go = el("button", "act go", "dispatch to build");
+    const stuck = (e.blockers || []).length;
+    go.disabled = !!stuck;
+    go.title = stuck ? e.blockers[0]
+      : "cuts the implement ticket — the next wake opens a git worktree and writes in it";
+    go.onclick = () => confirmThen(
+      "Dispatch \u201c" + (e.story_title || "this story") + "\u201d to build?\n\n" +
+      "This cuts a ticket. The next wake opens a git worktree, works in there, and " +
+      "brings back a patch — nothing touches your working tree until you approve it.",
+      () => act("dispatch", { story_id: e.story_id }));
+    acts.append(go);
+  } else if (e.kind === "write-approval") {
     const view = el("button", "act", "read the patch");
     view.onclick = () => openPatch(e);
     const yes = el("button", "act go", "apply");
@@ -2460,7 +2511,7 @@ function inboxTile(e) {
     const no = el("button", "act no", "reject");
     no.onclick = () => act("decide", { escalation_id: e.id, decision: "reject" });
     acts.append(view, yes, no);
-  } else if (!asksForProject) {
+  } else if (!asksForProject && e.id) {
     const yes = el("button", "act go", "approve");
     yes.onclick = () => act("decide", { escalation_id: e.id, decision: "approve" });
     const no = el("button", "act no", "reject");
@@ -2485,7 +2536,7 @@ function inboxTile(e) {
     wake.title = "bring it back to the front of the Inbox now";
     wake.onclick = () => act("decide", { escalation_id: e.id, decision: "defer", snooze_hours: 0 });
     acts.append(wake);
-  } else {
+  } else if (e.id) {
     const later = el("button", "act", "later");
     later.title = "snooze 8h — it stays in the Inbox, dimmed, because nothing was decided";
     later.onclick = () => act("decide", { escalation_id: e.id, decision: "defer", snooze_hours: 8 });
@@ -2669,15 +2720,40 @@ async function openCompose(e, opts) {
   box.append(wrap);
   ta.focus();
 
+  // By story wherever there is one. Asking for the escalation's thread was how
+  // the conversation kept vanishing: Ordis closes a question he thinks he
+  // answered, the next groom raises a new one about the same story, and the
+  // drawer opened on an empty thread with six messages sitting one row away in
+  // the ledger.
   const load = async () => {
     thread.replaceChildren();
     const data = await getJSON("/api/thread?" +
-      (esc ? "escalation_id=" + esc : "story_id=" + e.story_id));
-    for (const m of (data.messages || [])) {
-      const row = el("div", "msg " + (m.author === "po" ? "po" : "ordis") +
-                              (m.status === "unread" ? " pending" : ""));
+      (e.story_id ? "story_id=" + e.story_id : "escalation_id=" + esc));
+    const entries = data.entries || [];
+    if (!entries.length) {
+      thread.append(el("div", "empty", "nothing has been said about this yet"));
+      return;
+    }
+    for (const m of entries) {
+      if (m.kind === "question") {
+        const q = el("div", "msg ask" + (m.closed_at ? " closed" : ""));
+        q.append(el("div", "who", "ordis asked · " + ago(m.at) +
+          (m.closed_at ? " · closed " + (m.decision || "") : " · still open")));
+        q.append(el("div", "bubble", m.body));
+        thread.append(q);
+        continue;
+      }
+      if (m.kind === "learning") {
+        const l = el("div", "msg learned");
+        l.append(el("div", "who", "learned · " + ago(m.at)));
+        l.append(el("div", "bubble", m.body));
+        if (m.detail) l.title = m.detail;
+        thread.append(l);
+        continue;
+      }
+      const row = el("div", "msg " + m.kind + (m.status === "unread" ? " pending" : ""));
       row.append(el("div", "who",
-        (m.author === "po" ? "you" : "ordis") + " · " + ago(m.at) +
+        (m.kind === "po" ? "you" : "ordis") + " · " + ago(m.at) +
         (m.status === "unread" ? " · not read yet" : "")));
       if (m.body) row.append(el("div", "bubble", m.body));
       const sent = jsonList(m.attachments);
@@ -2779,14 +2855,22 @@ function renderMacros(c) {
   al.append(el("div", "why", band.boost
     ? `${band.base}% baseline + ${band.boost} boost = ${band.effective}% of the week.`
     : `${band.base}% of the week, as designed. Add points for a high-volume sprint.`));
+  // One step in each direction, and a way back to nothing. The three sizes
+  // that used to be here — +5, +10, +25 — were three ways to jump and no way to
+  // walk back: every one of them raised the ceiling, so a boost you had
+  // overshot could only be cleared to zero and rebuilt from scratch. A dial you
+  // can only turn one way is not a dial. +5 and -5 are the same size on
+  // purpose, so pressing the wrong one costs exactly one press to undo.
   const row = el("div", "row");
-  for (const step of [5, 10, 25]) {
-    const b = el("button", "act warn", "+" + step);
-    b.title = `raise the allowance to ${Math.min(c.max_boost, band.boost + step)} points above baseline`;
-    b.disabled = band.boost >= c.max_boost;
-    b.onclick = () => act("allowance", { boost: Math.min(c.max_boost, band.boost + step) });
-    row.append(b);
-  }
+  const down = el("button", "act", "\u22125");
+  down.title = `lower the boost to ${Math.max(0, band.boost - 5)} points above baseline`;
+  down.disabled = !band.boost;
+  down.onclick = () => act("allowance", { boost: Math.max(0, band.boost - 5) });
+  const up = el("button", "act warn", "+5");
+  up.title = `raise the boost to ${Math.min(c.max_boost, band.boost + 5)} points above baseline`;
+  up.disabled = band.boost >= c.max_boost;
+  up.onclick = () => act("allowance", { boost: Math.min(c.max_boost, band.boost + 5) });
+  row.append(down, up);
   const clr = el("button", "act", "clear");
   clr.disabled = !band.boost;
   clr.title = "back to the designed baseline";
