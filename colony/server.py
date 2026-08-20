@@ -38,10 +38,10 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import Body, FastAPI, Header, HTTPException, Query
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 
-from . import (control, db, forge, notion as notion_mod, outbox as outbox_mod,
-               projects as projects_mod, roster as roster_mod)
+from . import (attachments as attach, control, db, forge, notion as notion_mod,
+               outbox as outbox_mod, projects as projects_mod, roster as roster_mod)
 
 UI_DIR = Path(__file__).resolve().parent / "ui"
 
@@ -876,7 +876,35 @@ def act_reply(body: dict = Body(...), x_colony: str | None = Header(None)) -> di
         escalation_id=int(body["escalation_id"]) if body.get("escalation_id") else None,
         story_id=int(body["story_id"]) if body.get("story_id") else None,
         body=str(body.get("body") or ""),
+        attachments=list(body.get("attachments") or []),
     )
+
+
+@app.post("/api/upload")
+def upload(body: dict = Body(...), x_colony: str | None = Header(None)) -> dict[str, Any]:
+    """Take one pasted file and put it on disk. Not an action — nothing decided.
+
+    Uploading is separate from replying so a paste can land the moment it
+    happens: a screenshot appears in the composer as a thumbnail you can look at
+    and remove, rather than as a promise that something got attached. An upload
+    the PO then abandons leaves a file in `.colony/attachments/` and nothing in
+    the ledger, which is the harmless direction for that trade to fail in.
+    """
+    _guard(x_colony)
+    try:
+        return {"ok": True, "file": attach.save(str(body.get("name") or "file"),
+                                                str(body.get("data") or ""))}
+    except attach.Rejected as exc:
+        raise HTTPException(400, str(exc))
+
+
+@app.get("/api/attachment/{name}")
+def attachment(name: str) -> FileResponse:
+    """Serve one stored file back to the page, for the thumbnail in the thread."""
+    try:
+        return FileResponse(attach.resolve(name))
+    except attach.Rejected as exc:
+        raise HTTPException(404, str(exc))
 
 
 @app.get("/api/thread")

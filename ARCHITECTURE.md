@@ -1489,3 +1489,66 @@ The tile carries the sentence the PO typed, clamped to two lines, and reads
 `reply · waiting for Ordis` rather than `research · unstaffed` — the mechanism
 was accurate and told him nothing. **This is the outbox lesson a second time:
 the wait is the thing worth showing.**
+
+### 10.11 A screenshot is the message, and the shell was eating the page
+
+Four faults, one shape: the dashboard kept refusing to carry what the PO
+actually wanted to say.
+
+**The drop dialog offered a status that does not exist.** Dropping a story asked
+"also set it to Archived in Notion?", and §10.10 had just removed `"Archived"`
+from `WRITABLE_STATUS` because it is not an option on the Status select. So the
+drop came back refused, with the one sentence guaranteed to make no sense in
+context — *starting work is yours* — for an act that is the opposite of starting
+work. It offers **Shelved** now, which is a real option and is what dropping a
+story means. The lesson is not about the string: **a constant that two callers
+disagree about will be wrong at whichever one nobody re-read.**
+
+**"In Progress" is writable now.** It was kept off the list to stop the colony
+moving a row into its own intake filter and feeding itself work it invented.
+That is still the right rule, but the list was the wrong place to keep it: the
+only two callers of `queue_notion` are a button in the story drawer and the drop
+dialog, and both of them are the PO's hand on a control. No agent, wake or tick
+queues a status. What the omission actually prevented was *Jordan* starting work
+from the dashboard, which was never the thing to prevent. **A guard placed one
+layer away from what it guards ends up forbidding the wrong party.**
+
+**The window was eating text selection.** pywebview defaults `text_select` to
+`False` and enforces it by injecting `user-select: none` over the whole
+document, so nothing on the page could be highlighted or copied — not a token
+count, not a finding, not an error. A kiosk default living inside a tool. This
+is the second time a pywebview default has quietly broken the dashboard in a way
+that looked like our bug (`private_mode` was the first, §9.2), and the pattern
+is worth naming: **the shell has opinions about what a page is for, and they are
+opinions about a different page.**
+
+**A reply can carry a screenshot.** Everything the PO said before had to survive
+being retyped as prose first — "it destroyed the formatting of the title" is a
+lossy re-encoding of the picture, and he was doing the lossy part by hand.
+Paste, drop or pick; the upload lands on `POST /api/upload` at the moment of the
+paste rather than at send, so a file that is too big fails while he is looking at
+the composer instead of an hour later. Files live in `.colony/attachments/` under
+generated names — the label is kept for the chip, the filename never is, because
+a value that has been through the browser is an input again when it comes back.
+`resolve` re-checks containment against the resolved parent, so `..`, a symlink
+and an absolute path all fail identically.
+
+The work order hands the agent an **absolute path**, not base64: `.colony/` is
+already inside the read scope, `Read` opens images, an image costs the same
+either way, and a prompt that carries its evidence by reference is one you can
+still read in the ticket a week later.
+
+**And a story can be replied to.** Replying used to require an Inbox item to
+reply *to*, which made every conversation the colony's to open — the PO could
+answer questions and could not raise one. Most of what he wants to say about a
+story arrives while he is reading the story. The story drawer has the button now;
+a story-only thread is a `po_message` with a NULL `escalation_id`, which
+`answer_po` already handled.
+
+**Filing stopped truncating the title.** The filed shelf borrowed the dropped
+row's shape, and a dropped row's interesting half is the *reason* — one line,
+ellipsis, move on. A filed row's interesting half is the title, so shelving a
+story took a full-size board title and dropped it into a dim one-line stub with
+its end cut off. It wraps now, and it is a button back into the story: the shelf
+is where you go to ask "did I finish that?", and an answer you cannot click is
+half an answer.

@@ -59,13 +59,23 @@ def ledger_status(notion_status: str | None) -> str:
     """
     return "backlog" if notion_status == WORKABLE_STATUS else "needs-criteria"
 
-# What the colony is allowed to set a row to. Notably absent: "In Progress" —
-# only the PO starts work, and a loop that could move a row into its own intake
-# filter would be able to feed itself.
-# What the colony may set. "Archived" used to be in here and is not an option on
-# the real Status select — Notion answers an unknown option by *creating* it, so
-# the one thing this list exists to prevent is the one thing it would have done.
-WRITABLE_STATUS = ("Done", "Shipped", "Shelved", "Exploring", "New", "Not started")
+# What may be set from this dashboard, in board order.
+#
+# "In Progress" is on the list now, at the PO's request. The rule it used to be
+# kept off the list to enforce — the colony must never move a row into its own
+# intake filter, or it can feed itself work it invented — is still the right
+# rule and is still enforced, just somewhere better: the only two callers of
+# `queue_notion` are a button in the story drawer and the drop dialog, and both
+# of them are Jordan's hand on a control. No agent, wake or tick queues a
+# status. What the omission was actually preventing was *the PO* starting work
+# from the dashboard, which was never the thing to prevent.
+#
+# "Archived" used to be in here and is not an option on the real Status select.
+# Notion answers an unknown select option by **creating** it, so the one list
+# whose whole job is to bound what the colony writes was the thing that would
+# have added an eighth status to the board.
+WRITABLE_STATUS = ("In Progress", "Exploring", "Done", "Shipped", "Shelved",
+                   "New", "Not started")
 
 PRIORITY_RANK = {"High": 1, "Medium": 2, "Low": 3}
 
@@ -309,7 +319,7 @@ def set_status(page_id: str, status: str, *, kind: str = "select") -> dict:
     if status not in WRITABLE_STATUS:
         raise NotionRefused(
             f"{status!r} is not a status the colony may set "
-            f"({', '.join(WRITABLE_STATUS)}). Only the PO starts work."
+            f"({', '.join(WRITABLE_STATUS)}) — nothing else is an option on the board."
         )
     return _request(
         f"/pages/{page_id}",

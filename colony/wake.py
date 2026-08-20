@@ -431,9 +431,22 @@ def reply_prompt(msg: sqlite3.Row, esc: sqlite3.Row | None, story: sqlite3.Row |
 
     lines += [
         "--- what he just said ---",
-        msg["body"][:6000],
+        msg["body"][:6000] or "(nothing written — see the attachments)",
         "--- end ---",
         "",
+    ]
+    # By path, not by base64. `.colony/` is already inside the read scope, an
+    # image costs the same either way, and a prompt that carries its evidence by
+    # reference is one you can still read in the ticket a week later.
+    files = json.loads(msg["attachments"] or "[]") if "attachments" in msg.keys() else []
+    if files:
+        lines.append("He attached these. Read them — a screenshot is usually the")
+        lines.append("whole message, and the prose above is the caption:")
+        for f in files:
+            lines.append(f"  {db.ATTACHMENTS_DIR / f['name']}   ({f['label']}, {f['kind']})")
+        lines.append("")
+
+    lines += [
         "Project folders that exist under D:\\ALL STUFF\\PROJECTS:",
         *(f"  {p}" for p in projects),
         "",

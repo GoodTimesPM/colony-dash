@@ -31,7 +31,7 @@ import re
 import sqlite3
 from typing import Any
 
-from . import db
+from . import attachments as attach, db
 
 HALT_FILE = db.RUNTIME_DIR / "HALT"
 
@@ -559,8 +559,8 @@ def queue_notion(conn: sqlite3.Connection, *, story_id: int, kind: str,
         status = (payload or {}).get("status")
         if status not in notion_mod.WRITABLE_STATUS:
             raise Refused(
-                f"the colony may only set {', '.join(notion_mod.WRITABLE_STATUS)} — "
-                f"starting work is yours"
+                f"{status or '(nothing)'} is not on the board: "
+                f"{', '.join(notion_mod.WRITABLE_STATUS)}"
             )
         detail = f"Status -> {status}"
         # Apply the filing here rather than waiting for Notion to say it back.
@@ -722,7 +722,8 @@ def create_project(conn: sqlite3.Connection, name: str, *, why: str = "") -> dic
 
 
 def reply(conn: sqlite3.Connection, *, escalation_id: int | None = None,
-          story_id: int | None = None, body: str = "") -> dict[str, Any]:
+          story_id: int | None = None, body: str = "",
+          attachments: list[dict] | None = None) -> dict[str, Any]:
     """Write a sentence to Ordis about one Inbox item.
 
     The message is queued, not delivered: nothing here spends a token, same as
@@ -736,8 +737,14 @@ def reply(conn: sqlite3.Connection, *, escalation_id: int | None = None,
     reason for having both.
     """
     body = (body or "").strip()
-    if not body:
+    files = list(attachments or [])[:attach.MAX_PER_MESSAGE]
+    # A screenshot on its own is a complete message — "look at this" is the
+    # whole sentence, and demanding prose to go with it would make the feature
+    # useless for the case it was asked for.
+    if not body and not files:
         raise Refused("nothing to send")
+    for f in files:
+        attach.resolve(f.get("name", ""))   # it is on disk, and it is ours
     if len(body) > 8000:
         raise Refused("that is longer than a work order — trim it to 8,000 characters")
 
@@ -748,8 +755,9 @@ def reply(conn: sqlite3.Connection, *, escalation_id: int | None = None,
         story_id = story_id or esc["story_id"]
 
     cur = conn.execute(
-        "INSERT INTO po_messages (escalation_id, story_id, author, body) VALUES (?,?,'po',?)",
-        (escalation_id, story_id, body),
+        "INSERT INTO po_messages (escalation_id, story_id, author, body, attachments) "
+        "VALUES (?,?,'po',?,?)",
+        (escalation_id, story_id, body, json.dumps(files) if files else None),
     )
     message_id = int(cur.lastrowid)
 
@@ -769,13 +777,18 @@ def reply(conn: sqlite3.Connection, *, escalation_id: int | None = None,
         """INSERT INTO tickets (story_id, title, intent, status, work_order,
                                 requires_po, po_message_id)
            VALUES (?,?,'research','open',?,0,?)""",
-        (story_id, f"Reply to Ordis: {body[:120]}", body[:8000], message_id),
+        (story_id,
+         f"Reply to Ordis: {(body or files[0]['label'])[:120]}",
+         body[:8000] + ("\n\n[" + str(len(files)) + " attached]" if files else ""),
+         message_id),
     )
 
+    said = body[:2000] + (("\nattached: " + ", ".join(f["label"] for f in files))
+                          if files else "")
     _record(conn, "note", "escalation" if escalation_id else "story",
-            escalation_id or story_id, body[:400])
+            escalation_id or story_id, said[:400])
     if story_id:
-        _event(conn, story_id, "note", "PO wrote to Ordis about this", body[:2000])
+        _event(conn, story_id, "note", "PO wrote to Ordis about this", said)
     # A replied-to item stops shouting but stays open: waiting on an answer is
     # not the same as being answered.
     if escalation_id:
