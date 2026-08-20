@@ -1024,8 +1024,24 @@ button.persona.hired .nm { color: var(--mint); }
 .dropped-line .why { font-family: var(--mono); font-size: var(--step--1); color: var(--ink-dim); }
 /* A filed story is finished, parked or not begun. It is not struck through the
    way a dropped one is — nothing was abandoned, it just is not the colony's
-   business today. */
-.dropped-line .t.filed { text-decoration: none; color: var(--ink-soft); }
+   business today.
+
+   And its title is not truncated. The dropped line was built for a row whose
+   interesting half is the *reason* — one line, ellipsis, move on — and filing
+   inherited that shape by accident, so shelving a story took a full-size board
+   title and dropped it into a dim one-line stub with its end cut off. A title
+   you can no longer read is not filing, it is losing. The line wraps, sits at
+   the top of its row, and is a button back into the story: the shelf is where
+   you go to ask "did I finish that?", and an answer you cannot click is half
+   an answer. */
+.dropped-line.is-filed { align-items: flex-start; padding: 6px 9px; }
+.dropped-line .t.filed {
+  text-decoration: none; color: var(--ink-soft); white-space: normal;
+  overflow: visible; text-overflow: clip; line-height: 1.35;
+  text-align: left; background: none; border: 0; padding: 0; font: inherit;
+  cursor: pointer;
+}
+.dropped-line .t.filed:hover { color: var(--ink); }
 .chip.filed { border-color: var(--rule); color: var(--ink-dim); background: var(--panel-sunk); }
 .chip.filed.done { border-color: var(--mint); color: var(--mint); background: var(--mint-ground); }
 
@@ -1150,6 +1166,29 @@ textarea.compose-box {
   font-family: var(--mono); font-size: var(--step-0); line-height: 1.55;
 }
 textarea.compose-box:focus-visible { outline: 2px solid var(--violet); outline-offset: -1px; }
+/* What he pasted, under the box he typed it into — and again under the message
+   once it is sent. Thumbnails rather than filenames, because a pasted
+   screenshot is always called `image.png` and the name tells you nothing while
+   fifty pixels of the picture tells you which one it is. */
+.shelf { display: flex; flex-wrap: wrap; gap: 8px; }
+.shelf .att {
+  display: flex; align-items: center; gap: 7px; max-width: 280px;
+  padding: 5px 8px; border: 1px solid var(--rule); border-radius: 6px;
+  background: var(--panel-sunk);
+}
+.shelf .att.open { max-width: 100%; }
+.shelf .att img {
+  width: 56px; height: 42px; object-fit: cover; border-radius: 3px;
+  border: 1px solid var(--rule-soft); cursor: zoom-in; background: var(--panel-sunk);
+}
+.shelf .att img.open { width: auto; height: auto; max-width: 100%; max-height: 62vh; cursor: zoom-out; }
+.shelf .att .n {
+  font-family: var(--mono); font-size: var(--step--1); color: var(--ink-soft);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* The composer while a file is over it. A drop target that does not light up is
+   a drop target you try twice. */
+.compose.over { outline: 2px dashed var(--violet); outline-offset: 6px; border-radius: 8px; }
 .compose .foot { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .compose .foot .hint { color: var(--ink-dim); font-size: var(--step--1); flex: 1; min-width: 180px; }
 
@@ -1958,9 +1997,10 @@ function renderFiled(rows) {
   const list = el("div", "dropped-list");
   list.append(el("div", "lb", "filed — nothing is being asked about these"));
   for (const s of rows) {
-    const line = el("div", "dropped-line");
-    const t = el("span", "t filed", s.title);
-    t.title = s.project || "no project";
+    const line = el("div", "dropped-line is-filed");
+    const t = el("button", "t filed", s.title);
+    t.title = "open story #" + s.id + " · " + (s.project || "no project");
+    t.onclick = () => openStory(s.id);
     line.append(t);
     line.append(el("span", "chip filed" + (s.settled_as === "done" ? " done" : ""),
                    FILED_LABEL[s.settled_as] || s.settled_as));
@@ -2484,6 +2524,61 @@ function inboxTile(e) {
   return card;
 }
 
+// ── attachments ─────────────────────────────────────────────────────────────
+//
+// The upload happens on paste, not on send. A screenshot that appears in the
+// composer as a picture you can look at and remove is a fact; one that is
+// merely promised until you press send is a hope, and the failure mode — a
+// silent 8MB refusal discovered an hour later — is the exact one this dashboard
+// keeps trying to design out.
+const ATTACH_MAX = 6;
+
+async function upload(file) {
+  const data = await new Promise((ok, no) => {
+    const r = new FileReader();
+    r.onload = () => ok(r.result);
+    r.onerror = () => no(r.error);
+    r.readAsDataURL(file);
+  }).catch(() => null);
+  if (!data) { toast("could not read that file", "bad"); return null; }
+  try {
+    const res = await fetch("/api/upload", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Colony": "1" },
+      body: JSON.stringify({ name: file.name || "pasted-image.png", data }),
+    });
+    const out = await res.json().catch(() => ({}));
+    if (!res.ok) { toast(out.detail || "that file was refused", "bad"); return null; }
+    return out.file;
+  } catch (err) {
+    toast("the upload did not land — is the server still up?", "bad");
+    return null;
+  }
+}
+
+// One attachment, drawn the same way whether it is still in the composer or
+// already sent. `onRemove` is what tells the two apart.
+function attachChip(f, onRemove) {
+  const chip = el("div", "att");
+  if (f.kind === "image") {
+    const img = el("img");
+    img.src = "/api/attachment/" + encodeURIComponent(f.name);
+    img.alt = f.label;
+    img.title = "click to enlarge";
+    img.onclick = () => { img.classList.toggle("open"); chip.classList.toggle("open"); };
+    chip.append(img);
+  }
+  const n = el("span", "n", f.label);
+  n.title = f.label + " · " + Math.max(1, Math.round(f.bytes / 1024)) + "KB";
+  chip.append(n);
+  if (onRemove) {
+    const x = el("button", "link", "remove");
+    x.onclick = onRemove;
+    chip.append(x);
+  }
+  return chip;
+}
+
 // ── the composer ────────────────────────────────────────────────────────────
 //
 // Typing to Ordis, with the thing you are answering pinned above the box. The
@@ -2491,8 +2586,13 @@ function inboxTile(e) {
 // proposal in a 640px column means scrolling between the two halves of one
 // thought.
 
-async function openCompose(e) {
-  openDrawer(e.kind.replace("-", " ") + " · #" + e.id, "Reply to Ordis", { wide: true });
+async function openCompose(e, opts) {
+  // A story-only thread has no Inbox item behind it. It exists because the only
+  // way to say something about a story used to be to wait to be asked about it,
+  // which made the conversation the colony's to start and never the PO's.
+  const esc = (opts && opts.storyOnly) ? null : e.id;
+  openDrawer(esc ? e.kind.replace("-", " ") + " · #" + esc : "story #" + e.story_id,
+             "Reply to Ordis", { wide: true });
   const box = $("d-body");
   box.replaceChildren();
   const wrap = el("div", "compose");
@@ -2504,7 +2604,7 @@ async function openCompose(e) {
   if (e.story_title) meta.push(e.story_title);
   if (e.project) meta.push(e.project + (e.project_source === "confirmed" ? "" : " (guess)"));
   if (e.est_tokens) meta.push(toks(e.est_tokens) + " tok");
-  meta.push("raised " + ago(e.raised_at));
+  if (e.raised_at) meta.push("raised " + ago(e.raised_at));
   proposal.append(el("div", "meta", meta.join("  ·  ")));
   wrap.append(proposal);
 
@@ -2519,25 +2619,73 @@ async function openCompose(e) {
     "confirm a project from your reply — those stay yours.";
   wrap.append(ta);
 
+  // Paste, drop or pick. All three end in the same place, and the shelf below
+  // the box is the receipt.
+  const files = [];
+  const shelf = el("div", "shelf");
+  const paint = () => {
+    shelf.replaceChildren();
+    shelf.style.display = files.length ? "" : "none";
+    files.forEach((f, i) => shelf.append(attachChip(f, () => { files.splice(i, 1); paint(); })));
+  };
+  paint();
+  wrap.append(shelf);
+
+  const take = async (list) => {
+    for (const file of list) {
+      if (files.length >= ATTACH_MAX) { toast(ATTACH_MAX + " files is the limit", "bad"); break; }
+      const got = await upload(file);
+      if (got) { files.push(got); paint(); }
+    }
+  };
+  ta.addEventListener("paste", (ev) => {
+    const got = Array.from((ev.clipboardData && ev.clipboardData.files) || []);
+    if (got.length) { ev.preventDefault(); take(got); }
+  });
+  // The board's own drag handler lives on <main>; this drawer is outside it, so
+  // the two never see each other's drops.
+  wrap.addEventListener("dragover", (ev) => { ev.preventDefault(); wrap.classList.add("over"); });
+  wrap.addEventListener("dragleave", () => wrap.classList.remove("over"));
+  wrap.addEventListener("drop", (ev) => {
+    ev.preventDefault();
+    wrap.classList.remove("over");
+    take(Array.from((ev.dataTransfer && ev.dataTransfer.files) || []));
+  });
+
   const foot = el("div", "foot");
   const send = el("button", "act go", "send to ordis");
+  const picker = el("input");
+  picker.type = "file";
+  picker.multiple = true;
+  picker.style.display = "none";
+  picker.onchange = () => { take(Array.from(picker.files)); picker.value = ""; };
+  const clip = el("button", "act", "attach a file");
+  clip.title = "or just paste a screenshot into the box — Ctrl+V";
+  clip.onclick = () => picker.click();
   const hint = el("span", "hint",
     "queued, not sent — nothing here spends a token until the next pulse. Ctrl+Enter sends.");
-  foot.append(send, hint);
+  foot.append(send, clip, picker, hint);
   wrap.append(foot);
   box.append(wrap);
   ta.focus();
 
   const load = async () => {
     thread.replaceChildren();
-    const data = await getJSON("/api/thread?escalation_id=" + e.id);
+    const data = await getJSON("/api/thread?" +
+      (esc ? "escalation_id=" + esc : "story_id=" + e.story_id));
     for (const m of (data.messages || [])) {
       const row = el("div", "msg " + (m.author === "po" ? "po" : "ordis") +
                               (m.status === "unread" ? " pending" : ""));
       row.append(el("div", "who",
         (m.author === "po" ? "you" : "ordis") + " · " + ago(m.at) +
         (m.status === "unread" ? " · not read yet" : "")));
-      row.append(el("div", "bubble", m.body));
+      if (m.body) row.append(el("div", "bubble", m.body));
+      const sent = jsonList(m.attachments);
+      if (sent.length) {
+        const strip = el("div", "shelf");
+        for (const f of sent) strip.append(attachChip(f, null));
+        row.append(strip);
+      }
       thread.append(row);
     }
   };
@@ -2545,12 +2693,15 @@ async function openCompose(e) {
 
   const submit = async () => {
     const body = ta.value.trim();
-    if (!body) { toast("nothing to send", "bad"); return; }
+    if (!body && !files.length) { toast("nothing to send", "bad"); return; }
     send.disabled = true;
-    const ok = await act("reply", { escalation_id: e.id, story_id: e.story_id, body });
+    const ok = await act("reply", { escalation_id: esc, story_id: e.story_id, body,
+                                    attachments: files });
     send.disabled = false;
     if (ok) {
       ta.value = "";
+      files.length = 0;
+      paint();
       load();
       toast("queued — Ordis reads it on the next pulse", "good");
     }
@@ -3101,6 +3252,23 @@ async function openStory(id) {
   if (s.blocked_reason) add("blocked", s.blocked_reason);
   body.append(facts);
 
+  // Say something about this story without waiting to be asked about it.
+  //
+  // Replying used to require an Inbox item to reply *to*, which quietly made
+  // every conversation the colony's to open. Most of what a PO wants to say
+  // about a story — this is the wrong folder, that criterion is stale, look at
+  // this screenshot — arrives while he is reading the story, not while he is
+  // reading a question about it. It becomes a ticket the moment it is sent,
+  // same as any other reply.
+  const talk = el("button", "act go", "reply to ordis about this story");
+  talk.style.width = "100%";
+  talk.title = "queued for the next wake — it shows up in the Ticket Queue straight away";
+  talk.onclick = () => openCompose({
+    story_id: s.id, story_title: s.title, project: s.project,
+    project_source: s.project_source, reason: s.description || s.title,
+  }, { storyOnly: true });
+  body.append(talk);
+
   // The two gates that live on a story: name its folder, then dispatch it.
   const gate = el("div", "form");
   gate.append(el("label", null, "project"));
@@ -3552,11 +3720,16 @@ function dropStory(id, title) {
     "it is cancelled. Nothing is deleted and you can restore it.\n\n" +
     "Why are you dropping it?", "");
   if (reason === null) return;
-  const archive = window.confirm(
-    "Also set it to Archived in Notion?\n\n" +
+  // Shelved, not Archived. "Archived" is not an option on the Status select and
+  // Notion answers an unknown option by *creating* it, so this dialog was one
+  // OK away from inventing an eighth status on the board — and once the colony
+  // stopped being allowed to send it, from refusing the drop outright with a
+  // sentence about starting work, which is not what dropping a story is.
+  const shelve = window.confirm(
+    "Also set it to Shelved in Notion?\n\n" +
     "OK queues the change — it goes up on the next pulse. Cancel drops it here only.");
   act("drop", { story_id: id, reason: reason.trim(),
-                notion_status: archive ? "Archived" : null });
+                notion_status: shelve ? "Shelved" : null });
 }
 
 // ── roster search ───────────────────────────────────────────────────────────

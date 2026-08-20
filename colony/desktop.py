@@ -140,6 +140,13 @@ def launch(port: int = DEFAULT_PORT, *, window: bool = True) -> int:
         height=940,
         min_size=(960, 640),
         background_color="#0B0F14",
+        # pywebview defaults `text_select` to False and enforces it by injecting
+        # `user-select: none` over the entire document — so nothing on the page
+        # could be highlighted or copied, including the one thing a dashboard
+        # exists to produce: a number or a sentence you want to paste somewhere
+        # else. It is a kiosk default living in a tool, and it made a read-only
+        # panel of findings unreadable in the only way that matters.
+        text_select=True,
     )
     threading.Thread(target=_set_window_icon, args=("Colony Dash",), daemon=True).start()
     try:

@@ -231,6 +231,19 @@ Also shipped with M3, from the same session's asks:
   neutrals but keeps the four accents inside their hue bands, because a "coral" that came out
   green stops saying anomaly; every colour has its lightness solved for the contrast it owes.
   Presets save the palette, the base theme and the text size together and are named.
+- **You can highlight and copy text.** The pywebview shell defaults
+  `text_select` to False and enforces it with `user-select: none` across the
+  whole document, so nothing on the page could be selected. It is on now.
+- **Replies to Ordis take screenshots and files.** Paste into the composer, drop
+  onto it, or use *attach a file*. They land in `.colony/attachments/`, show as
+  thumbnails in the thread, and reach the agent as a path in its work order.
+- **Any story can be replied to**, from a button in its drawer — no Inbox item
+  required. Saying something about a story used to mean waiting to be asked.
+- **"In Progress" is a status you can set from the dashboard**, and dropping a
+  story offers *Shelved* rather than *Archived* — which is not an option on the
+  Notion select and was making every drop-with-push come back refused.
+- **A filed story keeps its title.** The shelf was truncating it into a dim stub;
+  it wraps now and clicks through to the story.
 - **Marking a story Done in Notion now actually reaches the colony.** The sync
   had been filtering its Notion query to *In Progress OR Exploring*, so a row
   moved to Done vanished from the result set instead of being seen to move — the

@@ -1,0 +1,13 @@
+-- A reply can carry a screenshot.
+--
+-- The PO's messages were text-only, which meant every reply about something
+-- *visible* — a broken layout, a chart that reads wrong, an error box — had to
+-- be described in prose before it could be sent. The description is a lossy
+-- re-encoding of the evidence, and it is the PO doing the lossy part by hand.
+--
+-- A JSON column rather than a table: an attachment has no life of its own. It
+-- is never queried across messages, never joined to, and dies with the message
+-- that carries it. The files themselves live in `.colony/attachments/`; this
+-- holds only the label, the generated filename and the size, which is what the
+-- thread needs to render a chip without touching the disk.
+ALTER TABLE po_messages ADD COLUMN attachments TEXT;

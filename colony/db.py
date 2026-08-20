@@ -14,6 +14,10 @@ PACKAGE_DIR = Path(__file__).resolve().parent
 PROJECT_DIR = PACKAGE_DIR.parent
 RUNTIME_DIR = PROJECT_DIR / ".colony"
 LEDGER_PATH = RUNTIME_DIR / "ledger.db"
+# Screenshots and files the PO pastes into a reply. Under `.colony/` with the
+# ledger, because they are part of the same conversation and should be thrown
+# away by the same `rm -rf`.
+ATTACHMENTS_DIR = RUNTIME_DIR / "attachments"
 MIGRATIONS_DIR = PACKAGE_DIR / "migrations"
 
 # Read scope for every agent, structural or hired. Write scope is always narrower
