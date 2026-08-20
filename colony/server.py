@@ -34,6 +34,7 @@ import asyncio
 import hashlib
 import json
 import sqlite3
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -512,17 +513,14 @@ def _forge(conn: sqlite3.Connection) -> dict[str, Any]:
 
 
 def _spend(conn: sqlite3.Connection) -> dict[str, Any]:
-    by_day = rows(
-        conn,
-        """
-        SELECT date(started_at) AS day,
-               COALESCE(SUM(COALESCE(chargeable_tokens, total_tokens)), 0) AS tokens,
-               COALESCE(SUM(cost_usd), 0)                                  AS usd,
-               COUNT(*)                                                    AS runs
-          FROM runs
-         GROUP BY day ORDER BY day DESC LIMIT 14
-        """,
-    )
+    """The spend panel's breakdown by role.
+
+    The time series used to live here too, as a fixed fourteen days. It moved to
+    `/api/spend` when the chart grew a grain control: the snapshot is one payload
+    for eleven panels, pushed on every fingerprint change, and there is no reason
+    for the other ten to carry 48 hourly buckets so that one of them can draw a
+    line the PO may not even be looking at.
+    """
     by_role = rows(
         conn,
         """
@@ -534,7 +532,111 @@ def _spend(conn: sqlite3.Connection) -> dict[str, Any]:
           FROM runs GROUP BY agent_role ORDER BY tokens DESC
         """,
     )
-    return {"by_day": list(reversed(by_day)), "by_role": by_role}
+    return {"by_role": by_role}
+
+
+# ── the spend series ────────────────────────────────────────────────────────
+# Every timestamp in the ledger is `datetime('now','localtime')`, so there is no
+# timezone to reconcile here: the strings are already in the wall-clock the PO
+# reads them in, and the buckets are cut on the same clock.
+#
+# All five grains are rolled up in Python from one hourly query rather than five
+# different `strftime` groupings. The hourly query returns one row per hour that
+# actually had a run — bounded by real activity, not by the length of the window
+# — so it is small however far back you look, and a week that starts on Monday
+# is a line of Python instead of a nest of SQLite date modifiers.
+
+SPAN = {"hour": 48, "day": 30, "week": 26, "month": 12, "year": 5}
+LABEL = {"hour": "%H:00 %a", "day": "%a %d %b", "week": "w/c %d %b",
+         "month": "%b %Y", "year": "%Y"}
+
+
+def _floor(dt: datetime, grain: str) -> datetime:
+    """The start of the bucket `dt` falls in."""
+    if grain == "hour":
+        return dt.replace(minute=0, second=0, microsecond=0)
+    d = dt.replace(hour=0, minute=0, second=0, microsecond=0)
+    if grain == "day":
+        return d
+    if grain == "week":
+        return d - timedelta(days=d.weekday())
+    if grain == "month":
+        return d.replace(day=1)
+    return d.replace(month=1, day=1)
+
+
+def _back(dt: datetime, grain: str) -> datetime:
+    """One bucket earlier. Months and years are calendar steps, not 30 days."""
+    if grain == "hour":
+        return dt - timedelta(hours=1)
+    if grain == "day":
+        return dt - timedelta(days=1)
+    if grain == "week":
+        return dt - timedelta(days=7)
+    if grain == "month":
+        return (dt.replace(day=1) - timedelta(days=1)).replace(day=1)
+    return dt.replace(year=dt.year - 1)
+
+
+def _series(conn: sqlite3.Connection, grain: str, span: int) -> dict[str, Any]:
+    """Spend per bucket over the last `span` buckets, ending with the one we are in.
+
+    Empty buckets are emitted with zeros rather than skipped. A chart that only
+    plots the hours that had runs draws a continuous line across a quiet night
+    and calls it steady spending; the flat stretch at zero *is* the information.
+    """
+    hourly = rows(
+        conn,
+        """
+        SELECT strftime('%Y-%m-%d %H', started_at) AS h,
+               COALESCE(SUM(COALESCE(chargeable_tokens, total_tokens)), 0) AS tokens,
+               COALESCE(SUM(total_tokens), 0)                              AS total_tokens,
+               COALESCE(SUM(cost_usd), 0)                                  AS usd,
+               COUNT(*)                                                    AS runs
+          FROM runs WHERE started_at IS NOT NULL GROUP BY h
+        """,
+    )
+
+    starts: list[datetime] = []
+    at = _floor(datetime.now(), grain)
+    for _ in range(span):
+        starts.append(at)
+        at = _back(at, grain)
+    starts.reverse()
+
+    index = {d: i for i, d in enumerate(starts)}
+    pts = [{"key": d.strftime("%Y-%m-%d %H:%M"),
+            "label": d.strftime(LABEL[grain]),
+            "tokens": 0, "total_tokens": 0, "usd": 0.0, "runs": 0}
+           for d in starts]
+
+    dropped = 0
+    for r in hourly:
+        try:
+            when = datetime.strptime(r["h"], "%Y-%m-%d %H")
+        except (TypeError, ValueError):
+            continue
+        i = index.get(_floor(when, grain))
+        if i is None:                      # older than the window, or the future
+            dropped += r["runs"]
+            continue
+        p = pts[i]
+        p["tokens"] += r["tokens"]
+        p["total_tokens"] += r["total_tokens"]
+        p["usd"] += r["usd"]
+        p["runs"] += r["runs"]
+
+    return {
+        "grain": grain,
+        "span": span,
+        "points": pts,
+        "tokens": sum(p["tokens"] for p in pts),
+        "usd": sum(p["usd"] for p in pts),
+        "runs": sum(p["runs"] for p in pts),
+        # What the window is not showing, so "0 runs" can be told apart from
+        # "all of it happened before this window started".
+        "outside": dropped,
+    }
 
 
 def _roster_summary(conn: sqlite3.Connection) -> dict[str, Any]:
@@ -697,6 +799,21 @@ def api_story(story_id: int) -> dict[str, Any]:
                 (story_id,),
             ),
         }
+    finally:
+        conn.close()
+
+
+@app.get("/api/spend")
+def api_spend(grain: str = Query("day"), span: int = Query(0)) -> dict[str, Any]:
+    """The spend chart, at whichever grain the PO picked."""
+    if grain not in SPAN:
+        raise HTTPException(400, f"grain must be one of {', '.join(SPAN)}")
+    # An out-of-range span is clamped rather than swapped for the default: a
+    # caller who asked for 9999 buckets wants "as far back as you go", not 30.
+    span = max(2, min(400, span)) if span else SPAN[grain]
+    conn = _conn()
+    try:
+        return _series(conn, grain, span)
     finally:
         conn.close()
 

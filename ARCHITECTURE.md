@@ -1682,3 +1682,49 @@ is distinct from capping: a cap says "this one is long, keep it in a box"; a fol
 says "not this week". Two things the handler must not swallow: the buttons that
 live inside some headings (Board's *filed*, Files' sort order) and a click while
 the board is in snap mode, where dragging a tile by its title is the interaction.
+
+### 10.14 The spend panel stops being a sparkline
+
+A 34px line over the last fourteen days answers one question — is it going up —
+and refuses every question with a number in it. The panel now carries a real
+chart: five grains from an hour to a year, a line or a bar, faded gridlines on
+both axes, and the value under the pointer written out in full.
+
+**The series moved out of the snapshot.** `/api/state` is one payload for eleven
+panels, pushed on every fingerprint change; there is no reason for the other ten
+to carry 48 hourly buckets so that one of them can draw a line the PO may not be
+looking at. `GET /api/spend?grain=…` is a separate read, fetched when the panel
+renders and when the grain changes, and `_spend` in the snapshot is now the
+by-role breakdown alone.
+
+**One hourly query, five grains.** The endpoint groups `runs` by hour in SQL and
+rolls the buckets up in Python. The hourly query returns one row per hour that
+actually had a run — bounded by real activity, not by the length of the window —
+so it stays small however far back the chart looks, and "a week starts on
+Monday" is one line of `timedelta` instead of a nest of SQLite date modifiers.
+No timezone work: every timestamp in the ledger is written with
+`datetime('now','localtime')`, so the buckets are cut on the clock the PO reads.
+
+**Empty buckets are emitted, not skipped.** A chart that plots only the hours
+that had runs draws a continuous line across a quiet night and calls it steady
+spending. The flat stretch at zero is the information. The response also carries
+`outside` — the runs that fall before the window — so "0 runs" can be told apart
+from "all of it happened earlier than this".
+
+**Drawn in pixels, not a stretched viewBox.** The sparkline could afford
+`preserveAspectRatio="none"` because it had no text in it; the moment there are
+axis labels, non-uniform scaling smears them. The width comes from the element
+and a `ResizeObserver` redraws when it changes — width only, since drawing is
+what sets the height and watching that would be a loop. Two SVG details worth
+recording: `var()` is not legal inside a presentation attribute, so the accent
+is set once as the element's `color` and everything inside uses `currentColor`;
+and the crosshair is built once and moved rather than redrawn per pixel of
+pointer travel.
+
+Bars own a band and the line is plotted at the centre of the same band, so the
+crosshair lands in the same place whichever shape is showing. The readout never
+empties — with nothing hovered it holds the window total — because a line that
+appears on hover and vanishes on leave makes the panel jump every time the
+pointer crosses it. Grain and shape are localStorage, like the Files sort order:
+how you read a panel is not a decision about the colony, so it does not belong
+in the ledger.

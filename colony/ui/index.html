@@ -1138,7 +1138,45 @@ button.pulse[disabled] { cursor: default; }
 
 /* ── spend ────────────────────────────────────────────────────────────────── */
 
-.spark { width: 100%; height: 34px; display: block; }
+/* The chart is drawn in real pixels rather than a stretched viewBox. A sparkline
+   can afford `preserveAspectRatio="none"` because it has no text in it; the
+   moment there are axis labels, non-uniform scaling smears them. So the width
+   comes from the element and a ResizeObserver redraws on a column resize. */
+.chart { position: relative; }
+.chart svg { display: block; width: 100%; touch-action: none; }
+.chart .readout {
+  display: flex; align-items: baseline; gap: 8px; min-height: 1.5em;
+  font-family: var(--mono); font-size: var(--step--1);
+}
+/* The readout never empties — with nothing hovered it holds the window total.
+   A line that appears on hover and vanishes on leave makes the whole panel jump
+   every time the pointer crosses it. */
+.chart .readout .rl { color: var(--ink); }
+.chart .readout .rt { color: var(--violet); font-variant-numeric: tabular-nums; }
+.chart .readout .ru,
+.chart .readout .rr { color: var(--ink-dim); font-variant-numeric: tabular-nums; }
+.chart .gline { stroke: var(--rule-soft); stroke-width: 1; }
+.chart .gline.axis { stroke: var(--rule); }
+.chart .glabel { fill: var(--ink-dim); font-family: var(--mono); font-size: var(--step--2); }
+.chart .cross { stroke: var(--ink-dim); stroke-width: 1; stroke-dasharray: 2 3; }
+.chart .bar { fill: var(--violet); opacity: .62; }
+.chart .bar.hot { opacity: 1; }
+.chart .empty-note { color: var(--ink-dim); font-size: var(--step--1); }
+
+.chartbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+/* A segmented control, because these are five views of one number rather than
+   five separate switches — exactly one is on, and the box around them says so. */
+.seg { display: inline-flex; border: 1px solid var(--rule); border-radius: 6px; overflow: hidden; }
+.seg button {
+  appearance: none; background: none; border: 0; cursor: pointer;
+  padding: 3px 8px; color: var(--ink-dim);
+  font-family: var(--mono); font-size: var(--step--2); letter-spacing: .04em;
+}
+.seg button + button { border-left: 1px solid var(--rule); }
+.seg button:hover { color: var(--ink); }
+.seg button.on { background: var(--panel-sunk); color: var(--ink); }
+.chartbar .spacer { margin-left: auto; }
+
 .rolebar { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; font-family: var(--mono); font-size: var(--step--1); }
 .rolebar .track { grid-column: 1 / -1; height: 3px; background: var(--panel-sunk); border-radius: 2px; overflow: hidden; }
 .rolebar .track i { display: block; height: 100%; background: var(--violet); }
@@ -1636,7 +1674,23 @@ body.snapping .snapbar { display: flex; }
     <section class="panel" data-panel="spend">
       <h2>Spend <span class="count" id="spend-count"></span></h2>
       <div class="body">
-        <svg class="spark" id="spark" preserveAspectRatio="none" aria-hidden="true"></svg>
+        <div class="chartbar">
+          <div class="seg" id="spend-grain">
+            <button data-grain="hour" title="the last 48 hours">hour</button>
+            <button data-grain="day" title="the last 30 days">day</button>
+            <button data-grain="week" title="the last 26 weeks, Monday to Monday">week</button>
+            <button data-grain="month" title="the last 12 months">month</button>
+            <button data-grain="year" title="the last 5 years">year</button>
+          </div>
+          <div class="seg spacer" id="spend-kind">
+            <button data-kind="line" title="spend as a curve over time">line</button>
+            <button data-kind="bar" title="spend as one bar per bucket">bar</button>
+          </div>
+        </div>
+        <div class="chart" id="spend-chart">
+          <div class="readout" id="spend-readout"></div>
+          <svg id="spend-svg"></svg>
+        </div>
         <div id="by-role" style="display:flex;flex-direction:column;gap:7px"></div>
       </div>
     </section>
@@ -3256,31 +3310,227 @@ async function openSkill(id) {
   }
 }
 
-function renderSpend(sp) {
-  const days = sp.by_day || [];
-  $("spend-count").textContent = days.length ? days.length + "d" : "";
+// ── the spend chart ───────────────────────────────────────────────
+// This was a 34px sparkline over the last fourteen days: the right size for
+// "is it going up", the wrong one for any question with a number in it. The
+// grain now goes from an hour to a year, both shapes are available, and the
+// value under the pointer is readable, which is the difference between a
+// decoration and an instrument.
+//
+// The series comes from /api/spend rather than the snapshot, because the
+// snapshot is one payload for eleven panels and there is no reason for the
+// other ten to carry 48 hourly buckets. Which grain and which shape is
+// localStorage, like the Files sort order — how you read a panel is not a
+// decision about the colony, so it does not belong in the ledger.
 
-  const svg = $("spark");
-  svg.replaceChildren();
-  if (days.length) {
-    const W = 300, H = 34, max = Math.max(...days.map((d) => d.tokens), 1);
-    svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
-    const step = days.length > 1 ? W / (days.length - 1) : W;
-    const pts = days.map((d, i) => [i * step, H - 3 - (d.tokens / max) * (H - 7)]);
-    const line = pts.map((p) => p.join(",")).join(" ");
-    const ns = "http://www.w3.org/2000/svg";
-    const area = document.createElementNS(ns, "polygon");
-    area.setAttribute("points", `0,${H} ${line} ${(days.length - 1) * step},${H}`);
-    area.setAttribute("fill", "currentColor"); area.setAttribute("opacity", ".10");
-    const path = document.createElementNS(ns, "polyline");
-    path.setAttribute("points", line); path.setAttribute("fill", "none");
-    path.setAttribute("stroke", "currentColor"); path.setAttribute("stroke-width", "1.5");
-    const last = document.createElementNS(ns, "circle");
-    last.setAttribute("cx", pts[pts.length - 1][0] - 1); last.setAttribute("cy", pts[pts.length - 1][1]);
-    last.setAttribute("r", "2.5"); last.setAttribute("fill", "currentColor");
-    svg.style.color = "var(--violet)";
-    svg.append(area, path, last);
+const SVGNS = "http://www.w3.org/2000/svg";
+const GRAIN_UNIT = { hour: "h", day: "d", week: "w", month: "mo", year: "y" };
+let SPEND_GRAIN = localStorage.getItem("colony-spend-grain") || "day";
+let SPEND_KIND = localStorage.getItem("colony-spend-kind") || "line";
+let SPEND_SERIES = null;
+let SPEND_WIDTH = 0;
+
+function svgEl(name, attrs) {
+  const n = document.createElementNS(SVGNS, name);
+  for (const k in attrs) n.setAttribute(k, attrs[k]);
+  return n;
+}
+
+// A round number at or above the top of the data, so the gridlines land on
+// figures a person can hold in their head — 40k, not 38.7k.
+function niceMax(v) {
+  if (!(v > 0)) return 1;
+  const mag = Math.pow(10, Math.floor(Math.log10(v)));
+  const n = v / mag;
+  return (n <= 1 ? 1 : n <= 2 ? 2 : n <= 2.5 ? 2.5 : n <= 5 ? 5 : 10) * mag;
+}
+
+async function loadSpend() {
+  try {
+    const r = await fetch("/api/spend?grain=" + encodeURIComponent(SPEND_GRAIN));
+    if (!r.ok) return;
+    SPEND_SERIES = await r.json();
+  } catch (e) { return; }
+  SPEND_WIDTH = 0;
+  drawSpend();
+}
+
+function spendReadout(p) {
+  const out = $("spend-readout");
+  out.replaceChildren();
+  const s = SPEND_SERIES;
+  if (!s) return;
+  if (p) {
+    out.append(el("span", "rl", p.label),
+               el("span", "rt", toks(p.tokens) + " tok"));
+    if (p.usd) out.append(el("span", "ru", usd(p.usd)));
+    out.append(el("span", "rr", p.runs ? p.runs + (p.runs === 1 ? " run" : " runs")
+                                       : "nothing ran"));
+  } else {
+    out.append(el("span", "rl", "this " + s.span + GRAIN_UNIT[s.grain]),
+               el("span", "rt", toks(s.tokens) + " tok"));
+    if (s.usd) out.append(el("span", "ru", usd(s.usd)));
+    out.append(el("span", "rr", s.runs + (s.runs === 1 ? " run" : " runs")
+                                + (s.outside ? "  ·  " + s.outside + " older" : "")));
   }
+}
+
+function drawSpend() {
+  const s = SPEND_SERIES;
+  const box = $("spend-chart");
+  const svg = $("spend-svg");
+  if (!s || !box) return;
+  const W = box.clientWidth;
+  if (!W) return;                       // the panel is folded, or not laid out yet
+  SPEND_WIDTH = W;
+
+  for (const b of $("spend-grain").children) b.classList.toggle("on", b.dataset.grain === SPEND_GRAIN);
+  for (const b of $("spend-kind").children) b.classList.toggle("on", b.dataset.kind === SPEND_KIND);
+  $("spend-count").textContent = s.span + GRAIN_UNIT[s.grain];
+
+  const pts = s.points || [];
+  const H = 152, PL = 46, PR = 8, PT = 10, PB = 20;
+  const iw = Math.max(20, W - PL - PR), ih = H - PT - PB;
+  const top = niceMax(Math.max(...pts.map((p) => p.tokens), 0));
+  const y = (v) => PT + ih - (v / top) * ih;
+  // Bars own a band; a line is plotted at the centre of the same band, so the
+  // crosshair lands in the same place whichever shape is on screen.
+  const band = iw / Math.max(1, pts.length);
+  const x = (i) => PL + band * (i + 0.5);
+
+  svg.replaceChildren();
+  svg.setAttribute("width", W);
+  svg.setAttribute("height", H);
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  // `var()` is not legal inside an SVG presentation attribute. `currentColor`
+  // is, so the accent is set once on the element and inherited by everything
+  // drawn into it.
+  svg.style.color = "var(--violet)";
+
+  // Horizontal rules first, under everything, with the value they stand for.
+  // `toks` renders 0 as an em dash, which is right in a table cell and wrong on
+  // an axis — an axis tick has a value even when the value is nothing.
+  const axisTok = (v) => (v >= 1 ? toks(Math.round(v)) : "0");
+  for (let k = 0; k <= 4; k++) {
+    const v = (top / 4) * k, yy = Math.round(y(v)) + 0.5;
+    svg.append(svgEl("line", { class: "gline" + (k ? "" : " axis"),
+                               x1: PL - 4, x2: W - PR, y1: yy, y2: yy }));
+    const t = svgEl("text", { class: "glabel", x: PL - 7, y: yy + 3, "text-anchor": "end" });
+    t.textContent = axisTok(v);
+    svg.append(t);
+  }
+
+  // And verticals at whichever buckets get a label, so the eye can drop from a
+  // point to the date under it without counting across.
+  const every = Math.max(1, Math.ceil(pts.length / Math.max(2, Math.floor(iw / 74))));
+  pts.forEach((p, i) => {
+    if (i % every) return;
+    const xx = Math.round(x(i)) + 0.5;
+    svg.append(svgEl("line", { class: "gline", x1: xx, x2: xx, y1: PT, y2: PT + ih }));
+    const t = svgEl("text", { class: "glabel", x: xx, y: H - 6, "text-anchor": "middle" });
+    t.textContent = p.label;
+    svg.append(t);
+  });
+
+  const bars = [];
+  if (SPEND_KIND === "bar") {
+    const w = Math.max(1, band - Math.min(6, band * 0.28));
+    pts.forEach((p, i) => {
+      const h = p.tokens ? Math.max(1, PT + ih - y(p.tokens)) : 0;
+      const r = svgEl("rect", { class: "bar", x: x(i) - w / 2, width: w,
+                                y: PT + ih - h, height: h });
+      bars.push(r);
+      if (h) svg.append(r);
+    });
+  } else {
+    const line = pts.map((p, i) => `${x(i)},${y(p.tokens)}`).join(" ");
+    if (pts.length > 1) {
+      svg.append(svgEl("polygon", {
+        points: `${x(0)},${PT + ih} ${line} ${x(pts.length - 1)},${PT + ih}`,
+        fill: "currentColor", opacity: ".12",
+      }));
+    }
+    svg.append(svgEl("polyline", { points: line, fill: "none", stroke: "currentColor",
+                                   "stroke-width": "1.6", "stroke-linejoin": "round" }));
+    // A single point has no line to be seen as, and every grain coarser than a
+    // day currently has exactly one bucket with anything in it.
+    if (pts.length === 1) {
+      svg.append(svgEl("circle", { cx: x(0), cy: y(pts[0].tokens), r: 3, fill: "currentColor" }));
+    }
+  }
+
+  // The crosshair is made once and moved, rather than redrawn on every pixel of
+  // pointer travel.
+  const cross = svgEl("line", { class: "cross", y1: PT, y2: PT + ih, x1: 0, x2: 0,
+                                opacity: 0 });
+  const dot = svgEl("circle", { r: 3.2, fill: "currentColor", opacity: 0, cx: 0, cy: 0 });
+  svg.append(cross, dot);
+
+  let hot = -1;
+  const hover = (i) => {
+    if (i === hot) return;
+    hot = i;
+    if (bars.length) bars.forEach((b, k) => b.classList.toggle("hot", k === i));
+    if (i < 0) {
+      cross.setAttribute("opacity", 0); dot.setAttribute("opacity", 0);
+      spendReadout(null);
+      return;
+    }
+    const p = pts[i];
+    cross.setAttribute("x1", x(i)); cross.setAttribute("x2", x(i));
+    cross.setAttribute("opacity", 1);
+    dot.setAttribute("cx", x(i)); dot.setAttribute("cy", y(p.tokens));
+    dot.setAttribute("opacity", SPEND_KIND === "bar" ? 0 : 1);
+    spendReadout(p);
+  };
+
+  svg.onpointermove = (ev) => {
+    const r = svg.getBoundingClientRect();
+    // The svg is laid out at its own pixel width, so client x maps straight
+    // through — but a zoomed page scales it, hence the ratio.
+    const px = (ev.clientX - r.left) * (W / (r.width || W));
+    hover(Math.max(0, Math.min(pts.length - 1, Math.floor((px - PL) / band))));
+  };
+  svg.onpointerleave = () => hover(-1);
+  spendReadout(null);
+
+  const note = box.querySelector(".empty-note");
+  if (note) note.remove();
+  if (!s.tokens) {
+    box.append(el("div", "empty-note", s.outside
+      ? `nothing in the last ${s.span}${GRAIN_UNIT[s.grain]} — ${s.outside} run${s.outside === 1 ? "" : "s"} sit further back`
+      : "nothing spent yet"));
+  }
+}
+
+for (const seg of ["spend-grain", "spend-kind"]) {
+  $(seg).addEventListener("click", (ev) => {
+    const b = ev.target.closest("button");
+    if (!b) return;
+    if (b.dataset.grain) {
+      SPEND_GRAIN = b.dataset.grain;
+      localStorage.setItem("colony-spend-grain", SPEND_GRAIN);
+      loadSpend();
+    } else {
+      SPEND_KIND = b.dataset.kind;
+      localStorage.setItem("colony-spend-kind", SPEND_KIND);
+      drawSpend();
+    }
+  });
+}
+
+// A column resize changes the pixel width the chart was measured at. Only the
+// width matters — redrawing on a height change would be a loop, since drawing
+// is what sets the height.
+if (window.ResizeObserver) {
+  new ResizeObserver(() => {
+    const w = $("spend-chart").clientWidth;
+    if (w && w !== SPEND_WIDTH) drawSpend();
+  }).observe($("spend-chart"));
+}
+
+function renderSpend(sp) {
+  loadSpend();
 
   const box = $("by-role");
   box.replaceChildren();
