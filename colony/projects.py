@@ -21,6 +21,7 @@ could turn into one.
 from __future__ import annotations
 
 import datetime as dt
+import json
 import subprocess
 from pathlib import Path
 
@@ -74,12 +75,43 @@ def project_dirs() -> list[str]:
     return out
 
 
+# The word "modified" is only meaningful next to the thing it is modified
+# *against*, and on this page that thing is one specific commit: every project
+# folder lives inside a single git repo, so "modified" means "different from
+# HEAD of that repo" for all sixty of them at once. The panel used to state the
+# count and leave the baseline implicit, which is how a reader ends up asking
+# "modified relative to what?" — a fair question with no answer on screen. The
+# subject and date ride along with the sha so the baseline can be named in
+# words rather than as seven hex digits nobody recognises.
 def head() -> dict:
-    """Branch and HEAD of the master projects repo."""
+    """Branch and HEAD of the master projects repo — the baseline for "modified"."""
+    line = _git("log", "-1", f"--pretty=format:%h{SEP}%s{SEP}%ad",
+                "--date=format:%Y-%m-%d %H:%M").strip()
+    parts = line.split(SEP) if line else []
+    sha, subject, at = (parts + ["", "", ""])[:3]
     return {
         "branch": _git("rev-parse", "--abbrev-ref", "HEAD").strip() or "?",
-        "sha": _git("rev-parse", "--short", "HEAD").strip() or "",
+        "sha": sha or _git("rev-parse", "--short", "HEAD").strip() or "",
+        "subject": subject,
+        "at": at,
+        "root": str(ROOT),
     }
+
+
+# What each porcelain bucket is, in the words a person would use for it. `git`
+# says "untracked", which is a statement about git's index and reads like an
+# accusation; what it means to the PO is "a file that has never been committed"
+# — which is exactly the category his mod loader keeps filling with folders he
+# never typed. Naming them properly is most of the fix for "modifications I
+# can't find".
+KIND_SHORT = {"modified": "edited", "added": "added", "deleted": "deleted",
+              "untracked": "new"}
+KIND_LONG = {
+    "modified":  "tracked files edited since that commit",
+    "added":     "new files staged for the next commit",
+    "deleted":   "tracked files removed from disk",
+    "untracked": "files on disk git has never been told about",
+}
 
 
 def _status_porcelain() -> list[tuple[str, str]]:
@@ -119,7 +151,7 @@ def _bucket(path: str, projects: list[str]) -> str | None:
 def _blank(project: str) -> dict:
     return {"project": project, "dirty_files": 0, "added": 0, "modified": 0,
             "deleted": 0, "untracked": 0, "commits_since": 0, "files": [],
-            "touched_at": None}
+            "touched_at": None, "branch": "", "head_sha": ""}
 
 
 def _mtime(path: str) -> str | None:
@@ -148,6 +180,11 @@ def scan(since: str | None = None) -> list[dict]:
     projects = project_dirs()
     if not projects:
         return []
+
+    # Read once, stamped on every row. It is the same repo for all of them, and a
+    # row that travels without its baseline is a row that cannot say what it is a
+    # change *to* once it reaches the drawer.
+    at_head = head()
 
     agg: dict[str, dict] = {}
     for xy, path in _status_porcelain():
@@ -191,12 +228,13 @@ def scan(since: str | None = None) -> list[dict]:
             agg.setdefault(proj, _blank(proj))["commits_since"] = len(shas)
 
     for row in agg.values():
+        row["branch"], row["head_sha"] = at_head["branch"], at_head["sha"]
         bits = []
         if row["commits_since"]:
             bits.append(f"{row['commits_since']} commit{'s' if row['commits_since'] != 1 else ''}")
         if row["dirty_files"]:
-            parts = [f"{row[k]} {k}" for k in ("modified", "added", "deleted", "untracked")
-                     if row[k]]
+            parts = [f"{row[k]} {KIND_SHORT[k]}"
+                     for k in ("modified", "added", "deleted", "untracked") if row[k]]
             bits.append(", ".join(parts))
         row["summary"] = " · ".join(bits) or "no change"
 
@@ -369,18 +407,37 @@ def read_file(rel: str) -> dict:
             "text": raw.decode("utf-8", errors="replace"), "why": None}
 
 
+# How many of a folder's changed files get written into the log. The drawer lists
+# them, and a list is only readable while it is a list — past a dozen it is a
+# wall, and the diff view next to it is the better place to read a wall.
+FILES_LOGGED = 12
+
+
 def record(conn, pulse_id: int | None, rows: list[dict]) -> int:
-    """Write this pulse's findings into `project_changes`. Returns rows written."""
+    """Write this pulse's findings into `project_changes`. Returns rows written.
+
+    The deltas, the file list and `moved_by` are attached upstream by the pulse,
+    which is the only caller that knows what the previous sample was and what the
+    colony did in the window. They are stored rather than recomputed because the
+    drawer is reading a beat that happened hours ago: by the time anybody opens
+    it, "the previous sample" is a different row and the files have moved on.
+    """
     written = 0
     for r in rows:
         if not (r["dirty_files"] or r["commits_since"]):
             continue
         conn.execute(
-            """INSERT INTO project_changes (pulse_id, project, dirty_files, added, modified,
-                                            deleted, untracked, commits_since, summary)
-               VALUES (?,?,?,?,?,?,?,?,?)""",
-            (pulse_id, r["project"], r["dirty_files"], r["added"], r["modified"],
-             r["deleted"], r["untracked"], r["commits_since"], r["summary"]),
+            """INSERT INTO project_changes (pulse_id, project, branch, head_sha,
+                                            dirty_files, added, modified,
+                                            deleted, untracked, commits_since, summary,
+                                            d_added, d_modified, d_deleted, d_untracked,
+                                            files, moved_by, touched_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (pulse_id, r["project"], r.get("branch"), r.get("head_sha"),
+             r["dirty_files"], r["added"], r["modified"],
+             r["deleted"], r["untracked"], r["commits_since"], r["summary"],
+             r.get("d_added"), r.get("d_modified"), r.get("d_deleted"), r.get("d_untracked"),
+             json.dumps(r.get("files", [])[:FILES_LOGGED]), r.get("moved_by"), r.get("touched_at")),
         )
         written += 1
     return written

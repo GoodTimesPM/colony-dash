@@ -231,6 +231,16 @@ Also shipped with M3, from the same session's asks:
   neutrals but keeps the four accents inside their hue bands, because a "coral" that came out
   green stops saying anomaly; every colour has its lightness solved for the contrast it owes.
   Presets save the palette, the base theme and the text size together and are named.
+- **The Files panel says what "modified" is measured against** — one commit,
+  named in the heading and spelled out in the drawer, whose eyebrow no longer
+  reads "undefined · undefined". Buckets are named in English, and each row
+  carries when it was last written.
+- **The pulse stopped claiming decisions were waiting on you.** It was counting
+  every escalation you had ever decided, forever; it now counts the window, and
+  says they are decisions you *made*.
+- **"Projects that moved" is a real list** — what changed since the previous
+  beat, which files, when they were written, and whether the colony wrote them.
+  Migration 012 stores the deltas that make that possible.
 - **The spend window moves.** `«` / `»` page it, the date box jumps it to a
   day, `now` comes back to the present, and with the chart focused the arrow
   keys walk it a bucket at a time (Home/End, PageUp/PageDown too).

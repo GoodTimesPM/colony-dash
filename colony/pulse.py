@@ -352,7 +352,33 @@ def sync_notion(conn: sqlite3.Connection) -> dict:
     return result
 
 
-def _moved_since_last(conn: sqlite3.Connection, rows: list[dict]) -> list[dict]:
+KINDS = ("added", "modified", "deleted", "untracked")
+
+
+def _colony_writes(conn: sqlite3.Connection, start: str, end: str) -> set[str]:
+    """Project folders the colony itself wrote into during this window.
+
+    The colony has exactly one route into Jordan's working tree — a patch he
+    read and approved — so this set is normally empty, and that emptiness is the
+    useful part. Everything moving outside it moved for a reason that is not the
+    colony: an application rewriting its own config, a build step, an editor,
+    him. A log that reports movement without saying that much invites the reading
+    Jordan actually had, which was that the colony had been in his folders.
+    """
+    return {
+        r["project"] for r in conn.execute(
+            """SELECT DISTINCT s.project AS project
+                 FROM escalations e JOIN stories s ON s.id = e.story_id
+                WHERE e.kind = 'write-approval' AND e.po_decision = 'approve'
+                  AND e.resolved_at > ? AND e.resolved_at <= ?
+                  AND s.project IS NOT NULL""",
+            (start, end),
+        )
+    }
+
+
+def _moved_since_last(conn: sqlite3.Connection, rows: list[dict],
+                      start: str = "", end: str = "") -> list[dict]:
     """Keep only the projects whose state is different from the last time we looked.
 
     `git status` reports a folder as dirty for as long as it stays dirty, so the
@@ -362,7 +388,14 @@ def _moved_since_last(conn: sqlite3.Connection, rows: list[dict]) -> list[dict]:
 
     A project seen for the first time counts as movement — the first sample is
     news precisely because there is nothing to compare it against.
+
+    Each surviving row also carries **how** it differs, not just that it does.
+    The comparison happens here and nowhere else — this is the only place that
+    still has the previous sample in hand — so the difference is attached to the
+    row and stored with it, rather than left to be re-derived by a drawer opened
+    six hours later against a ledger that has moved on.
     """
+    writers = _colony_writes(conn, start, end) if start and end else set()
     out = []
     for r in rows:
         prev = conn.execute(
@@ -370,11 +403,17 @@ def _moved_since_last(conn: sqlite3.Connection, rows: list[dict]) -> list[dict]:
             "WHERE project = ? ORDER BY seen_at DESC, id DESC LIMIT 1",
             (r["project"],),
         ).fetchone()
-        if r["commits_since"] or prev is None:
-            out.append(r)
+        moved = prev is None or bool(r["commits_since"]) or any(
+            r[k] != prev[k] for k in ("dirty_files", *KINDS))
+        if not moved:
             continue
-        if any(r[k] != prev[k] for k in ("dirty_files", "added", "modified", "deleted", "untracked")):
-            out.append(r)
+        # A first sighting has no deltas, and says so with None rather than with
+        # a zero — "unchanged" and "never seen before" are different facts, and
+        # a folder's whole contents appearing as +0 would be the wrong one.
+        for k in KINDS:
+            r["d_" + k] = None if prev is None else r[k] - prev[k]
+        r["moved_by"] = "colony" if r["project"] in writers else "outside"
+        out.append(r)
     return out
 
 
@@ -441,10 +480,24 @@ def reap_orphaned_runs(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     return orphans
 
 
-def open_po_decisions(conn: sqlite3.Connection) -> int:
+def decisions_since(conn: sqlite3.Connection, since: str) -> int:
+    """Decisions the PO made since the last beat.
+
+    This used to count every escalation he had *ever* decided, with nothing to
+    clear it — so from his first approval onward the number only went up, every
+    tick had a standing reason to wake, and the pulse reported "8 PO decision(s)
+    to act on" at a PO whose Inbox held one item.
+
+    Two separate things were wrong with that sentence. The count was unbounded,
+    which the window fixes. And the wording had the direction backwards: these
+    are decisions he already made, applied by `control.decide` at the moment he
+    made them — an approval is not a thing waiting for him, it is a thing that
+    already happened. What the wake picks up afterwards is the consequence.
+    """
     return conn.execute(
         "SELECT COUNT(*) n FROM escalations "
-        "WHERE resolved_at IS NOT NULL AND po_decision IS NOT NULL"
+        "WHERE po_decision IS NOT NULL AND resolved_at IS NOT NULL AND resolved_at > ?",
+        (since,),
     ).fetchone()["n"]
 
 
@@ -515,14 +568,15 @@ def _tick(conn: sqlite3.Connection) -> dict:
     # grooming attempt on a version of it that no longer applies.
     swept = control.clear_spent_groom_tickets(conn)
     finished = collect_finished_runs(conn)
-    decisions = open_po_decisions(conn)
+    decisions = decisions_since(conn, window_start)
     dispatched = pending_builds(conn)
 
     # What moved on disk since the last beat. Pure `git status` — free, and the
     # only part of the tick that watches the thing the colony exists to work on.
     # An hour where Notion was silent but three projects changed is not a quiet
     # hour, and before M3 the log called it "clean".
-    changed = _moved_since_last(conn, projects_mod.scan(since=window_start))
+    changed = _moved_since_last(conn, projects_mod.scan(since=window_start),
+                                window_start, window_end)
 
     # What makes this hour worth spending tokens on. Anything in this list means
     # a wake; an empty list means the tick already did the whole job for free.
@@ -534,7 +588,7 @@ def _tick(conn: sqlite3.Connection) -> dict:
     if finished:
         reasons.append(f"{len(finished)} finished run(s) to harvest")
     if decisions:
-        reasons.append(f"{decisions} PO decision(s) to act on")
+        reasons.append(f"{decisions} decision(s) you made since the last beat")
 
     # Work already sitting in the ledger counts too, not just news from Notion.
     # Without this the loop would only ever wake on the hour a story arrived, and
@@ -595,8 +649,10 @@ def _tick(conn: sqlite3.Connection) -> dict:
 
     if changed:
         moved = sum(1 for c in changed if c["commits_since"])
+        outside = sum(1 for c in changed if c.get("moved_by") == "outside")
         notes.append(f"projects: {len(changed)} moved"
-                     + (f", {moved} committed" if moved else ""))
+                     + (f", {moved} committed" if moved else "")
+                     + (f", {outside} not by the colony" if outside else ""))
 
     # The two halves of M5, both free, both worth a line. Ticked boxes and
     # staled questions are the colony noticing that Jordan moved ahead of it.
@@ -682,9 +738,19 @@ def _detail(ctx: dict) -> str:
                  + (f" · {ctx['swept']} spent groom ticket(s) retired" if ctx.get("swept") else ""))
 
     if changed:
-        lines.append(f"projects {len(changed)} folder(s) moved since the last sample")
+        lines.append(f"projects {len(changed)} folder(s) moved since the last sample "
+                     f"(measured against commit {changed[0].get('head_sha') or '?'})")
         for c in changed[:14]:
-            lines.append(f"         {c['project']:<38} {c['summary']}")
+            # The delta first, because it is the thing that made this row exist;
+            # the level second, in brackets, because it is the thing that made
+            # the old log unreadable. "+3 new (14 new, 2 edited)" says both what
+            # happened this hour and what the folder looks like now.
+            delta = ", ".join(
+                f"{c['d_' + k]:+d} {projects_mod.KIND_SHORT[k]}"
+                for k in projects_mod.KIND_SHORT if c.get("d_" + k)
+            ) or ("first sighting" if c.get("d_modified") is None else "same files, new commit")
+            lines.append(f"         {c['project']:<34} {delta}  [{c['summary']}]"
+                         + ("" if c.get("moved_by") == "colony" else "  not the colony"))
         if len(changed) > 14:
             lines.append(f"         ... and {len(changed) - 14} more")
     else:

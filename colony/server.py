@@ -1005,6 +1005,11 @@ def api_project(name: str = Query(..., max_length=200)) -> dict[str, Any]:
     return {
         "project": name,
         "state": rows_[0] if rows_ else None,
+        # The baseline travels with the answer. Without it the drawer had a
+        # branch and a sha to print and no source for either, which is how its
+        # eyebrow came to read "UNDEFINED · UNDEFINED" on every project.
+        "head": projects_mod.head(),
+        "kinds": projects_mod.KIND_LONG,
         "commits": projects_mod.commits(name),
         "history": history,
     }

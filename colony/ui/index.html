@@ -1089,6 +1089,39 @@ button.persona.hired .nm { color: var(--mint); }
 .proj .bar i.d { background: var(--git-deleted); }
 .proj .bar i.u { background: var(--git-untracked); }
 
+/* One folder's movement, in the pulse drawer. Four rows in a fixed order,
+   because they answer four questions in a fixed order: what changed since the
+   last beat, what the folder looks like now, when it was last written, and
+   which files. The delta line is the loud one — it is the reason the entry
+   exists — and everything under it is context for it. */
+.moved { display: flex; flex-direction: column; gap: 8px; }
+.moved .item {
+  display: grid; grid-template-columns: 1fr auto; gap: 2px 12px;
+  padding: 7px 8px; border-radius: 6px; background: var(--panel-sunk);
+}
+.moved .who {
+  font-family: var(--mono); font-size: var(--step--2); color: var(--ink-dim);
+  text-transform: uppercase; letter-spacing: .08em; white-space: nowrap;
+}
+.moved .name {
+  font-family: var(--mono); font-size: var(--step-0); color: inherit;
+  background: none; border: 0; padding: 0; text-align: left; cursor: pointer;
+}
+.moved .name:hover { color: var(--violet); }
+.moved .delta { grid-column: 1 / -1; font-family: var(--mono); font-size: var(--step--1); }
+.moved .ctx { grid-column: 1 / -1; font-family: var(--mono); font-size: var(--step--2); color: var(--ink-dim); }
+.moved .files { grid-column: 1 / -1; display: flex; flex-direction: column; gap: 1px; margin-top: 3px; }
+.moved .files span {
+  display: grid; grid-template-columns: 1fr auto; gap: 10px;
+  font-family: var(--mono); font-size: var(--step--2); color: var(--ink-soft);
+}
+.moved .files span i { font-style: normal; overflow-wrap: anywhere; }
+.moved .files span b { font-weight: 400; color: var(--ink-dim); white-space: nowrap; }
+.moved .files span.a b { color: var(--git-added); }
+.moved .files span.m b { color: var(--git-modified); }
+.moved .files span.d b { color: var(--git-deleted); }
+.moved .files span.u b { color: var(--git-untracked); }
+
 /* ── macros ───────────────────────────────────────────────────────────────── */
 
 .macro { display: flex; flex-direction: column; gap: 4px; }
@@ -2280,7 +2313,14 @@ function renderProjects(rows) {
   const box = $("projects");
   PROJ_ROWS = rows;
   box.replaceChildren();
-  $("proj-count").textContent = rows.length ? rows.length + " with changes" : "all clean";
+  // "10 with changes" left the reader to guess what the change was measured
+  // against, and the honest answer is one specific commit — every project folder
+  // lives inside a single git repo, so one baseline covers all sixty. Naming it
+  // in the header is the difference between a number and a fact.
+  const base = rows.length ? rows[0].head_sha : "";
+  $("proj-count").textContent = rows.length
+    ? rows.length + (base ? " differ from " + base : " with changes")
+    : "all match the last commit";
   for (const b of document.querySelectorAll("[data-sort]")) {
     b.setAttribute("aria-pressed", b.dataset.sort === PROJ_SORT ? "true" : "false");
   }
@@ -2289,14 +2329,20 @@ function renderProjects(rows) {
   const max = Math.max(...rows.map((r) => r.dirty_files || 1), 1);
   for (const r of rows.slice().sort(PROJ_SORTS[PROJ_SORT] || PROJ_SORTS.changes)) {
     const b = el("button", "proj");
+    // The time goes on the row rather than only in the tooltip. "Why is this
+    // folder dirty when I never opened it" is usually answered by *when* it was
+    // written — an hour ago, while the machine was doing something else — and a
+    // fact that only exists on hover is a fact nobody has.
     b.append(el("span", "p", r.project), el("span", "s", r.summary));
+    if (r.touched_at) b.append(el("span", "s", ago(r.touched_at)));
     const bar = el("div", "bar");
     const seg = (n, cls) => { if (!n) return; const i = el("i", cls); i.style.width = (n / max) * 100 + "%"; bar.append(i); };
     seg(r.added, "a"); seg(r.modified, "m"); seg(r.deleted, "d"); seg(r.untracked, "u");
     b.append(bar);
-    b.title = `${r.project} @ ${r.branch || "?"} ${r.head_sha || ""}` +
+    b.title = `${r.project}
+${r.summary} — measured against ${r.head_sha || "?"} on ${r.branch || "?"}` +
               (r.touched_at ? `
-last touched ${r.touched_at} (${ago(r.touched_at)})` : "");
+last written ${r.touched_at} (${ago(r.touched_at)})` : "");
     b.onclick = () => openProject(r.project);
     box.append(b);
   }
@@ -4263,16 +4309,7 @@ async function openPulse(id) {
   if (p.detail) body.append(sectionBlock("what this beat saw", p.detail));
   else body.append(el("div", "empty", "this beat predates the long-form log (M3)"));
 
-  if (p.changes && p.changes.length) {
-    const list = el("div", "blk");
-    for (const c of p.changes) {
-      const b = el("button", "proj");
-      b.append(el("span", "p", c.project), el("span", "s", c.summary || ""));
-      b.onclick = () => openProject(c.project);
-      list.append(b);
-    }
-    body.append(blk("projects that moved", list));
-  }
+  if (p.changes && p.changes.length) body.append(blk("what moved on disk", movedList(p.changes)));
   body.append(sectionBlock("raw record", JSON.stringify(p.actions_json, null, 2)));
 }
 
@@ -4281,22 +4318,42 @@ async function openProject(name) {
   let p;
   try { p = await getJSON("/api/project?name=" + encodeURIComponent(name)); }
   catch { body.replaceChildren(el("div", "empty", "could not read that folder")); return; }
-  const st = p.state;
-  $("d-eyebrow").textContent = st ? `${st.branch} · ${st.head_sha}` : "project";
+  const st = p.state, repo = p.head || {};
+  // The eyebrow read "undefined · undefined" on every project, because it was
+  // pulling branch and sha off a row that has never carried either. They are a
+  // property of the repo, not of the folder, so they come from the repo.
+  $("d-eyebrow").textContent = repo.branch ? `${repo.branch} · ${repo.sha}` : "project";
   $("d-title").textContent = p.project;
   body.replaceChildren();
 
+  // Every count here is a count of files that differ from one commit, and the
+  // panel used to print the counts without ever naming it. The labels say what
+  // each bucket is in words rather than in git's vocabulary — "untracked" is a
+  // statement about git's index; "never committed" is a statement about the
+  // file, and it is the one that explains folders full of changes nobody made.
+  const kinds = p.kinds || {};
+  const facts = el("dl", "kv");
+  const add = (k, v, why) => {
+    const dd = el("dd", null, v);
+    if (why) dd.title = why;
+    facts.append(el("dt", null, k), dd);
+  };
+  add("compared with", repo.sha
+    ? `${repo.sha} on ${repo.branch}` + (repo.subject ? ` — "${repo.subject}"` : "")
+    : "the last commit");
+  if (repo.at) add("that commit landed", `${repo.at} (${ago(repo.at)})`);
   if (st) {
-    const facts = el("dl", "kv");
-    const add = (k, v) => { facts.append(el("dt", null, k), el("dd", null, v)); };
-    add("working tree", st.summary || "clean");
-    add("added", String(st.added));
-    add("modified", String(st.modified));
-    add("deleted", String(st.deleted));
-    add("untracked", String(st.untracked));
+    add("in total", st.summary || "clean");
+    add("edited", `${st.modified} file(s)`, kinds.modified);
+    add("new, never committed", `${st.untracked} file(s)`, kinds.untracked);
+    if (st.added) add("staged as new", `${st.added} file(s)`, kinds.added);
+    if (st.deleted) add("deleted", `${st.deleted} file(s)`, kinds.deleted);
+    if (st.touched_at) add("last written", `${st.touched_at} (${ago(st.touched_at)})`);
     if (st.commits_since) add("commits in window", String(st.commits_since));
-    body.append(facts);
+  } else {
+    add("in total", "clean — every file here matches that commit");
   }
+  body.append(facts);
 
   if (p.commits && p.commits.length) {
     const list = el("div", "commits");
@@ -4320,6 +4377,91 @@ async function openProject(name) {
     for (const h of p.history) list.append(el("div", "why mono dim", `${h.seen_at}  ${h.summary || ""}`));
     body.append(blk("what the pulse has seen here", list));
   }
+}
+
+// "Projects that moved" was a list of names. It answered which folder and
+// nothing else — not what changed in it, not where, not when, and above all not
+// who, which is the question a PO asks first about a folder he never opened.
+// Everything below was already being measured; none of it was being shown.
+const KIND_WORD = { A: "added", M: "edited", D: "deleted", "??": "new", R: "renamed" };
+const KIND_CLS = { A: "a", M: "m", D: "d", "??": "u", R: "m" };
+
+function fileKind(xy) {
+  const k = String(xy || "").trim();
+  if (k === "??" || k === "?") return ["new", "u"];
+  for (const ch of k) if (KIND_WORD[ch]) return [KIND_WORD[ch], KIND_CLS[ch]];
+  return [k || "changed", ""];
+}
+
+// The delta against the previous beat, which is the whole reason the row is in
+// the log. A null delta is a first sighting, not a zero: the folder had never
+// been sampled, so "+14" would claim fourteen files appeared in that hour when
+// what actually happened is that the colony looked for the first time.
+function movedDelta(c) {
+  const bits = [];
+  for (const [k, word] of [["modified", "edited"], ["untracked", "new"],
+                           ["added", "added"], ["deleted", "deleted"]]) {
+    const d = c["d_" + k];
+    if (d) bits.push((d > 0 ? "+" : "") + d + " " + word);
+  }
+  if (bits.length) return bits.join(", ") + " since the previous beat";
+  // A beat from before migration 012 has no deltas because none were ever
+  // recorded, which is a different fact from a folder that had never been seen,
+  // and the two are told apart by whether the file list was stored at all.
+  if (c.files == null) return "this beat predates the movement log";
+  if (c.d_modified == null && c.d_untracked == null) return "first time this folder was sampled";
+  if (c.commits_since) return "the same files — what moved was the commit";
+  return "counts unchanged since the previous beat";
+}
+
+function movedList(changes) {
+  const box = el("div", "moved");
+  for (const c of changes) {
+    const item = el("div", "item");
+
+    const name = el("button", "name", c.project);
+    name.onclick = () => openProject(c.project);
+    item.append(name);
+    // The colony writes to a folder through exactly one door — a patch the PO
+    // approved — so it can say with certainty when a change was not its doing,
+    // and that is the sentence worth putting on the row.
+    const by = el("span", "who", c.moved_by === "colony" ? "the colony" : "not the colony");
+    by.title = c.moved_by === "colony"
+      ? "a patch you approved was applied into this folder during this beat"
+      : "the colony did not write here — something else on the machine did";
+    item.append(by);
+
+    item.append(el("div", "delta", movedDelta(c)));
+
+    const ctx = [];
+    if (c.summary) ctx.push("now " + c.summary);
+    if (c.head_sha) ctx.push("measured against " + c.head_sha
+                            + (c.branch ? " on " + c.branch : ""));
+    if (c.commits_since) ctx.push(c.commits_since + " commit(s) landed in the window");
+    if (c.touched_at) ctx.push("last written " + c.touched_at + " (" + ago(c.touched_at) + ")");
+    if (ctx.length) item.append(el("div", "ctx", ctx.join("  ·  ")));
+
+    // Where it happened. The paths are the answer to "I can't find the
+    // modification" — the counts never pointed at anything.
+    const files = jsonList(c.files);
+    if (files.length) {
+      const list = el("div", "files");
+      for (const f of files.slice(0, 8)) {
+        const [word, cls] = fileKind(f.xy);
+        const row = el("span", cls);
+        // The project prefix is already the heading of this block; repeating it
+        // on every path pushes the part that differs off the right-hand edge.
+        const rel = String(f.path || "").startsWith(c.project + "/")
+          ? String(f.path).slice(c.project.length + 1) : f.path;
+        row.append(el("i", null, rel), el("b", null, word));
+        list.append(row);
+      }
+      if (files.length > 8) list.append(el("span", null, `… and ${files.length - 8} more`));
+      item.append(list);
+    }
+    box.append(item);
+  }
+  return box;
 }
 
 // A diff is the one place on this page where colour is not rationed: it is the
