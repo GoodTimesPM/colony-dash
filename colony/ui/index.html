@@ -678,6 +678,16 @@ body.halted .halt-banner { display: flex; }
   min-height: 74px; pointer-events: none;
 }
 
+/* The one slot that speaks. An Inbox with nothing in it used to collapse to a
+   line of grey text under a heading, which reads as a panel that failed to load
+   rather than as the best state this panel has. It keeps its row now — the same
+   hollow shapes that would be holding questions — and the good news sits in the
+   first of them, at the size and place a real tile would have been. */
+.tile.slot.note {
+  display: flex; align-items: center; justify-content: center; text-align: center;
+  padding: 0 14px; color: var(--ink-dim); font-size: var(--step--1);
+}
+
 .tile {
   display: flex; flex-direction: column; gap: 6px;
   padding: 11px 13px 12px; border-radius: 8px;
@@ -2578,14 +2588,18 @@ function renderInbox(items) {
     // Nothing to run out to a full row, and the observer has to be told so —
     // `replaceChildren` clears the tiles but not the count written beside them.
     box.dataset.live = 0;
-    // An empty Inbox means the system is working. It gets to look like it —
-    // and, up here at full width, it gets to take up almost no room.
-    box.append(el("div", "empty", stale.length
+    // An empty Inbox means the system is working, and it still gets a row. The
+    // message rides in a slot rather than replacing them all, because a panel
+    // that changes shape between "clear" and "one question" makes the whole page
+    // jump for the least important reason it has.
+    box.dataset.note = stale.length
       ? "nothing current — " + stale.length + " stale question" +
         (stale.length === 1 ? "" : "s") + " behind the toggle"
-      : "empty — nothing needs you"));
+      : "empty — nothing needs you";
+    padSlots(box, 0);
     return;
   }
+  delete box.dataset.note;
   for (const e of live) box.append(inboxTile(e));
   padSlots(box, live.length);
 }
@@ -2606,8 +2620,20 @@ function padSlots(box, count) {
   if (count != null) box.dataset.live = count;
   const live = Number(box.dataset.live || 0);
   for (const old of box.querySelectorAll(".tile.slot")) old.remove();
-  if (!live) return;
   const cols = gridCols(box);
+  if (!live) {
+    // An empty Inbox is a full row of slots rather than no row at all. The grid
+    // cannot always say how wide it is — a fold still opening, a first paint —
+    // and the message has to appear either way, so an unknown column count falls
+    // back to the single slot that carries it and the observer widens the row
+    // the moment there is a width to widen it to.
+    for (let i = 0; i < (cols || 1); i++) {
+      box.append(i === 0 && box.dataset.note
+        ? el("div", "tile slot note", box.dataset.note)
+        : el("div", "tile slot"));
+    }
+    return;
+  }
   if (!cols || live % cols === 0) return;
   for (let i = live % cols; i < cols; i++) box.append(el("div", "tile slot"));
 }
