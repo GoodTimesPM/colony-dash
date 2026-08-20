@@ -231,6 +231,8 @@ Also shipped with M3, from the same session's asks:
   neutrals but keeps the four accents inside their hue bands, because a "coral" that came out
   green stops saying anomaly; every colour has its lightness solved for the contrast it owes.
   Presets save the palette, the base theme and the text size together and are named.
+- **Spend is a real chart now** — hour / day / week / month / year, line or
+  bar, gridlines on both axes, and the date and figure under the pointer.
 - **Learnings keep their whole text.** They were being cut at 400 characters
   on the way into the ledger with nothing kept behind them; long ones now fold
   with a *show the rest* button. The twelve already recorded stay truncated.
