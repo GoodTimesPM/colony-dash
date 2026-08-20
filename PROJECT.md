@@ -231,6 +231,13 @@ Also shipped with M3, from the same session's asks:
   neutrals but keeps the four accents inside their hue bands, because a "coral" that came out
   green stops saying anomaly; every colour has its lightness solved for the contrast it owes.
   Presets save the palette, the base theme and the text size together and are named.
+- **The spend window moves.** `«` / `»` page it, the date box jumps it to a
+  day, `now` comes back to the present, and with the chart focused the arrow
+  keys walk it a bucket at a time (Home/End, PageUp/PageDown too).
+- **Panel headings no longer print `u25BE`.** It was a JavaScript escape in a
+  CSS rule; the caret is gone rather than fixed.
+- **The Inbox ghost slots stay out to the Ticket Queue.** They were padded from
+  a column count measured before the grid had been laid out.
 - **Spend is a real chart now** — hour / day / week / month / year, line or
   bar, gridlines on both axes, and the date and figure under the pointer.
 - **Learnings keep their whole text.** They were being cut at 400 characters

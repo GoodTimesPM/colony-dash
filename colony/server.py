@@ -578,12 +578,16 @@ def _back(dt: datetime, grain: str) -> datetime:
     return dt.replace(year=dt.year - 1)
 
 
-def _series(conn: sqlite3.Connection, grain: str, span: int) -> dict[str, Any]:
-    """Spend per bucket over the last `span` buckets, ending with the one we are in.
+def _series(conn: sqlite3.Connection, grain: str, span: int,
+            end: datetime | None = None) -> dict[str, Any]:
+    """Spend per bucket over the `span` buckets ending with the one `end` falls in.
 
     Empty buckets are emitted with zeros rather than skipped. A chart that only
     plots the hours that had runs draws a continuous line across a quiet night
     and calls it steady spending; the flat stretch at zero *is* the information.
+
+    `end` defaults to now, which is the live view. Any other value is the PO
+    having paged back or picked a date, and the window is anchored there.
     """
     hourly = rows(
         conn,
@@ -598,7 +602,7 @@ def _series(conn: sqlite3.Connection, grain: str, span: int) -> dict[str, Any]:
     )
 
     starts: list[datetime] = []
-    at = _floor(datetime.now(), grain)
+    at = _floor(end or datetime.now(), grain)
     for _ in range(span):
         starts.append(at)
         at = _back(at, grain)
@@ -610,15 +614,24 @@ def _series(conn: sqlite3.Connection, grain: str, span: int) -> dict[str, Any]:
             "tokens": 0, "total_tokens": 0, "usd": 0.0, "runs": 0}
            for d in starts]
 
-    dropped = 0
+    # Runs on either side of the window are counted, not merely dropped. Once the
+    # window can be paged away from now, "0 runs" has two very different causes —
+    # a quiet stretch, or a window pointed at the wrong end of the ledger — and
+    # only a count in each direction tells them apart.
+    before = after = 0
+    first, last = starts[0], starts[-1]
     for r in hourly:
         try:
             when = datetime.strptime(r["h"], "%Y-%m-%d %H")
         except (TypeError, ValueError):
             continue
-        i = index.get(_floor(when, grain))
-        if i is None:                      # older than the window, or the future
-            dropped += r["runs"]
+        bucket = _floor(when, grain)
+        i = index.get(bucket)
+        if i is None:
+            if bucket < first:
+                before += r["runs"]
+            elif bucket > last:
+                after += r["runs"]
             continue
         p = pts[i]
         p["tokens"] += r["tokens"]
@@ -634,8 +647,12 @@ def _series(conn: sqlite3.Connection, grain: str, span: int) -> dict[str, Any]:
         "usd": sum(p["usd"] for p in pts),
         "runs": sum(p["runs"] for p in pts),
         # What the window is not showing, so "0 runs" can be told apart from
-        # "all of it happened before this window started".
-        "outside": dropped,
+        # "all of it happened on the other side of this window".
+        "outside": before,
+        "ahead": after,
+        # Whether the window still ends at the present. The page uses it to grey
+        # out the forward arrow rather than letting the PO page into next week.
+        "live": last >= _floor(datetime.now(), grain),
     }
 
 
@@ -804,16 +821,36 @@ def api_story(story_id: int) -> dict[str, Any]:
 
 
 @app.get("/api/spend")
-def api_spend(grain: str = Query("day"), span: int = Query(0)) -> dict[str, Any]:
-    """The spend chart, at whichever grain the PO picked."""
+def api_spend(grain: str = Query("day"), span: int = Query(0),
+              end: str = Query("")) -> dict[str, Any]:
+    """The spend chart, at whichever grain the PO picked, ending wherever he put it."""
     if grain not in SPAN:
         raise HTTPException(400, f"grain must be one of {', '.join(SPAN)}")
     # An out-of-range span is clamped rather than swapped for the default: a
     # caller who asked for 9999 buckets wants "as far back as you go", not 30.
     span = max(2, min(400, span)) if span else SPAN[grain]
+
+    # `end` is where the window stops. A bare date is enough for every grain
+    # coarser than an hour, so both spellings are accepted and an unparseable
+    # one is an error rather than a silent fall back to now — a date control
+    # that quietly ignores you is worse than one that says no.
+    at: datetime | None = None
+    if end:
+        for fmt in ("%Y-%m-%d %H:%M", "%Y-%m-%dT%H:%M", "%Y-%m-%d"):
+            try:
+                at = datetime.strptime(end, fmt)
+                break
+            except ValueError:
+                continue
+        if at is None:
+            raise HTTPException(400, "end must be YYYY-MM-DD or YYYY-MM-DD HH:MM")
+        # A window anchored in the future is a paging overshoot, not a request to
+        # chart tomorrow; it lands back on the live view.
+        at = min(at, datetime.now())
+
     conn = _conn()
     try:
-        return _series(conn, grain, span)
+        return _series(conn, grain, span, at)
     finally:
         conn.close()
 
