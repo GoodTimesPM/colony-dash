@@ -28,12 +28,15 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from . import (control, db, forge as forge_mod, notion, outbox,
-               projects as projects_mod)
+               projects as projects_mod, usage as usage_mod)
 from .mirror import load_env
 
 HALT_FILE = db.RUNTIME_DIR / "HALT"
-USAGE_CACHE = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "claude-usage" / "usage.json"
-USAGE_STALE_AFTER = timedelta(minutes=20)
+# Both moved to `usage.py`, which is now the one place that knows where the
+# tray app writes and how long a read stays worth believing. Kept as aliases
+# because the pulse's own tests and the CLI still name them.
+USAGE_CACHE = usage_mod.CACHE
+USAGE_STALE_AFTER = usage_mod.STALE_AFTER
 
 PULSE_INTERVAL = timedelta(hours=1)
 # How long a run may sit in 'running' before the next pulse declares it orphaned.
@@ -57,19 +60,19 @@ def check_halt() -> bool:
 
 
 def sample_usage(conn: sqlite3.Connection) -> dict | None:
-    """Copy the tray app's last good read into `usage_samples`.
+    """Write the tray app's last good read into `usage_samples`.
 
     We never call the usage endpoint ourselves: it allows ~5 requests per rolling
     5 minutes per account and the Claude Code CLI spends from the same bucket, so
     a second poller would earn 429s for both. One poller, one cache file.
-    """
-    if not USAGE_CACHE.is_file():
-        return None
 
-    mtime = datetime.fromtimestamp(USAGE_CACHE.stat().st_mtime)
-    try:
-        data = json.loads(USAGE_CACHE.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
+    This is the *history*, one row an hour. The live figure the dashboard shows
+    comes straight from `usage.read()` on every snapshot, because a number that
+    the tray app refreshes every five minutes should not be up to an hour old on
+    screen — and a stalled hourly copy looks exactly like a counter that broke.
+    """
+    sample = usage_mod.read()
+    if sample is None:
         return None
 
     conn.execute(
@@ -78,17 +81,73 @@ def sample_usage(conn: sqlite3.Connection) -> dict | None:
         VALUES (?, ?, ?, ?)
         """,
         (
-            data.get("five_hour"),
-            data.get("seven_day"),
-            data.get("seven_day_resets"),
-            mtime.strftime("%Y-%m-%d %H:%M:%S"),
+            sample["five_hour"],
+            sample["seven_day"],
+            # Stored as the local instant it actually happens at, not the UTC
+            # string the cache carries. The dashboard was slicing that string
+            # and printing "08:59" for a window that closes at five in the
+            # morning.
+            sample["seven_day_resets"].strftime("%Y-%m-%d %H:%M:%S")
+            if sample["seven_day_resets"] else None,
+            sample["mtime"].strftime("%Y-%m-%d %H:%M:%S"),
         ),
     )
-    return {
-        "five_hour": data.get("five_hour"),
-        "seven_day": data.get("seven_day"),
-        "stale": datetime.now() - mtime > USAGE_STALE_AFTER,
-    }
+    return sample
+
+
+def align_sprint(conn: sqlite3.Connection) -> dict | None:
+    """Keep the active sprint on the allowance week, and roll it when that turns.
+
+    "my weekly token usage resets every friday at 5:00 AM. The weekly sprints
+     and day count should abide by this range"
+
+    Sprint 1 was seeded with today + 7 as an admitted placeholder, with a
+    docstring promising the pulse would correct it on the first good sample.
+    This is that correction, four weeks late: the window comes from the reset
+    instant the API reports, and the sprint's dates follow it rather than the
+    day of the week the ledger happened to be created on.
+
+    Two outcomes, and the difference matters. Before the window turns, the
+    sprint is *aligned* — same sprint, edges moved onto the real boundary. When
+    it turns, the sprint is *closed* and the next one opens, because a sprint
+    that silently extends past its own budget week is a budget that does not
+    exist. The goal is not carried over: a new week is a new week, and a stale
+    goal on it would read as a decision nobody made.
+    """
+    start, end = usage_mod.current_window()
+    sprint = conn.execute(
+        "SELECT * FROM sprints WHERE status = 'active' ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    if not sprint:
+        return None
+
+    fmt = "%Y-%m-%d %H:%M:%S"
+    if sprint["ends_at"] and sprint["ends_at"] <= now():
+        conn.execute("UPDATE sprints SET status = 'closed' WHERE id = ?", (sprint["id"],))
+        cur = conn.execute(
+            """INSERT INTO sprints (name, goal, starts_on, ends_on, starts_at, ends_at,
+                                    budget_pct, status)
+               VALUES (?, NULL, ?, ?, ?, ?, ?, 'active')""",
+            (f"Sprint {sprint['id'] + 1}", start.date().isoformat(), end.date().isoformat(),
+             start.strftime(fmt), end.strftime(fmt), sprint["budget_pct"]),
+        )
+        control._record(conn, "note", "sprint", cur.lastrowid,
+                        f"{sprint['name']} closed; Sprint {sprint['id'] + 1} opens "
+                        f"{start.strftime(fmt)} and runs to {end.strftime(fmt)}")
+        return {"action": "rolled", "closed": sprint["id"], "opened": cur.lastrowid,
+                "starts_at": start.strftime(fmt), "ends_at": end.strftime(fmt)}
+
+    if sprint["starts_at"] == start.strftime(fmt) and sprint["ends_at"] == end.strftime(fmt):
+        return None
+
+    conn.execute(
+        """UPDATE sprints SET starts_on = ?, ends_on = ?, starts_at = ?, ends_at = ?
+            WHERE id = ?""",
+        (start.date().isoformat(), end.date().isoformat(),
+         start.strftime(fmt), end.strftime(fmt), sprint["id"]),
+    )
+    return {"action": "aligned", "sprint": sprint["id"],
+            "starts_at": start.strftime(fmt), "ends_at": end.strftime(fmt)}
 
 
 def candidate_projects() -> list[str]:
@@ -586,6 +645,7 @@ def _tick(conn: sqlite3.Connection) -> dict:
 
     halted = check_halt()
     usage = sample_usage(conn)
+    sprint_move = align_sprint(conn)
     board = sync_notion(conn)
 
     # Push before pull would be tidier, but sync first is deliberate: a status
@@ -729,6 +789,7 @@ def _tick(conn: sqlite3.Connection) -> dict:
         "started": started, "window_start": window_start, "window_end": window_end,
         "tier": tier, "finding": finding, "anomalies": anomalies,
         "usage": usage, "board": board, "reasons": reasons, "notes": notes,
+        "sprint_move": sprint_move,
         "finished": len(finished), "halted": halted, "changed": changed,
         "orphans": len(orphans), "swept": swept, "dispatched": dispatched, "groomable": pending,
         "decisions": decisions, "candidates": candidates, "queued_drafts": queued_drafts,
@@ -780,6 +841,15 @@ def _detail(ctx: dict) -> str:
                      + ("  (STALE cache)" if usage["stale"] else ""))
     else:
         lines.append("usage    no cache — is the tray app running?")
+
+    # A sprint that quietly runs past its own budget week is a budget that does
+    # not exist, so the tick says out loud whenever it moved the edges.
+    move = ctx.get("sprint_move")
+    if move:
+        lines.append("sprint   " + (
+            f"rolled — #{move['closed']} closed, #{move['opened']} opens {move['starts_at']}"
+            if move["action"] == "rolled" else
+            f"aligned to the allowance week — {move['starts_at']} → {move['ends_at']}"))
 
     lines.append(f"ledger   {ctx['groomable']} groomable · {ctx['dispatched']} dispatched · "
                  f"{ctx['finished']} unharvested run(s) · {ctx['orphans']} orphan(s) reaped"

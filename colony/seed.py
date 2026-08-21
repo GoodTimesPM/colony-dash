@@ -10,7 +10,8 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
-from datetime import date, timedelta
+
+from . import usage
 
 READ_SCOPE = ["D:/ALL STUFF/PROJECTS/**"]
 
@@ -93,25 +94,36 @@ def seed_agents(conn: sqlite3.Connection) -> int:
 def seed_sprint(conn: sqlite3.Connection) -> int | None:
     """Open sprint 1 if there isn't an active one.
 
-    Sprint boundaries want to align to the Anthropic 7-day reset; until a real
-    `usage_samples` row tells us when that is, today + 7 is the placeholder and
-    the pulse corrects it on the first good sample.
+    Sprint boundaries are the Anthropic 7-day window: Friday 05:00 to Friday
+    05:00. `usage.current_window` reads the reset instant the API reported and
+    falls back to that arithmetic when there is no cache to read, so a sprint is
+    born on the right edges rather than on whichever day `init` was typed.
+
+    This used to seed today + 7 as an admitted placeholder, with a promise that
+    the pulse would correct it. It never did, and sprint 1 ran Monday-to-Monday
+    against a Friday-to-Friday budget for four weeks. `pulse.align_sprint` is
+    that correction and also the weekly roll; this just stops creating the
+    problem in the first place.
     """
     existing = conn.execute("SELECT id FROM sprints WHERE status = 'active'").fetchone()
     if existing:
         return None
 
-    start = date.today()
+    start, end = usage.current_window()
+    fmt = "%Y-%m-%d %H:%M:%S"
     cur = conn.execute(
         """
-        INSERT INTO sprints (name, goal, starts_on, ends_on, budget_pct, status)
-        VALUES (?, ?, ?, ?, 35.0, 'active')
+        INSERT INTO sprints (name, goal, starts_on, ends_on, starts_at, ends_at,
+                             budget_pct, status)
+        VALUES (?, ?, ?, ?, ?, ?, 35.0, 'active')
         """,
         (
             "Sprint 1",
             "Stand up the ledger and a week of honest pulse logs.",
-            start.isoformat(),
-            (start + timedelta(days=7)).isoformat(),
+            start.date().isoformat(),
+            end.date().isoformat(),
+            start.strftime(fmt),
+            end.strftime(fmt),
         ),
     )
     return cur.lastrowid

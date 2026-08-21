@@ -14,7 +14,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from . import db, roster as roster_mod, seed as seed_mod
+from . import db, roster as roster_mod, seed as seed_mod, usage as usage_mod
 
 # Dollars are always the grayed secondary; tokens are the unit. ARCHITECTURE.md §6.
 # Piped output gets no escapes — a log file full of \033[2m is worse than plain text.
@@ -84,18 +84,31 @@ def cmd_status(conn: sqlite3.Connection, args) -> int:
             SELECT COALESCE(SUM(COALESCE(chargeable_tokens, total_tokens)), 0) AS tok,
                    COALESCE(SUM(cost_usd), 0) AS usd
               FROM runs
-             WHERE date(started_at) BETWEEN ? AND ?
+             WHERE started_at >= ? AND started_at < ?
             """,
-            (sprint["starts_on"], sprint["ends_on"]),
+            # Half-open on the instant, not the date. The allowance week turns
+            # at 05:00 on a Friday, so a date range counted the five hours
+            # before one reset and the whole day after the next.
+            (sprint["starts_at"] or sprint["starts_on"] + " 00:00:00",
+             sprint["ends_at"] or sprint["ends_on"] + " 00:00:00"),
         ).fetchone()
         rule(f"{sprint['name']} — {sprint['goal'] or 'no goal set'}")
-        print(f"  {sprint['starts_on']} → {sprint['ends_on']}   allowance {sprint['budget_pct']:.0f}% of week")
+        print(f"  {sprint['starts_at'] or sprint['starts_on']} → "
+              f"{sprint['ends_at'] or sprint['ends_on']}"
+              f"   allowance {sprint['budget_pct']:.0f}% of week")
         print(f"  spent  {toks(spent['tok'])} tok  {usd(spent['usd'])}")
     else:
         rule("no active sprint")
 
+    # The cache, not the last hourly copy of it. `colony status` typed at 09:55
+    # should not be reporting the 09:07 pulse's idea of the week.
+    live = usage_mod.read()
     usage = conn.execute("SELECT * FROM usage_samples ORDER BY sampled_at DESC LIMIT 1").fetchone()
-    if usage:
+    if live:
+        print(f"  week   {float(live['seven_day'] or 0):.1f}% used   "
+              f"resets {live['seven_day_resets'] or usage_mod.next_reset()}"
+              + (f"   {DIM}(cache stale){RESET}" if live["stale"] else ""))
+    elif usage:
         print(f"  week   {usage['seven_day_pct']:.1f}% used   resets {usage['seven_day_resets_at']}")
     else:
         print(f"  week   {DIM}no usage sample yet — see ARCHITECTURE.md §6.2{RESET}")
