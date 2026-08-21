@@ -212,6 +212,14 @@ def _close_escalation(conn: sqlite3.Connection, esc_id: int, decision: str) -> N
     )
 
 
+# "approve" + "d" is "approved" and every other one of these is not. The four
+# decisions were being past-tensed by appending a letter, which put "PO rejectd"
+# and "PO amendd" on the timeline and, once decisions became tickets, into the
+# permanent record of what Jordan actually said.
+_PAST = {"approve": "approved", "reject": "rejected",
+         "defer": "deferred", "amend": "amended"}
+
+
 def _asked(esc: sqlite3.Row) -> str:
     """The question as it stood when it was answered, recommendation and all."""
     text = f"[{esc['kind']}] {esc['reason']}"
@@ -313,12 +321,14 @@ def decide(conn: sqlite3.Connection, esc_id: int, decision: str,
     elif kind == "write-approval":
         outcome = _settle_patch(conn, esc, decision, note)
     elif esc["story_id"]:
-        _event(conn, esc["story_id"], "decided", f"PO {decision}d: {esc['reason'][:200]}",
+        _event(conn, esc["story_id"], "decided",
+               f"PO {_PAST.get(decision, decision)}: {esc['reason'][:200]}",
                note or None)
 
     _decision_ticket(
         conn, story_id=esc["story_id"], title=f"Decision: {esc['reason'][:140]}",
-        question=_asked(esc), answer=f"PO {decision}d — {outcome}."
+        question=_asked(esc),
+        answer=f"PO {_PAST.get(decision, decision)} — {outcome}."
                                     + (f"\n\n{note}" if note else ""),
         esc_id=esc_id)
     return {"ok": True, "outcome": outcome, "kind": kind}
