@@ -1961,20 +1961,97 @@ function hash32(str) {
   for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; }
   return h >>> 0;
 }
+// Roster colours are whatever the persona file's author typed: "#0A66C2",
+// "blue", "slate", "neon-green". Canvas does not throw on a colour it cannot
+// parse — it *ignores the assignment*, and whatever was in `fillStyle` before
+// stays. What was in it before, here, was the panel background. So every hired
+// persona whose file named a colour CSS has never heard of was painted onto the
+// panel in the panel's own colour, and came out blank. The two structural
+// agents had faces only because they have no roster row at all: `color` was
+// null, and the seed-derived fallback ran.
+//
+// The words below are the ones the roster actually uses that CSS does not know.
+// Anything else unrecognised falls through to the seed, so a persona still gets
+// a face — never nothing.
+const TINT_WORDS = {
+  slate: "#94a3b8", amber: "#f59e0b", rose: "#fb7185",
+  "neon-green": "#39ff14", "neon-cyan": "#00e5ff", "metallic-blue": "#4a749b",
+};
+
+// Two sentinels, because the only way to ask canvas whether it understood a
+// colour is to watch whether it changed its mind. A value it accepts overwrites
+// both starting points identically; one it rejects leaves both untouched.
+function asHex(value) {
+  if (!value) return null;
+  const word = String(value).trim().toLowerCase();
+  if (TINT_WORDS[word]) return TINT_WORDS[word];
+  const t = document.createElement("canvas").getContext("2d");
+  t.fillStyle = "#000000"; t.fillStyle = value; const a = t.fillStyle;
+  t.fillStyle = "#ffffff"; t.fillStyle = value; const b = t.fillStyle;
+  return (a === b && String(a).charAt(0) === "#") ? a : null;
+}
+
+function hex2hsl(hex) {
+  const [r, g, b] = hex2rgb(hex).map((v) => v / 255);
+  const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn;
+  const l = (mx + mn) / 2;
+  if (!d) return [0, 0, l * 100];
+  const s = d / (1 - Math.abs(2 * l - 1));
+  const h = mx === r ? ((g - b) / d + (g < b ? 6 : 0))
+          : mx === g ? (b - r) / d + 2
+          : (r - g) / d + 4;
+  return [h * 60, s * 100, l * 100];
+}
+
+// A hue is character and belongs to the persona; a lightness that survives this
+// theme is arithmetic and does not. Nine roster colours are near-black —
+// "#000000" among them — which on a sunk dark panel is the same failure as an
+// unparseable word by a different route. `toward` is the function that already
+// keeps a randomised palette legible; it keeps these legible too.
+// `toward` takes its direction from the colour, which is right when the colour
+// was chosen for a known background and wrong here, where 270 of them arrive
+// from persona files written by people who never saw this panel. "#000000"
+// starts below a dark panel and walks further down into a floor it is already
+// on; yellow starts above a light one and walks up to white. Which way there is
+// room is a fact about the panel, so the panel decides, and the clamped start
+// keeps every hue inside the range where the walk has somewhere to go.
+function legible(h, s, l, bg, target) {
+  const dir = lum(bg) > 0.4 ? -1 : 1;
+  for (let i = 0; i < 120 && contrast(hsl2hex(h, s, l), bg) < target; i++) l += dir;
+  return hsl2hex(h, s, Math.min(100, Math.max(0, l)));
+}
+
+function tintFor(seed, color) {
+  const bg = tokenValue("--panel-sunk");
+  const hex = asHex(color);
+  const hsl = hex ? hex2hsl(hex) : [hash32(seed || "anon") % 360, 52, 58];
+  return legible(hsl[0], hsl[1], Math.min(80, Math.max(35, hsl[2])), bg, 3);
+}
+
 function drawAvatar(canvas, seed, color) {
   const S = 8, px = 4;
   canvas.width = S * px; canvas.height = S * px;
   const ctx = canvas.getContext("2d");
   let h = hash32(seed || "anon");
   const rnd = () => { h ^= h << 13; h ^= h >>> 17; h ^= h << 5; h >>>= 0; return h / 4294967296; };
-  const tint = color || `hsl(${Math.floor(hash32(seed || "anon") % 360)} 52% 58%)`;
-  const style = getComputedStyle(document.body);
-  ctx.fillStyle = style.getPropertyValue("--panel-sunk").trim() || "#111";
+
+  ctx.fillStyle = tokenValue("--panel-sunk");
   ctx.fillRect(0, 0, S * px, S * px);
-  ctx.fillStyle = tint;
+
+  const cells = [];
+  for (let y = 1; y < S - 1; y++) for (let x = 0; x < S / 2; x++) cells.push(rnd() > 0.5);
+  // Twenty-four coin flips will occasionally come up nearly all tails, and a
+  // sprite with three lit pixels reads as a missing picture rather than a quiet
+  // one. Filled deterministically from the top so the same seed still gives the
+  // same face.
+  let ink = cells.filter(Boolean).length;
+  for (let i = 0; ink < 6 && i < cells.length; i++) if (!cells[i]) { cells[i] = true; ink++; }
+
+  ctx.fillStyle = tintFor(seed, color);
+  let i = 0;
   for (let y = 1; y < S - 1; y++) {
-    for (let x = 0; x < S / 2; x++) {
-      if (rnd() > 0.5) {
+    for (let x = 0; x < S / 2; x++, i++) {
+      if (cells[i]) {
         ctx.fillRect(x * px, y * px, px, px);
         ctx.fillRect((S - 1 - x) * px, y * px, px, px);
       }
