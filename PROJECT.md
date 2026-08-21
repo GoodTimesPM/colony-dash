@@ -343,14 +343,80 @@ names the state and the next move.
       handoff, or one retire? **Check the stale flags first** — the next pulse will mark any
       question the Notion page has already moved past, and a stale card wants **re-ask**
       rather than an answer.
-- [ ] **Restart the dashboard window** to pick up M5. The ledger is already migrated; the
-      running window is serving the pre-M5 code.
+- [ ] **Approve or reject the first hire Ordis picked himself.** Inbox card #19: Developer
+      Tooling Engineer as `scan-cli-builder` on `personal-desktop-projects`, for
+      *Full computer scan*. Rejecting is a real answer — the next pulse proposes someone
+      else, and the counter that keeps the roster diverse learns from it either way.
+- [ ] **Restart the dashboard window** to pick up 014/015. The ledger is already migrated;
+      the running window is serving the older code.
 - [ ] Let it run a week, then tune the escalation bar (§4.6) against real logs.
 - [ ] **Promote the first real skill.** Three candidates are waiting in the FORGE panel;
       none has been drafted yet, because drafting costs tokens and that is the PO's call.
 - [ ] **First live write-capable ticket.** M3 is verified against a copy of the ledger; it
       has not yet been pointed at a real story end-to-end.
 - [ ] Update the published artifact — it still shows the pre-M1 design.
+
+## Finished 2026-08-21 — the four things the loop was making the PO do
+
+Four complaints from the PO seat, all of them the same complaint: the loop kept handing
+Jordan work that was its own.
+
+**Images pasted into the chat are read now.** They always could be — attachments live on
+disk and go to agents as absolute paths, and a live `claude -p --allowedTools Read` describes
+one correctly. But only `reply_prompt` ever mentioned them, and only the ones on the message
+being answered; `groom_prompt` and `build_prompt` mentioned them nowhere. Story 1 carries
+three screenshots, and the groom that asked Jordan for “the exact field list ... it was
+never transcribed into text anywhere” was holding a prompt that did not know they existed.
+**It asked him for a picture he had already sent.** `attachments.for_story` collects every
+file on a story's thread and `attachments.evidence` puts them in all three prompts.
+
+**Blockers moved into the conversation.** `/api/thread` returns a `state` block — whether
+the story can move, what stops it, every open ask on it — and the composer draws it above
+the proposal: coral for blocked, amber for waiting on you, mint for moving. Mint is drawn as
+loudly as coral on purpose. A banner that only appears when something is wrong teaches you
+to read its absence, and an absent banner looks exactly like a panel that failed to load.
+Open questions inside the thread are coloured by kind too; they had all been the same grey
+rule, so six asks gave no clue which one was still holding the story.
+
+**Every answered escalation writes a ticket.** Approvals, rejections, deferrals, project
+confirmations, dispatches — “any call/choice can be made a ticket to ensure that it has
+been understood” — with the question as the work order and the answer as the findings.
+Twelve backfilled. `tickets.intent` has a CHECK that SQLite will not widen in place (014's
+header records the two table rebuilds that failed and exactly why, so nobody retries them),
+so a decision is `intent='chore'` plus `decided_esc_id`, the same shape a reply already had
+as `intent='research'` plus `po_message_id`.
+
+**And the PO stopped picking agents.** The tile that said “open Standby, pick a persona and
+hire them with write scope” was asking him to read a roster of 270 people to do the Scrum
+Master's job. `wake.staff_stories` picks one per pulse for a ready, project-confirmed,
+writer-less story, reads the persona files and the project, names the finalists it passed
+over, and brings a name to approve. `control.propose_hire` and the `hire` escalation kind
+had existed since M3 with nothing calling them; this is the caller they were waiting for.
+
+The roster goes in **unfiltered** — all 270 personas, 69k chars. FTS-filtering it by the
+story text *is* the bias: a search over the story can only ever return personas whose
+description already sounds like the story. And bias gets a counter rather than a rule,
+because the thing that would produce it is the same thing you would be asking to police it.
+`roster.times_hired` / `last_hired_at` are shown in the prompt, and the diversity line
+attached to each proposal — first contract or Nth, and whether every finalist came from
+one division — is **written by Python**, not by the agent's own account of its reasoning.
+
+It worked on the first pulse. Story 5 got **Developer Tooling Engineer**, first contract in
+this colony, finalists spanning engineering and security, chosen off the acceptance criteria
+rather than the title: it passed over the incident responder because “malware-flagged files
+are one line item in a routine optimization pass, not an active breach.” That is the
+distinction the PO was being asked to make from a list of job titles.
+
+**Cost to know:** 74k chargeable tokens for one hiring decision, most of it the roster
+digest. If that proves too rich per hire, the lever is the digest's `desc_chars`, not a
+filter over it.
+
+Two things broke on the way and are fixed: `control._event` takes the four columns it was
+written for, and a hire is the one event that also wants `ticket_id` and `tokens` (it
+inserts directly now, and run #31's event was backfilled rather than paying twice); and
+`"approve" + "d"` is `"approved"` while none of the other three are, so the timeline had
+been saying **PO rejectd** for as long as it has existed. `_PAST` maps all four and 015
+repairs the rows.
 
 ## Finished 2026-08-18 — M5, the link that runs both ways
 
