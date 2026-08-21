@@ -75,6 +75,31 @@ def _event(conn: sqlite3.Connection, story_id: int, kind: str, summary: str,
     )
 
 
+def _decision_ticket(conn: sqlite3.Connection, *, story_id: int | None, title: str,
+                     question: str, answer: str, esc_id: int | None = None) -> int:
+    """Write down a call the PO made, as a ticket, closed the second it is made.
+
+    "Basically any call/choice can be made a ticket to ensure that it has been
+    understood." Until now a decision produced an `escalations` row that went
+    quiet and a line in `audit` that nothing renders. The Ticket Queue is where
+    the PO watches work exist, and the most consequential thing he does all week
+    — accepting a set of acceptance criteria — put nothing there.
+
+    So the call gets a row of its own, holding the question on one side and his
+    answer on the other. It is born `done`: this is not work to do, it is work
+    that was done, by him. Nothing reads these to decide anything, and that is
+    the point — a ticket that changed the loop's behaviour would make pressing
+    Approve mean two things, and the second one would be invisible.
+    """
+    cur = conn.execute(
+        """INSERT INTO tickets (story_id, title, intent, status, work_order,
+                                findings, requires_po, closed_at, decided_esc_id)
+           VALUES (?,?,'chore','done',?,?,1,datetime('now','localtime'),?)""",
+        (story_id, title[:200], question[:8000], answer[:2000], esc_id),
+    )
+    return int(cur.lastrowid)
+
+
 def get_control(conn: sqlite3.Connection, key: str, default: str = "") -> str:
     row = conn.execute("SELECT value FROM controls WHERE key = ?", (key,)).fetchone()
     return (row["value"] if row and row["value"] is not None else default)
@@ -187,6 +212,14 @@ def _close_escalation(conn: sqlite3.Connection, esc_id: int, decision: str) -> N
     )
 
 
+def _asked(esc: sqlite3.Row) -> str:
+    """The question as it stood when it was answered, recommendation and all."""
+    text = f"[{esc['kind']}] {esc['reason']}"
+    if esc["recommendation"]:
+        text += f"\n\nOrdis recommended: {esc['recommendation']}"
+    return text
+
+
 def decide(conn: sqlite3.Connection, esc_id: int, decision: str,
            note: str = "", snooze_hours: float = 8) -> dict[str, Any]:
     """Answer one Inbox item. The single entry point for every escalation kind.
@@ -237,8 +270,13 @@ def decide(conn: sqlite3.Connection, esc_id: int, decision: str,
             "snoozed_until = datetime('now','localtime', ?) WHERE id = ?",
             (f"+{int(snooze_hours)} hours", esc_id),
         )
-        return {"ok": True, "kind": kind,
-                "outcome": f"snoozed {int(snooze_hours)}h" if snooze_hours else "back in the Inbox"}
+        deferred = f"snoozed {int(snooze_hours)}h" if snooze_hours else "back in the Inbox"
+        _decision_ticket(
+            conn, story_id=esc["story_id"], title=f"Deferred: {esc['reason'][:140]}",
+            question=_asked(esc), answer=f"PO deferred — {deferred}."
+                                        + (f"\n\n{note}" if note else ""),
+            esc_id=esc_id)
+        return {"ok": True, "kind": kind, "outcome": deferred}
 
     # Any decision other than "later" wakes the item back up, so an approved
     # item never carries a stale snooze into the audit trail.
@@ -278,6 +316,11 @@ def decide(conn: sqlite3.Connection, esc_id: int, decision: str,
         _event(conn, esc["story_id"], "decided", f"PO {decision}d: {esc['reason'][:200]}",
                note or None)
 
+    _decision_ticket(
+        conn, story_id=esc["story_id"], title=f"Decision: {esc['reason'][:140]}",
+        question=_asked(esc), answer=f"PO {decision}d — {outcome}."
+                                    + (f"\n\n{note}" if note else ""),
+        esc_id=esc_id)
     return {"ok": True, "outcome": outcome, "kind": kind}
 
 
@@ -406,6 +449,12 @@ def confirm_project(conn: sqlite3.Connection, story_id: int, project: str) -> di
     # stop being evidence and start being duplicates in the Ticket Queue.
     retired = regroom_budget(conn, story_id)
     _event(conn, story_id, "decided", f"PO confirmed the project folder: {note}")
+    _decision_ticket(
+        conn, story_id=story_id, title=f"Decision: which folder does “{story['title'][:90]}” live in?",
+        question=f"The colony had this story as {story['project'] or 'unplaced'} "
+                 f"({story['project_source'] or 'unset'}). An inferred folder can never "
+                 f"authorise a write, so the answer is the gate.",
+        answer=f"PO confirmed {note}.")
     return {"ok": True, "project": project, "note": note, "retired": retired,
             "message": f"project confirmed: {note}"
                        + (f" · {retired} spent groom ticket(s) retired" if retired else "")}
@@ -1008,6 +1057,19 @@ def hire(conn: sqlite3.Connection, *, roster_slug: str | None, role: str,
         )
         agent_id = cur.lastrowid
 
+    # The bias counter, kept at the one place a persona actually gets picked.
+    # "I do not want to only see one agent being chosen over and over again just
+    # because we found one that works" is not enforceable by asking nicely in a
+    # prompt — the thing producing the preference would be the thing policing it.
+    # A number in the ledger can be put in front of the next selection and can be
+    # checked afterwards, which is the difference between a rule and a wish.
+    if roster_slug:
+        conn.execute(
+            "UPDATE roster SET times_hired = times_hired + 1, "
+            "last_hired_at = datetime('now','localtime') WHERE slug = ?",
+            (roster_slug,),
+        )
+
     if not _skip_record:
         _record(conn, "hire", "agent", agent_id,
                 f"{role}" + (f" on {project}" if project else "")
@@ -1106,6 +1168,12 @@ def dispatch(conn: sqlite3.Connection, story_id: int) -> dict[str, Any]:
     _event(conn, story_id, "staffed",
            f"PO dispatched to {agent['role']} — worktree, write scope {story['project']}/",
            f"ticket #{ticket_id}")
+    _decision_ticket(
+        conn, story_id=story_id, title=f"Decision: start building “{story['title'][:90]}”?",
+        question="Criteria accepted, folder confirmed, writer hired. Dispatch is the "
+                 "last gate before the colony opens a worktree and spends real tokens.",
+        answer=f"PO dispatched to {agent['role']} on {story['project']}/ "
+               f"— implement ticket #{ticket_id}.")
     return {"ok": True, "ticket_id": ticket_id, "role": agent["role"]}
 
 

@@ -29,6 +29,7 @@ carries its evidence by reference stays readable in the ticket.
 from __future__ import annotations
 
 import base64
+import json
 import re
 import secrets
 from pathlib import Path
@@ -73,6 +74,77 @@ def save(label: str, data_url: str) -> dict:
     (ATTACHMENTS_DIR / name).write_bytes(blob)
     return {"name": name, "label": label, "mime": mime,
             "bytes": len(blob), "kind": "image" if mime.startswith("image/") else "file"}
+
+
+def for_story(conn, story_id: int | None) -> list[dict]:
+    """Every file the PO has attached anywhere in one story's thread.
+
+    Attachments were reachable from exactly one prompt: the reply that carried
+    them. That is the wrong scope by a long way. A conversation is scoped to the
+    story (`control.thread` says why), and the evidence in it belongs to the
+    story too — the screenshot Jordan pasted on Tuesday is still the answer on
+    Thursday, to whichever agent is asking.
+
+    The cost of getting that wrong is not theoretical. Story #1 carries three
+    screenshots of the Notion tracker Jordan was asked to describe, and the
+    groom that raised the blocker "the field list exists only as a screenshot,
+    it was never transcribed into text anywhere" was, at that moment, holding a
+    prompt that did not mention the screenshots. It asked him for a picture he
+    had already sent.
+
+    Rows whose file has gone missing are dropped rather than listed: a path in a
+    work order is a promise the agent can open it.
+    """
+    if not story_id:
+        return []
+    out: list[dict] = []
+    seen: set[str] = set()
+    for row in conn.execute(
+        "SELECT at, attachments FROM po_messages "
+        "WHERE story_id = ? AND attachments IS NOT NULL ORDER BY id",
+        (story_id,),
+    ):
+        try:
+            files = json.loads(row["attachments"] or "[]")
+        except (TypeError, ValueError):
+            continue
+        for f in files or []:
+            name = str(f.get("name") or "")
+            if not name or name in seen:
+                continue
+            try:
+                path = resolve(name)
+            except Rejected:
+                continue
+            seen.add(name)
+            out.append({**f, "at": row["at"], "path": str(path)})
+    return out
+
+
+def evidence(files: list[dict]) -> str:
+    """The prompt section. Empty string when there is nothing, so it can be
+    interpolated unconditionally.
+
+    Worded as an instruction rather than a listing because the failure mode is
+    not that the agent cannot open these — it can, `Read` renders an image — it
+    is that the agent never thinks to.
+    """
+    if not files:
+        return ""
+    lines = [
+        "",
+        "--- what Jordan has attached to this story ---",
+        "He pasted these into the thread. READ EVERY ONE of them before you",
+        "conclude that anything is missing. A screenshot is usually the whole",
+        "message and the prose next to it is the caption, and asking him for",
+        "something already visible in one of these is the exact failure this",
+        "section exists to prevent.",
+    ]
+    for f in files:
+        lines.append(f"  {f['path']}   ({f.get('label') or 'file'}, "
+                     f"{f.get('kind') or 'file'}, pasted {f.get('at') or 'earlier'})")
+    lines.append("--- end attachments ---")
+    return "\n".join(lines)
 
 
 def resolve(name: str) -> Path:

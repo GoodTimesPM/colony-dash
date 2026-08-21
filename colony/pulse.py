@@ -836,9 +836,12 @@ def _write_pulse_row(conn: sqlite3.Connection, ctx: dict, wake_report: dict | No
             finding += f"; built {len(wake_report['built'])}"
         if wake_report.get("forged"):
             finding += f"; drafted {len(wake_report['forged'])} skill(s)"
+        if wake_report.get("staffed"):
+            finding += f"; proposed {len(wake_report['staffed'])} hire(s)"
         if wake_report["skipped"] and not (wake_report["groomed"] or wake_report.get("built")
                                            or wake_report.get("answered")
-                                           or wake_report.get("forged")):
+                                           or wake_report.get("forged")
+                                           or wake_report.get("staffed")):
             finding += f"; wake skipped: {wake_report['skipped']}"
         detail += nl + nl + "WAKE"
         if wake_report["skipped"]:
@@ -855,6 +858,9 @@ def _write_pulse_row(conn: sqlite3.Connection, ctx: dict, wake_report: dict | No
         for item in wake_report.get("forged", []):
             detail += (nl + f"  forge  {item.get('slug', '?')[:44]} -> "
                        f"{item['verdict']} ({item['tokens']:,} tok)")
+        for item in wake_report.get("staffed", []):
+            detail += (nl + f"  staff  #{item['story_id']} -> {item['verdict']}"
+                       f" ({item['tokens']:,} tok)")
 
     cur = conn.execute(
         """
@@ -938,8 +944,14 @@ def _report(ctx: dict, wake_report: dict | None, *, dry_run: bool) -> None:
     for item in wake_report.get("forged", []):
         print(f"  forged    {item.get('slug', '?')} -> {item['verdict']}"
               f"  ({item['tokens']:,} tok)")
+    for item in wake_report.get("staffed", []):
+        print(f"  staffed   #{item['story_id']} → {item['verdict']}"
+              f"  ({item['tokens']:,} tok)")
+        if item.get("division"):
+            print(f"            {item['slug']} · {item['division']} division")
     raw = sum(i.get("raw_tokens", 0)
               for i in (wake_report["groomed"] + wake_report.get("built", [])
-                        + wake_report.get("answered", []) + wake_report.get("forged", [])))
+                        + wake_report.get("answered", []) + wake_report.get("forged", [])
+                        + wake_report.get("staffed", [])))
     print(f"  tokens    {wake_report['tokens']:,} chargeable"
           + (f"  ·  {raw:,} incl. cache reads" if raw else ""))

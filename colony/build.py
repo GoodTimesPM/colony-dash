@@ -24,7 +24,7 @@ import json
 import os
 import sqlite3
 
-from . import agent, db, worktree
+from . import agent, attachments as attach, db, worktree
 
 BUILD_TIMEOUT_S = int(os.environ.get("COLONY_BUILD_TIMEOUT", "900"))
 
@@ -46,7 +46,8 @@ def pending(conn: sqlite3.Connection, limit: int = BUILD_LIMIT) -> list[sqlite3.
     ).fetchall()
 
 
-def build_prompt(ticket: sqlite3.Row, workdir: str) -> str:
+def build_prompt(ticket: sqlite3.Row, workdir: str,
+                 attached: list[dict] | None = None) -> str:
     """The work order. Says what may be touched, in the words of the scope itself."""
     criteria = (ticket["acceptance_criteria"] or "").strip() or "(none recorded — ask, do not guess)"
     brief = (ticket["description"] or "").strip() or "(the Notion page body is empty)"
@@ -76,6 +77,7 @@ STORY #{ticket['sid']}: {ticket['story_title']}
 --- acceptance criteria (approved by Jordan) ---
 {criteria[:3000]}
 --- end criteria ---
+{attach.evidence(attached or [])}
 
 Read {project}/PROJECT.md first — it is that project's source of truth for
 status and decisions. Match the surrounding code: its naming, its comment
@@ -142,7 +144,7 @@ def run_one(conn: sqlite3.Connection, ticket: sqlite3.Row) -> dict:
         outcome["verdict"] = "no worktree"
         return outcome
 
-    prompt = build_prompt(ticket, str(work))
+    prompt = build_prompt(ticket, str(work), attach.for_story(conn, ticket["sid"]))
     conn.execute("UPDATE tickets SET work_order = ? WHERE id = ?", (prompt, tid))
 
     result = agent.run_ticket(

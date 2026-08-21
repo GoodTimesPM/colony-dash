@@ -132,6 +132,44 @@ def sync(conn: sqlite3.Connection, root: Path = DEFAULT_ROSTER_DIR) -> dict:
     }
 
 
+def digest(conn: sqlite3.Connection, *, desc_chars: int = 200) -> str:
+    """The whole roster, grouped by division, with how often each was picked.
+
+    All 270 of them, deliberately. The obvious economy is to search the roster
+    with terms from the story and show the top twenty — and that economy is the
+    bias. A search over the story text can only ever return personas whose
+    description already sounds like the story, which is how a colony ends up
+    with four engineers and no one who has ever thought about a user. Jordan
+    asked for the opposite: "this environment needs to be diverse."
+
+    Roughly 70k characters, so about 18k tokens. That is a third of one grooming
+    run, paid once per hire, to make the choice from the actual field instead of
+    from a shortlist someone else drew.
+
+    `hired` is the count that makes the diversity rule checkable rather than
+    aspirational — it goes in front of the chooser, and it is still there
+    afterwards when someone asks why the same name keeps coming up.
+    """
+    out: list[str] = []
+    division = None
+    for r in conn.execute(
+        "SELECT slug, name, division, description, times_hired, last_hired_at "
+        "FROM roster ORDER BY division, name"
+    ):
+        if r["division"] != division:
+            division = r["division"]
+            out.append("")
+            out.append(f"[{division}]")
+        mark = ""
+        if r["times_hired"]:
+            mark = f"  <<hired {r['times_hired']}x, last {r['last_hired_at'] or '?'}>>"
+        desc = " ".join((r["description"] or "").split())[:desc_chars]
+        out.append(f"  {r['slug']}  ({r['name']}){mark}")
+        if desc:
+            out.append(f"      {desc}")
+    return "\n".join(out).strip()
+
+
 def search(conn: sqlite3.Connection, query: str, limit: int = 20) -> list[sqlite3.Row]:
     """Roster search, for the standby browser's search bar."""
     if not query.strip():
