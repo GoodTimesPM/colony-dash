@@ -394,9 +394,20 @@ def _ready(conn: sqlite3.Connection) -> list[dict[str, Any]]:
         if not s["project"] or s["project_source"] != "confirmed":
             blockers.append("its project folder is still a guess — confirm it here")
         if not s["writers"]:
+            # Picking the person is the Scrum Master's job now (`wake.staff_stories`),
+            # so this stopped being an instruction to the PO and became a status.
+            # The old text sent him to browse 270 personas he has never read, which
+            # is the single reason a story that had cleared every gate sat still.
+            pending_hire = one(conn, """SELECT e.id, e.reason FROM escalations e
+                                         WHERE e.story_id = ? AND e.kind = 'hire'
+                                           AND e.resolved_at IS NULL LIMIT 1""", (s["id"],))
             blockers.append(
-                f"nobody is hired to write in {s['project'] or 'that folder'} — open "
-                f"Standby, pick a persona and hire them with write scope on it")
+                (f"Ordis has proposed someone — {pending_hire['reason']} It is waiting "
+                 f"in this Inbox as its own card.")
+                if pending_hire else
+                (f"nobody is hired to write in {s['project'] or 'that folder'} yet — "
+                 f"Ordis picks a persona on the next pulse and brings you the name "
+                 f"to approve. You can still hire someone yourself from Standby."))
         if halted:
             blockers.append("the colony is halted — resume it in Macros")
         out.append({
@@ -1138,13 +1149,100 @@ def attachment(name: str) -> FileResponse:
         raise HTTPException(404, str(exc))
 
 
+def _thread_state(conn: sqlite3.Connection, escalation_id: int | None,
+                  story_id: int | None) -> dict[str, Any] | None:
+    """Whether the work this conversation is about can move, and what stops it.
+
+    "Blockers need to be put within this chat window, obviously color coded,
+    hard to know when there is something that needs to be changed."
+
+    The thread showed what had been *said* and nothing about where the story
+    stood, so the one fact that decides whether a reply matters — is this thing
+    stuck, and on what — lived two panels away. It is a row at the top of the
+    conversation now, and it carries its own severity so the page can colour it
+    without re-deriving any of this in JavaScript.
+
+    `moving` is returned as loudly as `blocked`, and that is deliberate. A
+    banner that only appears when something is wrong teaches you to read its
+    absence, and the absence of a banner is indistinguishable from a panel that
+    failed to load.
+    """
+    if story_id is None and escalation_id:
+        row = one(conn, "SELECT story_id FROM escalations WHERE id = ?", (escalation_id,))
+        story_id = row["story_id"] if row else None
+    if not story_id:
+        return None
+    s = one(conn, """SELECT id, title, status, blocked_reason, project, project_source,
+                            dropped_at, settled_as
+                       FROM stories WHERE id = ?""", (story_id,))
+    if not s:
+        return None
+
+    open_qs = rows(conn, """SELECT id, kind, reason, recommendation, raised_at
+                              FROM escalations
+                             WHERE story_id = ? AND resolved_at IS NULL AND stale_at IS NULL
+                             ORDER BY raised_at""", (story_id,))
+    writers = 0
+    if s["project"]:
+        writers = one(conn, """SELECT COUNT(*) AS n FROM agents
+                                WHERE project = ? AND write_capable = 1
+                                  AND status <> 'retired'""", (s["project"],))["n"]
+
+    # Worst first, because a colour has to mean the same thing every time it
+    # appears. `blocked` is "nothing moves until you answer this". `waiting` is
+    # "nothing moves until you decide, but nobody is stuck on you for words".
+    # `moving` is the good state.
+    if s["dropped_at"] or s["settled_as"]:
+        level = "settled"
+        headline = f"this story is {s['settled_as'] or 'dropped'} — nothing is running"
+    elif s["status"] == "needs-info" or any(q["kind"] == "needs-info" for q in open_qs):
+        level = "blocked"
+        headline = "blocked — it cannot start until this is answered"
+    elif s["status"] == "ready" and not writers:
+        level = "waiting"
+        headline = "criteria accepted — waiting on a writer to be hired"
+    elif any(q["kind"] in ("decision", "hire", "write-approval") for q in open_qs):
+        level = "waiting"
+        headline = "waiting on your decision"
+    elif s["status"] in ("backlog", "needs-criteria"):
+        level = "moving"
+        headline = "in the groom queue — an agent picks it up on the next pulse"
+    elif s["status"] == "in-progress":
+        level = "moving"
+        headline = "being built now"
+    else:
+        level = "moving"
+        headline = f"status: {s['status']}"
+
+    asks = [{"id": q["id"], "kind": q["kind"],
+             "text": q["recommendation"] or q["reason"], "raised_at": q["raised_at"]}
+            for q in open_qs]
+    if s["blocked_reason"] and not any(a["kind"] == "needs-info" for a in asks):
+        # Parked with the reason recorded on the story but no card standing for
+        # it. `pulse.ensure_blocked_visible` repairs that on the next tick; until
+        # it does, the reason is still the truth and belongs on screen.
+        asks.insert(0, {"id": None, "kind": "needs-info",
+                        "text": s["blocked_reason"], "raised_at": None})
+    if s["project"] and s["project_source"] != "confirmed":
+        asks.append({"id": None, "kind": "project",
+                     "text": f"the folder {s['project']}/ is still a guess — an "
+                             f"inference cannot authorise a write",
+                     "raised_at": None})
+
+    return {"story_id": story_id, "title": s["title"], "status": s["status"],
+            "level": level, "headline": headline,
+            "blocked_reason": s["blocked_reason"], "asks": asks,
+            "project": s["project"], "project_source": s["project_source"]}
+
+
 @app.get("/api/thread")
 def thread(escalation_id: int | None = None, story_id: int | None = None) -> dict[str, Any]:
     """The conversation about one item. Read-only, like everything on this side."""
     conn = _conn()
     try:
         return {"messages": control.thread(conn, escalation_id, story_id),
-                "entries": control.conversation(conn, escalation_id, story_id)}
+                "entries": control.conversation(conn, escalation_id, story_id),
+                "state": _thread_state(conn, escalation_id, story_id)}
     finally:
         conn.close()
 

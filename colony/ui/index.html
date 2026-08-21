@@ -1265,6 +1265,41 @@ button.pulse[disabled] { cursor: default; }
    thought. Full width, proposal pinned above, editor below. */
 .drawer.wide { width: min(1100px, 100vw); }
 .compose { display: flex; flex-direction: column; gap: 12px; }
+/* Where the work stands, at the top of the conversation about it.
+
+   “Blockers need to be put within this chat window, obviously color coded,
+   hard to know when there is something that needs to be changed.” The thread
+   showed what had been said and nothing about whether any of it had moved, so
+   the one fact that decides whether a reply is urgent lived two panels away.
+
+   Four levels on the page's existing rationing: coral is stuck, amber is
+   waiting on you, mint is moving, grey is finished. The mint one is drawn as
+   loudly as the coral one on purpose — a banner that only appears when
+   something is wrong teaches you to read its absence, and an absent banner is
+   indistinguishable from a panel that failed to load. */
+.compose .state {
+  border: 1px solid var(--rule); background: var(--panel-sunk);
+  border-left-width: 4px; border-radius: 8px; padding: 10px 13px;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.compose .state .head {
+  font-family: var(--mono); font-size: var(--step--2); letter-spacing: .1em;
+  text-transform: uppercase; color: var(--ink-dim);
+}
+.compose .state .line { font-size: var(--step-0); line-height: 1.4; }
+.compose .state .ask {
+  font-size: var(--step--1); color: var(--ink-soft); white-space: pre-wrap;
+  border-left: 2px solid var(--rule); padding-left: 10px;
+}
+.compose .state[data-level="blocked"] { border-color: var(--coral); background: var(--coral-ground); }
+.compose .state[data-level="blocked"] .head { color: var(--coral); }
+.compose .state[data-level="blocked"] .ask  { border-color: var(--coral); }
+.compose .state[data-level="waiting"] { border-color: var(--amber); background: var(--amber-ground); }
+.compose .state[data-level="waiting"] .head { color: var(--amber); }
+.compose .state[data-level="waiting"] .ask  { border-color: var(--amber); }
+.compose .state[data-level="moving"]  { border-color: var(--mint); background: var(--mint-ground); }
+.compose .state[data-level="moving"]  .head { color: var(--mint); }
+.compose .state[data-level="settled"] .head { color: var(--ink-dim); }
 .compose .proposal {
   border: 1px solid var(--amber); background: var(--amber-ground);
   border-radius: 8px; padding: 12px 14px; display: flex; flex-direction: column; gap: 7px;
@@ -1298,6 +1333,23 @@ button.pulse[disabled] { cursor: default; }
   font-size: var(--step--1);
 }
 .msg.ask.closed .bubble { color: var(--ink-dim); }
+/* One exception to the quiet. A question still open is not context for the
+   reply under it — it is the reason nothing below it exists yet, and reading
+   down a thread of grey rules gave no way to tell which of six asks was the
+   one still holding the story. An open `needs-info` is what parks a story, so
+   it gets the colour that means parked; anything else still open is the colour
+   that means waiting on you. Closed ones stay grey, whatever kind they were. */
+.msg.ask:not(.closed)[data-kind] .bubble { color: var(--ink); }
+.msg.ask:not(.closed)[data-kind="needs-info"] .bubble { border-color: var(--coral); }
+.msg.ask:not(.closed)[data-kind="needs-info"] .who    { color: var(--coral); }
+.msg.ask:not(.closed)[data-kind="decision"] .bubble,
+.msg.ask:not(.closed)[data-kind="hire"] .bubble,
+.msg.ask:not(.closed)[data-kind="write-approval"] .bubble,
+.msg.ask:not(.closed)[data-kind="project"] .bubble { border-color: var(--amber); }
+.msg.ask:not(.closed)[data-kind="decision"] .who,
+.msg.ask:not(.closed)[data-kind="hire"] .who,
+.msg.ask:not(.closed)[data-kind="write-approval"] .who,
+.msg.ask:not(.closed)[data-kind="project"] .who { color: var(--amber); }
 /* What Ordis took away from it. The only part of the exchange that is still
    worth anything a month later, and it used to live two clicks away in the
    story timeline where nobody reading the conversation would find it. */
@@ -2940,6 +2992,13 @@ async function openCompose(e, opts) {
   box.replaceChildren();
   const wrap = el("div", "compose");
 
+  // Filled by `load()` below, from the server's own reading of the story. It
+  // sits above the proposal because the proposal is one question and this is
+  // whether the story it belongs to can move at all.
+  const state = el("div", "state");
+  state.style.display = "none";
+  wrap.append(state);
+
   const proposal = el("div", "proposal");
   proposal.append(el("div", "r", e.reason));
   if (e.recommendation) proposal.append(el("div", "rec", e.recommendation));
@@ -3017,10 +3076,28 @@ async function openCompose(e, opts) {
   // answered, the next groom raises a new one about the same story, and the
   // drawer opened on an empty thread with six messages sitting one row away in
   // the ledger.
+  const HEADS = { blocked: "blocked", waiting: "waiting on you",
+                  moving: "moving", settled: "closed" };
+
   const load = async () => {
     thread.replaceChildren();
     const data = await getJSON("/api/thread?" +
       (e.story_id ? "story_id=" + e.story_id : "escalation_id=" + esc));
+
+    const st = data.state;
+    state.replaceChildren();
+    state.style.display = st ? "" : "none";
+    if (st) {
+      state.dataset.level = st.level;
+      state.append(el("div", "head", HEADS[st.level] || st.level));
+      state.append(el("div", "line", st.headline));
+      // Every open ask on the story, not just the one this drawer was opened
+      // on. A story parked on a question raised three grooms ago is still
+      // parked, and the tile you clicked to get here may not be the one holding
+      // it.
+      for (const a of st.asks || []) state.append(el("div", "ask", a.text));
+    }
+
     const entries = data.entries || [];
     if (!entries.length) {
       thread.append(el("div", "empty", "nothing has been said about this yet"));
@@ -3029,7 +3106,8 @@ async function openCompose(e, opts) {
     for (const m of entries) {
       if (m.kind === "question") {
         const q = el("div", "msg ask" + (m.closed_at ? " closed" : ""));
-        q.append(el("div", "who", "ordis asked · " + ago(m.at) +
+        if (m.esc_kind) q.dataset.kind = m.esc_kind;
+        q.append(el("div", "who", "ordis asked · " + (m.esc_kind || "") + " · " + ago(m.at) +
           (m.closed_at ? " · closed " + (m.decision || "") : " · still open")));
         q.append(el("div", "bubble", m.body));
         thread.append(q);
@@ -4124,7 +4202,17 @@ async function openStory(id) {
     const rows = el("div", "blk");
     for (const t of data.tickets) {
       const r = el("div", "kv");
-      r.append(el("dt", null, `#${t.id} ${t.intent}`), el("dd", null, `${t.status} · ${t.role}`));
+      // “Tickets can be more inclusive, acceptance/approval can be a ticket as
+      // well. Basically any call/choice can be made a ticket to ensure that it
+      // has been understood.” Every answered escalation writes one, so the
+      // record of what was decided lives beside the record of what was built.
+      // It is stored as `chore` because `tickets.intent` has a CHECK that
+      // SQLite cannot widen in place; `decided_esc_id` is what makes it a
+      // decision, exactly as `po_message_id` is what makes a ticket a reply.
+      const decision = !!t.decided_esc_id;
+      r.append(el("dt", null, `#${t.id} ${decision ? "decision" : t.intent}`),
+               el("dd", null, decision ? (t.findings || "decided")
+                                       : `${t.status} · ${t.role}`));
       rows.append(r);
       if (["staffed", "open"].includes(t.status)) {
         const c = el("button", "act no", "cancel ticket #" + t.id);

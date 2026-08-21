@@ -1,4 +1,4 @@
-﻿"""The wake tier — the only part of the pulse that costs anything.
+"""The wake tier — the only part of the pulse that costs anything.
 
 A tick decides *whether* this hour is worth a model. This module is what happens
 when the answer is yes. M1 gives it exactly one job: **groom** (ARCHITECTURE.md
@@ -22,9 +22,11 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sqlite3
 
-from . import agent, build as build_mod, control, db, forge as forge_mod, pulse as pulse_mod
+from . import (agent, attachments as attach, build as build_mod, control, db,
+               forge as forge_mod, pulse as pulse_mod, roster as roster_mod)
 
 # How many stories one wake may groom. A wake is coalescing — an hour with six
 # new stories is one wake — so this is the throttle that keeps a bulk Notion
@@ -187,7 +189,8 @@ def _settled_section(story: sqlite3.Row) -> str:
             + raw[:4000] + "\n--- end settled ---")
 
 
-def groom_prompt(story: sqlite3.Row, projects: list[str]) -> str:
+def groom_prompt(story: sqlite3.Row, projects: list[str],
+                 attached: list[dict] | None = None) -> str:
     """The work order. Explicit about the gate, so the agent can't overstep it."""
     body = (story["description"] or "").strip() or "(the Notion page body is empty)"
     return f"""You are Ordis, Scrum Master of a colony of Claude agents. You are grooming one
@@ -203,6 +206,7 @@ Current guess at project folder: {story['project'] or 'none — unknown'}
 --- end brief ---
 {_progress_section(story)}
 {_settled_section(story)}
+{attach.evidence(attached or [])}
 
 Project folders that exist under D:\\ALL STUFF\\PROJECTS (a story belongs to one
 of these, or to none if it is new work):
@@ -280,7 +284,8 @@ def groom_story(conn: sqlite3.Connection, story: sqlite3.Row, terms: dict,
     # order. This is the only place a skill has any effect at all — an active
     # skill that no run loads is a file, not a capability.
     skills = forge_mod.active_for(conn, terms["role"])
-    prompt = forge_mod.preamble(skills) + groom_prompt(story, projects)
+    prompt = forge_mod.preamble(skills) + groom_prompt(
+        story, projects, attach.for_story(conn, story["id"]))
     cur = conn.execute(
         """INSERT INTO tickets (story_id, title, intent, role, status, work_order, requires_po)
            VALUES (?,?,'research',?,'staffed',?,0)""",
@@ -443,7 +448,8 @@ REPLY_TIMEOUT_S = int(os.environ.get("COLONY_REPLY_TIMEOUT", "300"))
 
 
 def reply_prompt(msg: sqlite3.Row, esc: sqlite3.Row | None, story: sqlite3.Row | None,
-                 projects: list[str], history: list[dict]) -> str:
+                 projects: list[str], history: list[dict],
+                 attached: list[dict] | None = None) -> str:
     """The work order for one PO reply."""
     lines = [
         "You are Ordis, Scrum Master of a colony of Claude agents. Jordan is the",
@@ -487,13 +493,8 @@ def reply_prompt(msg: sqlite3.Row, esc: sqlite3.Row | None, story: sqlite3.Row |
     # By path, not by base64. `.colony/` is already inside the read scope, an
     # image costs the same either way, and a prompt that carries its evidence by
     # reference is one you can still read in the ticket a week later.
-    files = json.loads(msg["attachments"] or "[]") if "attachments" in msg.keys() else []
-    if files:
-        lines.append("He attached these. Read them — a screenshot is usually the")
-        lines.append("whole message, and the prose above is the caption:")
-        for f in files:
-            lines.append(f"  {db.ATTACHMENTS_DIR / f['name']}   ({f['label']}, {f['kind']})")
-        lines.append("")
+    if attached:
+        lines += [attach.evidence(attached), ""]
 
     lines += [
         "Project folders that exist under D:\\ALL STUFF\\PROJECTS:",
@@ -559,7 +560,8 @@ def answer_po(conn: sqlite3.Connection, terms: dict, projects: list[str]) -> lis
                                              story_id=msg["story_id"])
                    if h["id"] != msg["id"]]
 
-        prompt = reply_prompt(msg, esc, story, projects, history)
+        prompt = reply_prompt(msg, esc, story, projects, history,
+                              attach.for_story(conn, msg["story_id"]))
 
         # `control.reply` already opened the ticket the PO has been watching in
         # the Queue. Claim that one — staffing it and filling in the work order
@@ -730,10 +732,270 @@ def unanswered_count(conn: sqlite3.Connection) -> int:
     ).fetchone()["n"]
 
 
+# -- staffing: the Scrum Master's job, not the PO's ----------------------------
+#
+# "The point for this is so that I, the product owner, does not have to pick the
+# agents for the job. The scrum master (ordis) should know all capabilities of
+# each persona through context of title then digging deeper and seeing if they
+# are a right fit OR just remembering the performance they had in a previous
+# project WITHOUT BIAS."
+#
+# What stood there before was an Inbox tile reading "nobody is hired to write in
+# personal-desktop-projects - open Standby, pick a persona and hire them with
+# write scope on it". Every word of that is the PO doing the Scrum Master's job,
+# on a roster of 270 people he has never read, and it is why a story that had
+# cleared every other gate still had not started.
+#
+# So the colony proposes the name and he answers yes or no. `propose_hire` and
+# the `hire` escalation kind have both existed since M3 and nothing had ever
+# called them; this is the caller they were waiting for.
+
+STAFF_LIMIT = int(os.environ.get("COLONY_STAFF_LIMIT", "1"))
+STAFF_TIMEOUT_S = int(os.environ.get("COLONY_STAFF_TIMEOUT", "420"))
+
+# Where the persona files themselves live. The digest carries a one-line
+# description; the file is the resume, and reading two or three of them is the
+# "digging deeper" half of what the PO asked for.
+PERSONA_ROOT = roster_mod.DEFAULT_ROSTER_DIR
+
+
+def stories_to_staff(conn: sqlite3.Connection, limit: int = STAFF_LIMIT) -> list[sqlite3.Row]:
+    """Stories that have cleared every gate and are waiting on a person.
+
+    Ready, confirmed folder, nobody hired to write there, and no hire already
+    sitting in the Inbox - proposing a second name for the same story while the
+    first is undecided turns one question into a queue of them.
+    """
+    return conn.execute(
+        """SELECT s.* FROM stories s
+            WHERE s.status = 'ready' AND s.dropped_at IS NULL AND s.settled_as IS NULL
+              AND s.project IS NOT NULL AND s.project_source = 'confirmed'
+              AND NOT EXISTS (SELECT 1 FROM agents a
+                               WHERE a.project = s.project AND a.write_capable = 1
+                                 AND a.status <> 'retired')
+              AND NOT EXISTS (SELECT 1 FROM escalations e
+                               WHERE e.story_id = s.id AND e.kind = 'hire'
+                                 AND e.resolved_at IS NULL)
+            ORDER BY s.updated_at LIMIT ?""",
+        (limit,),
+    ).fetchall()
+
+
+def staff_prompt(story: sqlite3.Row, digest: str, attached: list[dict] | None = None) -> str:
+    """The work order for one hiring decision."""
+    criteria = (story["acceptance_criteria"] or "").strip() or "(none recorded)"
+    brief = (story["description"] or "").strip() or "(the Notion page body is empty)"
+    return f"""You are Ordis, Scrum Master of a colony of Claude agents. Jordan is the Product
+Owner. You are READ-ONLY: Read, Grep and Glob.
+
+One of his stories has cleared the criteria gate and has a confirmed project
+folder, so the only thing between it and real work is that nobody is hired to do
+it. Choosing who does the work is YOUR job. He picks nobody here; he reads the
+name you bring him and says yes or no.
+
+STORY #{story['id']}: {story['title']}
+project: {story['project']}   (the write scope will be {story['project']}/ and nothing else)
+
+--- brief ---
+{brief[:4000]}
+--- end brief ---
+
+--- acceptance criteria, which Jordan has already approved ---
+{criteria[:3000]}
+--- end criteria ---
+{attach.evidence(attached or [])}
+
+Read D:\\ALL STUFF\\PROJECTS\\{story['project']}\\PROJECT.md and enough of that
+tree to know what the work actually is. You cannot choose who should do a job
+you have not looked at. Be frugal - a few targeted reads.
+
+--- the roster: every persona available, by division ---
+{digest}
+--- end roster ---
+
+The persona files are under {PERSONA_ROOT}, one per slug. Open the two or three
+you are seriously considering. The line in the list above is a title; the file
+is the resume, and the gap between them is where most wrong hires happen.
+
+How to choose. These are rules, not advice:
+
+  * Fit is to the WORK IN THE CRITERIA, not to the sound of the story's title.
+    A story about a job-search tool is not automatically an engineering story,
+    and a story about a scanner is not automatically a security one.
+  * "<<hired Nx>>" means that persona already holds N contracts in this colony.
+    Treat it as a reason to look harder at everybody else. It is never on its
+    own a reason to pick someone. In Jordan's words: "I do not want to only see
+    one agent being chosen over and over again just because we found one that
+    works. This environment needs to be diverse."
+  * Consider candidates from more than one division, genuinely. If your three
+    finalists all come from the same division you narrowed too early - go back
+    to the roster and read a part of it you skipped.
+  * The only past performance that counts is work a persona actually produced
+    here, on a previous ticket. Not familiarity, not that you can picture them,
+    not that the name surfaced first. If there is no record of them working
+    here, say so plainly - an unproven persona who fits the criteria beats a
+    proven one who does not.
+  * There is no penalty for hiring someone new. Nearly every persona on that
+    roster has never been picked once.
+
+Show your work: name the two finalists you did NOT choose and what separated
+them. A choice you cannot account for is one Jordan has no way to check.
+
+Reply with ONLY a JSON object:
+
+{{
+  "roster_slug": "exactly one slug from the roster above",
+  "role": "short-kebab-case name for how the colony refers to them on this project",
+  "why": "what in the acceptance criteria this persona is for, under 400 characters",
+  "finalists": [
+    {{"slug": "...", "why_not": "what separated them from your pick"}},
+    {{"slug": "...", "why_not": "..."}}
+  ],
+  "read": ["persona files you actually opened"],
+  "model": "claude-sonnet-5",
+  "max_tokens_run": 120000
+}}"""
+
+
+_ROLE_OK = re.compile(r"[^a-z0-9-]+")
+
+
+def _role_name(raw: str, slug: str) -> str:
+    """A role the `agents` table will accept, out of what the agent asked for."""
+    name = _ROLE_OK.sub("-", (raw or "").strip().lower()).strip("-")
+    if not name:
+        name = _ROLE_OK.sub("-", slug.split("/")[-1].lower()).strip("-")
+    return name[:60] or "builder"
+
+
+def _diversity_note(conn: sqlite3.Connection, pick: sqlite3.Row,
+                    finalists: list[dict]) -> str:
+    """What the ledger says about this choice, for the PO to read beside it.
+
+    Written by Python rather than by the agent, on purpose. The rule exists
+    because the chooser has a preference it cannot see, so the audit of the
+    choice must not be the chooser's own account of it.
+    """
+    bits: list[str] = []
+    if pick["times_hired"]:
+        bits.append(f"already hired {pick['times_hired']}x here "
+                    f"(last {pick['last_hired_at'] or 'unknown'})")
+    else:
+        bits.append("first contract in this colony")
+
+    divisions = {pick["division"]}
+    for f in finalists:
+        row = conn.execute("SELECT division FROM roster WHERE slug = ?",
+                           (str(f.get("slug") or ""),)).fetchone()
+        if row:
+            divisions.add(row["division"])
+    if len(divisions) < 2:
+        bits.append(f"every finalist came from {pick['division']} - the search "
+                    f"stayed inside one division")
+    else:
+        bits.append("finalists spanned " + ", ".join(sorted(divisions)))
+    return " - ".join(bits)
+
+
+def staff_stories(conn: sqlite3.Connection, terms: dict) -> list[dict]:
+    """Propose one hire per ready-but-unstaffed story. Hires nothing."""
+    out: list[dict] = []
+    stories = stories_to_staff(conn, STAFF_LIMIT)
+    if not stories:
+        return out
+    digest = roster_mod.digest(conn)
+    if not digest:
+        return out
+
+    for story in stories:
+        prompt = staff_prompt(story, digest, attach.for_story(conn, story["id"]))
+        cur = conn.execute(
+            """INSERT INTO tickets (story_id, title, intent, role, status, work_order,
+                                    requires_po)
+               VALUES (?,?,'research',?,'staffed',?,0)""",
+            (story["id"], f"Staff: {story['title']}"[:200], terms["role"], prompt),
+        )
+        ticket_id = cur.lastrowid
+
+        result = agent.run_ticket(
+            conn, ticket_id=ticket_id, role=terms["role"], prompt=prompt,
+            model=terms["model"], tools_allowed=terms["tools_allowed"],
+            tools_denied=terms.get("tools_denied"), cwd=db.PROJECTS_ROOT,
+            timeout_s=STAFF_TIMEOUT_S, max_tokens=terms.get("max_tokens_run"),
+        )
+        answer = result.json_payload() if result.status in ("ok", "killed-over-budget") else None
+        if not answer or not answer.get("roster_slug"):
+            conn.execute(
+                "UPDATE tickets SET status = 'blocked', findings = ?, "
+                "closed_at = datetime('now','localtime') WHERE id = ?",
+                ((result.error or result.text or "no usable answer")[:2000], ticket_id),
+            )
+            out.append({"story_id": story["id"], "tokens": result.chargeable_tokens,
+                        "verdict": "no pick returned"})
+            continue
+
+        slug = str(answer["roster_slug"]).strip()
+        pick = conn.execute(
+            "SELECT slug, name, division, times_hired, last_hired_at FROM roster WHERE slug = ?",
+            (slug,),
+        ).fetchone()
+        if not pick:
+            conn.execute(
+                "UPDATE tickets SET status = 'blocked', findings = ?, "
+                "closed_at = datetime('now','localtime') WHERE id = ?",
+                (f"picked {slug!r}, which is not a slug in the roster", ticket_id),
+            )
+            out.append({"story_id": story["id"], "tokens": result.chargeable_tokens,
+                        "verdict": f"invalid pick {slug!r}"})
+            continue
+
+        finalists = [f for f in (answer.get("finalists") or []) if isinstance(f, dict)][:3]
+        role = _role_name(str(answer.get("role") or ""), slug)
+        # A role name already taken on this project would be refused at approval
+        # time, which is the worst possible moment to find out.
+        taken = conn.execute(
+            "SELECT 1 FROM agents WHERE role = ? AND project IS ?", (role, story["project"])
+        ).fetchone()
+        if taken:
+            role = f"{role}-2"[:60]
+
+        why = " ".join(str(answer.get("why") or "").split())[:400]
+        note = _diversity_note(conn, pick, finalists)
+        losers = "; ".join(
+            f"{f.get('slug')}: {' '.join(str(f.get('why_not') or '').split())[:140]}"
+            for f in finalists if f.get("slug")
+        )
+        recommendation = f"{why}\n\n{note}."
+        if losers:
+            recommendation += f"\nAlso considered - {losers}"
+
+        esc_id = control.propose_hire(
+            conn, roster_slug=slug, role=role, project=story["project"],
+            reason=recommendation[:1000],
+            model=str(answer.get("model") or terms["model"]),
+            write_capable=True,
+            max_tokens_run=int(answer.get("max_tokens_run") or 120000),
+            story_id=story["id"],
+        )
+        conn.execute(
+            "UPDATE tickets SET status = 'done', findings = ?, "
+            "closed_at = datetime('now','localtime') WHERE id = ?",
+            (f"proposed {pick['name']} ({slug}) as {role}. {note}."[:2000], ticket_id),
+        )
+        control._event(conn, story["id"], "staffed",
+                       f"Ordis proposed {pick['name']} ({pick['division']}) as {role}",
+                       recommendation[:2000], ticket_id, result.chargeable_tokens)
+        out.append({"story_id": story["id"], "escalation_id": esc_id,
+                    "tokens": result.chargeable_tokens, "slug": slug,
+                    "name": pick["name"], "division": pick["division"], "role": role,
+                    "verdict": f"proposed {pick['name']} as {role} - waiting on you"})
+    return out
+
+
 def run(conn: sqlite3.Connection, usage: dict | None) -> dict:
     """Do the wake. Returns what happened, for the pulse row and the printout."""
     report = {"groomed": [], "built": [], "answered": [], "forged": [], "candidates": [],
-              "tokens": 0, "skipped": None}
+              "staffed": [], "tokens": 0, "skipped": None}
 
     if control.is_halted():
         # Belt-and-braces: the tick already refuses to escalate to a wake while
@@ -780,6 +1042,15 @@ def run(conn: sqlite3.Connection, usage: dict | None) -> dict:
             report["groomed"].append(outcome)
             report["tokens"] += outcome["tokens"]
 
+    # Staffing goes after grooming and before building, because grooming is what
+    # produces the stories that need staffing and the PO has to approve a name
+    # before a build can use it. A hire proposed this hour is approvable the
+    # moment he looks at the Inbox, and dispatchable the hour after.
+    if terms is not None:
+        for outcome in staff_stories(conn, terms):
+            report["staffed"].append(outcome)
+            report["tokens"] += outcome["tokens"]
+
     # Then whatever the PO dispatched. `build.pending` is already narrowed to
     # tickets on a *confirmed* project, so nothing reaches a worktree on the
     # strength of an inference.
@@ -788,6 +1059,6 @@ def run(conn: sqlite3.Connection, usage: dict | None) -> dict:
         report["tokens"] += outcome["tokens"]
 
     if (not report["groomed"] and not report["built"] and not report["answered"]
-            and not report["forged"] and not report["skipped"]):
+            and not report["forged"] and not report["staffed"] and not report["skipped"]):
         report["skipped"] = "nothing to groom and nothing dispatched"
     return report
