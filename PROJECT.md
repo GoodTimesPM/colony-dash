@@ -347,14 +347,68 @@ names the state and the next move.
       Tooling Engineer as `scan-cli-builder` on `personal-desktop-projects`, for
       *Full computer scan*. Rejecting is a real answer — the next pulse proposes someone
       else, and the counter that keeps the roster diverse learns from it either way.
-- [ ] **Restart the dashboard window** to pick up 014/015. The ledger is already migrated;
-      the running window is serving the older code.
+- [ ] **Restart the dashboard window** to pick up 014/015/016. The ledger is already
+      migrated; the running window is serving the older code.
+- [ ] Watch the first sprint roll. Sprint 1 now ends Friday 2026-08-28 05:00; the tick that
+      crosses that instant closes it and opens Sprint 2 with no goal set, which is a
+      deliberate blank for the PO to fill.
 - [ ] Let it run a week, then tune the escalation bar (§4.6) against real logs.
 - [ ] **Promote the first real skill.** Three candidates are waiting in the FORGE panel;
       none has been drafted yet, because drafting costs tokens and that is the PO's call.
 - [ ] **First live write-capable ticket.** M3 is verified against a copy of the ledger; it
       has not yet been pointed at a real story end-to-end.
 - [ ] Update the published artifact — it still shows the pre-M1 design.
+
+## Finished 2026-08-21 — faces, and a week that exists
+
+**Every hired agent has a face.** The assisted-apply integrator was a blank square and the
+two structural agents were not, which looked like a missing feature and was a colour bug.
+Canvas does not throw on a colour it cannot parse — it ignores the assignment and leaves
+the previous fill standing, and the previous fill was the panel background. So the sprite
+was drawn, faithfully, in the background's own colour. Seven of the roster's colour words
+are Tailwind names CSS has never heard of; every persona wearing one would have come out
+blank, and the structural pair escaped only because they have no roster row at all.
+
+`asHex` asks canvas whether it understood, using two sentinels, because a rejected
+assignment is visible only as the absence of a change. Valid is not the same as visible,
+though: nine roster colours are near-black, and `#000000` on a sunk dark panel fails the
+same way by a different route. `legible` walks lightness until the tint clears 3:1, taking
+its direction from the **panel** rather than from the colour — `toward` reads it off the
+colour, which is right when the colour was chosen for a known background and wrong for 270
+of them written by people who never saw this one. All 270 clear 3:1 in light and dark.
+
+**The token figure is live, and the week is the real week.** Two complaints, one cause.
+
+The dashboard read the newest row of `usage_samples`, and only the hourly pulse writes
+those — so a figure the tray app refreshes every five minutes could be fifty-five minutes
+old, and old in the way that is hardest to see, because a percentage that has not moved is
+exactly what a quiet week looks like. `usage.read()` now runs on every snapshot. It is the
+same file the pulse copies from, so this is not a second poller and earns nobody a 429; the
+ledger rows stay as history and as the fallback for a machine where the tray app has never
+run. `stale` is on the strip now, because that is the only thing that can tell a quiet week
+from a dead tray app.
+
+And the allowance week resets **Friday at 05:00 local**, which the cache has been reporting
+all along in UTC — the strip was printing the first sixteen characters of that string, so
+a window closing at five in the morning read as *08:59*. Sprint 1 was seeded with today + 7
+as an admitted placeholder, with a docstring promising the pulse would correct it. It never
+did. For four weeks a Monday-to-Monday sprint has been measured against a Friday-to-Friday
+budget, and `date(started_at) BETWEEN starts_on AND ends_on` counted the five hours before
+one reset and the whole day after the next: eight days of runs against a seven-day
+allowance, double-counted at both seams.
+
+`usage.week_window` is the one place that knows where the edges are. It prefers the reset
+instant the API reported, because that is the truth and the Friday-05:00 arithmetic is only
+a model of it — a constant cannot know about a daylight-saving shift or an account whose
+window moved, and the reported instant can. `pulse.align_sprint` moves the sprint onto those
+edges each tick and **rolls** it when the window turns: the old sprint closes, the next
+opens, no goal carried over, because a sprint that silently extends past its own budget week
+is a budget that does not exist. Migration 016 gives `sprints` the instants; the dates stay
+as their human shadow. Every spend query is half-open on timestamps now.
+
+One consequence worth expecting: **the sprint total dropped to zero.** It read 877.4k
+tokens across a Monday-to-Monday window that had already reset once. The week that actually
+started this morning at 05:00 has no runs in it yet.
 
 ## Finished 2026-08-21 — the four things the loop was making the PO do
 

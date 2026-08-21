@@ -2087,6 +2087,16 @@ function render(s) {
 
 function tag(text, cls) { const b = el("span"); b.append(el("b", cls || null, text)); return b; }
 
+// A ledger timestamp, said out loud. "2026-08-28 05:00:00" is a fact; "Fri
+// 5:00 AM" is the fact a person can act on, and the only reason the page ever
+// printed the raw string is that it was slicing one it had not parsed.
+function when(ts) {
+  const d = parseTs(ts);
+  if (!d || isNaN(d)) return String(ts || "").slice(0, 16);
+  return d.toLocaleString(undefined,
+    { weekday: "short", hour: "numeric", minute: "2-digit" });
+}
+
 function renderSprint(sp) {
   const sprint = sp.sprint, spent = sp.spent || {}, usage = sp.usage, band = sp.allowance;
   $("goal").textContent = sprint ? (sprint.goal || sprint.name) : "no active sprint";
@@ -2096,9 +2106,13 @@ function renderSprint(sp) {
   const meta = $("sprint-meta");
   meta.replaceChildren();
   if (sprint) {
-    const start = parseTs(sprint.starts_on + " 00:00:00"), end = parseTs(sprint.ends_on + " 00:00:00");
-    const day = Math.min(7, Math.max(1, Math.round((Date.now() - start) / 864e5) + 1));
-    const total = Math.max(1, Math.round((end - start) / 864e5));
+    // The day comes from the server, which counts it from the allowance week's
+    // real edge — Friday 05:00 — rather than from midnight on whatever date the
+    // sprint row happens to carry. Counting whole days off a date was five
+    // hours out at both ends of every week and, on the seeded placeholder
+    // window, five days out at the start.
+    const week = sp.week || {};
+    const day = week.day || 1, total = week.days || 7;
     meta.append(
       tag(sprint.name), tag("day " + day + "/" + total),
       tag(spent.runs + " run" + (spent.runs === 1 ? "" : "s")),
@@ -2121,25 +2135,41 @@ function renderSprint(sp) {
     );
   }
 
-  const week = $("week-meta");
-  week.replaceChildren();
+  const weekMeta = $("week-meta");
+  weekMeta.replaceChildren();
   if (usage) {
-    week.append(tag("week " + Number(usage.seven_day_pct).toFixed(1) + "%"),
-                tag("5h " + Number(usage.five_hour_pct).toFixed(0) + "%"),
-                tag("resets " + (usage.seven_day_resets_at || "").slice(0, 16)));
+    // `seven_day_resets_at` is a local timestamp now. It used to be the first
+    // sixteen characters of the UTC string the cache carries, so a window that
+    // closes at five in the morning was on screen as "08:59" — the right
+    // instant, told in a timezone nobody here lives in.
+    weekMeta.append(tag("week " + Number(usage.seven_day_pct).toFixed(1) + "%"),
+                    tag("5h " + Number(usage.five_hour_pct).toFixed(0) + "%"),
+                    tag("resets " + when(usage.seven_day_resets_at)));
+    // A figure that has stopped moving is what a quiet week looks like and also
+    // what a dead tray app looks like, and the percentage alone cannot say
+    // which. This is the only thing that can.
+    if (usage.stale) {
+      const s = tag("cache stale", "boosted");
+      s.title = "the tray app has not written since " + when(usage.sampled_at);
+      weekMeta.append(s);
+    }
   } else {
-    week.append(tag("no usage sample — is the tray app running?"));
+    weekMeta.append(tag("no usage sample — is the tray app running?"));
   }
 
   // The bar measures spend against the colony's *allowance*, not the whole week:
   // 35% of the window is the ceiling, so 35% consumed has to read as full.
   const ceiling = band.effective || 35;
-  const pct = usage ? Math.min(100, (usage.seven_day_pct / ceiling) * 100) : 0;
+  // The cache can carry a null percentage — the tray app writes what the API
+  // gave it, and the API sometimes gives it nothing. `Number(null)` is 0, which
+  // is at least a number; `null.toFixed` is a blank strip.
+  const wk = usage ? Number(usage.seven_day_pct) || 0 : 0;
+  const pct = usage ? Math.min(100, (wk / ceiling) * 100) : 0;
   const g = $("gauge");
   g.firstElementChild.style.width = pct + "%";
   g.dataset.state = pct >= 100 ? "hot" : pct >= 80 ? "warm" : "ok";
   $("spend-of").textContent = usage
-    ? `week ${usage.seven_day_pct.toFixed(0)}% of ${ceiling}% allowed` : "";
+    ? `week ${wk.toFixed(0)}% of ${ceiling}% allowed` : "";
 }
 
 function renderOrdis(o) {

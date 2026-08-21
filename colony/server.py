@@ -42,7 +42,8 @@ from fastapi import Body, FastAPI, Header, HTTPException, Query
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 
 from . import (attachments as attach, control, db, forge, notion as notion_mod,
-               outbox as outbox_mod, projects as projects_mod, roster as roster_mod)
+               outbox as outbox_mod, projects as projects_mod, roster as roster_mod,
+               usage as usage_mod)
 
 UI_DIR = Path(__file__).resolve().parent / "ui"
 
@@ -119,14 +120,70 @@ def snapshot() -> dict[str, Any]:
         conn.close()
 
 
+def _live_usage(conn: sqlite3.Connection) -> dict[str, Any] | None:
+    """The freshest usage figure there is, whoever wrote it last.
+
+    "This is not updating live token usage."
+
+    It was not. The dashboard read the newest row of `usage_samples`, and only
+    the hourly pulse writes those, so a figure the tray app refreshes every five
+    minutes could be fifty-five minutes old on screen. Worse, it was old in the
+    way that is hardest to see: a percentage that has not moved is exactly what
+    a working quiet week looks like.
+
+    Reading the cache costs a stat and a small JSON parse, and it is the *same
+    file* the pulse copies from, so this is not a second poller and earns nobody
+    a 429. The ledger row stays as the fallback for a machine where the tray app
+    has never run, and `sampled_at` reports which of the two is being shown.
+    """
+    row = one(conn, "SELECT * FROM usage_samples ORDER BY sampled_at DESC LIMIT 1")
+    live = usage_mod.read()
+    if live is None:
+        return dict(row) if row else None
+    return {
+        "five_hour_pct": live["five_hour"],
+        "seven_day_pct": live["seven_day"],
+        "seven_day_resets_at": live["seven_day_resets"].strftime("%Y-%m-%d %H:%M:%S")
+                               if live["seven_day_resets"] else None,
+        "five_hour_resets_at": live["five_hour_resets"].strftime("%Y-%m-%d %H:%M:%S")
+                               if live["five_hour_resets"] else None,
+        "sampled_at": live["mtime"].strftime("%Y-%m-%d %H:%M:%S"),
+        "source_mtime": live["mtime"].strftime("%Y-%m-%d %H:%M:%S"),
+        "stale": live["stale"],
+        "live": True,
+    }
+
+
 def _sprint(conn: sqlite3.Connection) -> dict[str, Any]:
     sprint = one(conn, "SELECT * FROM sprints WHERE status = 'active' ORDER BY id DESC LIMIT 1")
-    usage = one(conn, "SELECT * FROM usage_samples ORDER BY sampled_at DESC LIMIT 1")
+    usage = _live_usage(conn)
+
+    # The allowance week, from the reset instant the API reported. The sprint
+    # row follows this — `pulse.align_sprint` moves it onto these edges — but the
+    # window is computed here too, because the strip should be telling the truth
+    # about the week within a second of a reset rather than within an hour of
+    # one, and because a sprint that has not been aligned yet should still show
+    # the right day.
+    start_dt, end_dt = usage_mod.current_window()
+    fmt = "%Y-%m-%d %H:%M:%S"
+    week = {
+        "starts_at": start_dt.strftime(fmt),
+        "ends_at": end_dt.strftime(fmt),
+        "day": usage_mod.day_of((start_dt, end_dt)),
+        "days": 7,
+        "aligned": bool(sprint and sprint["ends_at"] == end_dt.strftime(fmt)),
+    }
 
     spent = {"tokens": 0, "usd": 0.0, "runs": 0}
     if sprint:
-        # By run date inside the window, not by story.sprint_id: Notion stories
+        # By run time inside the window, not by story.sprint_id: Notion stories
         # arrive with no sprint attached. Same query the CLI settled on.
+        #
+        # Half-open on timestamps rather than `date(started_at) BETWEEN`, which
+        # counted the five hours before Friday's reset into the week that was
+        # already over, and then counted the whole of the closing Friday as well
+        # — eight days of runs against a seven-day budget, double-counted at
+        # both seams.
         row = one(
             conn,
             """
@@ -134,9 +191,9 @@ def _sprint(conn: sqlite3.Connection) -> dict[str, Any]:
                    COALESCE(SUM(cost_usd), 0)                                 AS usd,
                    COUNT(*)                                                   AS runs
               FROM runs
-             WHERE date(started_at) BETWEEN ? AND ?
+             WHERE started_at >= ? AND started_at < ?
             """,
-            (sprint["starts_on"], sprint["ends_on"]),
+            (sprint["starts_at"] or week["starts_at"], sprint["ends_at"] or week["ends_at"]),
         )
         spent = row or spent
 
@@ -150,6 +207,7 @@ def _sprint(conn: sqlite3.Connection) -> dict[str, Any]:
     return {
         "sprint": sprint,
         "usage": usage,
+        "week": week,
         "spent": spent,
         "last_run_at": last_run.get("at"),
         # The bar measures the *allowance*, not the week: 35% of the window is
