@@ -168,6 +168,25 @@ def _progress_section(story: sqlite3.Row) -> str:
     return "\n".join(out)
 
 
+def _settled_section(story: sqlite3.Row) -> str:
+    """Decisions Jordan has already made in a thread, stated as standing fact.
+
+    These came out of the Inbox rather than out of Notion, and before 013 they
+    lived only in `po_messages` — a transcript nothing grooms from. An agent
+    re-reading this story would ask the question again, which is how a board of
+    eight stories ended up parked on answers that had all been given.
+    """
+    try:
+        raw = (story["po_answers"] or "").strip()
+    except (IndexError, KeyError):
+        return ""
+    if not raw:
+        return ""
+    return ("\n--- what Jordan has already settled, in the Inbox ---\n"
+            "These are decisions, not suggestions. Do not ask about them again.\n"
+            + raw[:4000] + "\n--- end settled ---")
+
+
 def groom_prompt(story: sqlite3.Row, projects: list[str]) -> str:
     """The work order. Explicit about the gate, so the agent can't overstep it."""
     body = (story["description"] or "").strip() or "(the Notion page body is empty)"
@@ -183,6 +202,7 @@ Current guess at project folder: {story['project'] or 'none — unknown'}
 {body[:6000]}
 --- end brief ---
 {_progress_section(story)}
+{_settled_section(story)}
 
 Project folders that exist under D:\\ALL STUFF\\PROJECTS (a story belongs to one
 of these, or to none if it is new work):
@@ -482,20 +502,42 @@ def reply_prompt(msg: sqlite3.Row, esc: sqlite3.Row | None, story: sqlite3.Row |
         "You may read files under D:\\ALL STUFF\\PROJECTS to check anything he",
         "refers to. Be frugal — a few targeted reads, not a survey.",
         "",
-        "Answer him. Plainly, in your own voice, in a few sentences. If he told you",
-        "something that changes what you recommended, say what changes. If he asked",
-        "for something you cannot do, say so and say what you can do instead. Never",
-        "decide the item yourself: approving, rejecting and confirming a project are",
-        "his, and this reply does none of them.",
+        "Your job is NOT to have a conversation. A reply that produces only prose",
+        "leaves this story exactly where it was, and a story that sits still while",
+        "the two of you talk about it is the failure this loop exists to prevent.",
+        "Every reply must move the ledger, and there are only two ways to do that:",
+        "",
+        "  settled          — he told you something the work needed. Write it down",
+        "                     as standing fact and the story goes back in the groom",
+        "                     queue, where an agent turns it into build tasks.",
+        "  still_blocked_on — something is STILL missing. Name the one decision,",
+        "                     as a direct question, and it becomes a card in his",
+        "                     Inbox rather than a sentence in a thread he has to",
+        "                     remember to re-read.",
+        "",
+        "Both at once is normal and is the most useful answer you can give: he",
+        "answered part of it, and here is precisely the next thing you need.",
+        "Neither is a last resort — use it only when he asked you a question that",
+        "was purely informational and nothing about the work changed.",
+        "",
+        "Do not write \"next step is scoping this as a real build task\" and stop.",
+        "Putting it in `settled` IS how you scope it: the next wake grooms it.",
+        "",
+        "Still yours to refuse: approving, rejecting and confirming a project are",
+        "his decisions, and this reply makes none of them.",
         "",
         "Reply with ONLY a JSON object:",
         "",
         "{",
         '  "answer": "what you are saying back to Jordan, under 1200 characters",',
+        '  "settled": "what he decided, written as fact for an agent who was not in',
+        '              this conversation and will read only this line — or null",',
+        '  "still_blocked_on": "the ONE specific decision that now blocks this work,',
+        '              phrased as a question only he can answer — or null if nothing',
+        '              is blocking and the work can proceed",',
         '  "project": "a folder from the list if his message settled which one, else null",',
         '  "new_project": "a folder name he asked you to treat as new work, else null",',
         '  "recommendation": "a revised one-line recommendation for the Inbox tile, or null",',
-        '  "resolved": true only if his message means this item no longer needs him,',
         '  "learned": "one durable thing worth keeping, or null"',
         "}",
     ]
@@ -581,19 +623,85 @@ def answer_po(conn: sqlite3.Connection, terms: dict, projects: list[str]) -> lis
 
         # A revised recommendation replaces the one on the tile, so the Inbox
         # shows the current advice rather than the advice the PO just argued
-        # with. The escalation itself stays open unless Ordis is confident the
-        # question is gone — and even then it is closed as 'amend', never as an
-        # approval nobody gave.
-        if esc is not None:
-            if answer.get("recommendation"):
-                conn.execute("UPDATE escalations SET recommendation = ? WHERE id = ?",
-                             (str(answer["recommendation"])[:1000], esc["id"]))
-            if answer.get("resolved"):
+        # with.
+        if esc is not None and answer.get("recommendation"):
+            conn.execute("UPDATE escalations SET recommendation = ? WHERE id = ?",
+                         (str(answer["recommendation"])[:1000], esc["id"]))
+
+        # ── what the reply changed ───────────────────────────────────────────
+        #
+        # Before this, a reply could write prose and nothing else, and that is
+        # what it mostly did: Ordis would work out the right next step, say so
+        # in the thread, close the card as 'amend' and leave the story parked in
+        # `needs-info` where nothing grooms it. The answer existed, in a
+        # transcript, where no agent reads.
+        #
+        # So a reply now lands in one of two places. `settled` becomes standing
+        # fact on the story and puts it back in the groom queue. `still_blocked`
+        # becomes a card in the Inbox naming the one thing missing. Both may
+        # happen at once. If neither does, the old card stays open on purpose —
+        # an exchange that moved nothing has not answered anything, and letting
+        # it close would be the loop agreeing that talking counted as progress.
+        settled = str(answer.get("settled") or "").strip()
+        blocked_on = str(answer.get("still_blocked_on") or "").strip()
+        acted: list[str] = []
+
+        # Closed first, and only on action. The fresh card below checks for an
+        # open question before raising one, so an old card left standing here
+        # would suppress the sharper one that replaces it.
+        if esc is not None and (settled or blocked_on):
+            conn.execute(
+                "UPDATE escalations SET resolved_at = datetime('now','localtime'), "
+                "po_decision = 'amend' WHERE id = ? AND resolved_at IS NULL",
+                (esc["id"],),
+            )
+
+        if story is not None and settled:
+            entry = f"[PO, {msg['at']}] {settled[:2000]}"
+            conn.execute(
+                """UPDATE stories SET po_answers = COALESCE(po_answers || ?, ?),
+                          updated_at = datetime('now','localtime')
+                    WHERE id = ?""",
+                ("\n\n" + entry, entry, story["id"]),
+            )
+            _said(conn, story["id"], "decided", settled[:1000], ticket_id, 0)
+            if story["status"] == "needs-info":
                 conn.execute(
-                    "UPDATE escalations SET resolved_at = datetime('now','localtime'), "
-                    "po_decision = 'amend' WHERE id = ? AND resolved_at IS NULL",
-                    (esc["id"],),
+                    """UPDATE stories SET status = 'backlog', blocked_reason = NULL,
+                              updated_at = datetime('now','localtime')
+                        WHERE id = ? AND status = 'needs-info'""",
+                    (story["id"],),
                 )
+                # The runs that raised the answered question describe a version
+                # of the story that is gone; without this the story re-enters
+                # the queue already at its attempt ceiling and never groomed.
+                control.regroom_budget(conn, story["id"])
+                acted.append("unblocked → back in the groom queue")
+            else:
+                acted.append("recorded on the story")
+
+        if story is not None and blocked_on:
+            conn.execute(
+                """UPDATE stories SET status = 'needs-info', blocked_reason = ?,
+                          updated_at = datetime('now','localtime')
+                    WHERE id = ?""",
+                (blocked_on[:1000], story["id"]),
+            )
+            already = conn.execute(
+                "SELECT 1 FROM escalations WHERE story_id = ? AND kind = 'needs-info' "
+                "AND resolved_at IS NULL AND stale_at IS NULL",
+                (story["id"],),
+            ).fetchone()
+            if not already:
+                conn.execute(
+                    """INSERT INTO escalations (story_id, ticket_id, kind, reason,
+                                                recommendation, est_tokens, raised_hash)
+                       VALUES (?,?,'needs-info',?,?,?,?)""",
+                    (story["id"], ticket_id,
+                     f'"{story["title"]}" is blocked on one decision.',
+                     blocked_on[:1000], result.chargeable_tokens, story["notion_hash"]),
+                )
+                acted.append("new blocker raised in your Inbox")
 
         # Ordis may *suggest* a folder from a reply, never confirm one. Naming
         # the project is a PO action and stays one (§8.2).
@@ -610,7 +718,8 @@ def answer_po(conn: sqlite3.Connection, terms: dict, projects: list[str]) -> lis
                 _said(conn, msg["story_id"], "learning", answer["learned"], ticket_id, 0)
 
         out.append({"message_id": msg["id"], "tokens": result.chargeable_tokens,
-                    "verdict": "answered", "answer": text[:200]})
+                    "verdict": " · ".join(acted) if acted else "answered (nothing moved)",
+                    "answer": text[:200]})
     return out
 
 
@@ -641,7 +750,6 @@ def run(conn: sqlite3.Connection, usage: dict | None) -> dict:
     # Grooming first: it is the cheaper of the two jobs, and a story groomed in
     # this hour can be dispatched before the next one comes round.
     terms = contract(conn, "investigator")
-    stories = stories_to_groom(conn, GROOM_LIMIT) if terms else []
     if terms is None:
         report["skipped"] = "no active investigator contract — run `python -m colony init`"
     else:
@@ -660,6 +768,11 @@ def run(conn: sqlite3.Connection, usage: dict | None) -> dict:
             report["forged"].append(outcome)
             report["tokens"] += outcome["tokens"]
 
+    # Read the queue *after* the replies, not before. A reply that supplies the
+    # missing decision puts its story straight back into this queue, and asking
+    # an hour early would mean the answer waits a full pulse to become work —
+    # which is most of what "nothing is happening" felt like.
+    stories = stories_to_groom(conn, GROOM_LIMIT) if terms is not None else []
     if terms is not None and stories:
         projects = pulse_mod.candidate_projects()
         for story in stories:
