@@ -982,9 +982,13 @@ def staff_stories(conn: sqlite3.Connection, terms: dict) -> list[dict]:
             "closed_at = datetime('now','localtime') WHERE id = ?",
             (f"proposed {pick['name']} ({slug}) as {role}. {note}."[:2000], ticket_id),
         )
-        control._event(conn, story["id"], "staffed",
-                       f"Ordis proposed {pick['name']} ({pick['division']}) as {role}",
-                       recommendation[:2000], ticket_id, result.chargeable_tokens)
+        conn.execute(
+            """INSERT INTO story_events (story_id, kind, summary, detail, ticket_id, tokens)
+               VALUES (?,'staffed',?,?,?,?)""",
+            (story["id"],
+             f"Ordis proposed {pick['name']} ({pick['division']}) as {role}"[:400],
+             recommendation[:2000], ticket_id, result.chargeable_tokens),
+        )
         out.append({"story_id": story["id"], "escalation_id": esc_id,
                     "tokens": result.chargeable_tokens, "slug": slug,
                     "name": pick["name"], "division": pick["division"], "role": role,
