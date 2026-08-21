@@ -160,6 +160,45 @@ def infer_project(title: str, description: str | None) -> tuple[str | None, bool
     return None, False
 
 
+def ensure_blocked_visible(conn: sqlite3.Connection) -> int:
+    """Re-raise the Inbox card for any blocked story that has lost one.
+
+    A story in `needs-info` is a story the loop will not touch — GROOMABLE_WHERE
+    excludes it, so nothing re-derives an answer the PO is supposed to give. That
+    is right, and it is only right while the question is on the page. A blocked
+    story with no open card is invisible and inert: it will never be groomed and
+    it will never be asked about, which is the state the entire board reached.
+
+    So the invariant is enforced here rather than trusted to the six paths that
+    can close a card. Pure SQL, no model, runs every tick.
+    """
+    rows = conn.execute(
+        """SELECT id, title, blocked_reason, project, project_source, notion_hash
+             FROM stories
+            WHERE status = 'needs-info' AND dropped_at IS NULL AND settled_as IS NULL
+              AND NOT EXISTS (
+                  SELECT 1 FROM escalations e
+                   WHERE e.story_id = stories.id AND e.resolved_at IS NULL
+              )"""
+    ).fetchall()
+    for r in rows:
+        # A story parked with no recorded reason is the older shape of this bug:
+        # it was blocked on naming its folder, that got answered elsewhere, and
+        # the status never followed. Say the honest version rather than invent a
+        # question — the card asks him to point it at a folder, which is the
+        # only thing it can still be waiting on.
+        ask = (r["blocked_reason"] or "").strip() or (
+            "This is parked and no longer says why. Confirm the project folder "
+            "it belongs to, or drop it, and the colony will re-read it from scratch."
+        )
+        conn.execute(
+            """INSERT INTO escalations (story_id, kind, reason, recommendation, raised_hash)
+               VALUES (?,'needs-info',?,?,?)""",
+            (r["id"], f'"{r["title"]}" cannot start yet.', ask[:1000], r["notion_hash"]),
+        )
+    return len(rows)
+
+
 def stale_escalations(conn: sqlite3.Connection, story_id: int, new_hash: str) -> int:
     """Flag every open question that was asked about an older version of a story.
 
@@ -560,6 +599,15 @@ def _tick(conn: sqlite3.Connection) -> dict:
     outbox_result = outbox.flush(
         conn, enabled=control.get_control(conn, "notion_write", "1") == "1"
     )
+
+    # Free, and the rule the PO asked for in one line: if work cannot start, the
+    # reason is a card in the Inbox. Not a sentence in a thread, not a
+    # `blocked_reason` column nothing renders — a card, sitting there, naming
+    # the decision. Every route into `needs-info` is supposed to raise one, and
+    # every one of them had a way to lose it: a reply closing the card as
+    # 'amend', a project confirmation resolving it, a stale flag. This is the
+    # backstop, and it costs nothing to run every beat.
+    ensure_blocked_visible(conn)
 
     orphans = reap_orphaned_runs(conn)
     # Free housekeeping, done before anything counts the queue: a groom ticket
