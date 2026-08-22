@@ -347,7 +347,7 @@ names the state and the next move.
       Tooling Engineer as `scan-cli-builder` on `personal-desktop-projects`, for
       *Full computer scan*. Rejecting is a real answer — the next pulse proposes someone
       else, and the counter that keeps the roster diverse learns from it either way.
-- [ ] **Restart the dashboard window** to pick up 014/015/016. The ledger is already
+- [ ] **Restart the dashboard window** to pick up 014/015/016/017/018. The ledger is already
       migrated; the running window is serving the older code.
 - [ ] Watch the first sprint roll. Sprint 1 now ends Friday 2026-08-28 05:00; the tick that
       crosses that instant closes it and opens Sprint 2 with no goal set, which is a
@@ -358,6 +358,67 @@ names the state and the next move.
 - [ ] **First live write-capable ticket.** M3 is verified against a copy of the ledger; it
       has not yet been pointed at a real story end-to-end.
 - [ ] Update the published artifact — it still shows the pre-M1 design.
+
+## Finished 2026-08-21 — an x, a ceiling, and the patch you can read
+
+**The ceiling was never measured.** 120,000 was the default in `propose_hire`,
+written before the colony had ever built anything, and it went unquestioned
+into every write-capable contract. The first real build spent 209,233
+chargeable tokens on a nine-file change and came back correct — so the
+ceiling was not protecting a budget, it was manufacturing a cost escalation
+about a run that worked, which is the 002 lesson repeating on a different
+column. 400,000 now, roughly twice the one measured build: headroom that still
+catches a runaway without punishing a large honest one. Read-only roles keep
+their smaller numbers, because grooming and reviewing are bounded work and
+those figures came from real runs.
+
+**The Inbox has an x.** Every control on a tile was an answer to the question
+— approve, reject, later, re-ask — and the only one that could clear a tile
+without answering was "drop story", which takes the whole story off the board,
+cancels its tickets and closes its other questions. The cheapest way to tidy
+the Inbox was the most destructive thing in it, and a stale question about a
+problem already solved elsewhere had no exit that did not cost something.
+
+`dismiss` is not a fifth decision, and 017 is a column rather than a widened
+CHECK for that reason: the PO gave none of the four answers. `po_decision`
+stays NULL — the same shape `settle` already uses to close a filed story's
+questions as moot — and `dismissed_at` says which moot this was. The story is
+untouched: same status, same criteria, same place on the board.
+
+Dismissal needed teeth or it would have been a button that does nothing.
+`ensure_blocked_visible` runs every tick and re-raises a card for any blocked
+story that has lost one, so without a second clause the very next beat would
+have put the card straight back. And `control.question_settled` now answers for
+both raise paths in `wake`: a question is settled while its card is open, and
+also while it stands dismissed **against this version of the brief**. Edit the
+story in Notion, the hash moves, and Ordis is allowed to ask again — which is
+right, because by then the answer might have changed. Not on a write approval:
+there is a patch on disk and a worktree behind it, and closing that question
+without answering it strands both. The server refuses it; the UI just does not
+draw the button.
+
+018 came out of the same work. `po_actions.action` has a CHECK listing three
+decisions, and `_record` passes the decision straight through as the action
+name — so `amend` has never been writable either. `control.decide(esc,
+"amend")` accepts the argument, gets as far as recording it, and dies on a
+constraint. Nothing calls it that way yet, which is the only reason nobody has
+seen it. Both values go in.
+
+**The patch drawer stopped telling you to open a file in another program.** At
+the one gate where reading before deciding is the entire point, it showed the
+escalation's two sentences and a grey box reading "the patch is on disk at the
+path above". `/api/patch` now assembles the four things no single source has:
+what the build claims (the ticket's findings JSON — which criteria it met,
+what it skipped, what it wants looked at), what the diff actually moves
+(counted here, off the patch itself, because a summary of a different artifact
+is a summary you cannot check), what it cost, and the patch text. Per-file
+counts sort by churn, because nine files that each gained a line is a different
+review from nine files each half rewritten and the totals cannot tell them
+apart. The decision sits above the file list rather than under a thousand lines
+of diff: scrolling to the bottom to approve assumes you read all of it.
+
+Verified against the real escalation — 9 files, +664 -59, matching
+`git diff --stat` exactly.
 
 ## Finished 2026-08-21 — faces, and a week that exists
 

@@ -1102,6 +1102,140 @@ def api_diff(project: str = Query(..., max_length=200),
     return {"project": project, "path": path, "diff": projects_mod.diff(project, path)}
 
 
+PATCH_MAX_CHARS = 400_000
+
+
+def _diffstat(patch: str) -> dict[str, Any]:
+    """Per-file adds and deletes, counted off the patch itself.
+
+    `git diff --stat` was already captured into the escalation's
+    recommendation, as text, at build time. This re-counts from the patch
+    because the patch is the thing being approved and a summary of a *different*
+    artifact is a summary you cannot check. They should agree; if they ever do
+    not, the one on this side is the one describing what will land.
+
+    Counted, not parsed: a line is an addition if it starts with a single "+",
+    which is true of every added line and of no header, because "+++" is caught
+    by the header test first.
+    """
+    files: list[dict[str, Any]] = []
+    cur: dict[str, Any] | None = None
+    for line in patch.splitlines():
+        if line.startswith("diff --git "):
+            # "diff --git a/x b/x" {D} take the b-side, which is the path after
+            # the change, so a rename reads as where the file ended up.
+            parts = line.split(" b/", 1)
+            cur = {"path": parts[1] if len(parts) > 1 else line[11:],
+                   "added": 0, "removed": 0, "binary": False, "verb": "changed"}
+            files.append(cur)
+        elif cur is None:
+            continue
+        elif line.startswith("new file"):
+            cur["verb"] = "added"
+        elif line.startswith("deleted file"):
+            cur["verb"] = "deleted"
+        elif line.startswith("rename to "):
+            cur["verb"] = "renamed"
+        elif line.startswith("Binary files") or line.startswith("GIT binary patch"):
+            cur["binary"] = True
+        elif line.startswith("+++") or line.startswith("---") or line.startswith("@@"):
+            continue
+        elif line.startswith("+"):
+            cur["added"] += 1
+        elif line.startswith("-"):
+            cur["removed"] += 1
+    return {
+        "files": files,
+        "total": {
+            "files": len(files),
+            "added": sum(f["added"] for f in files),
+            "removed": sum(f["removed"] for f in files),
+            "binary": sum(1 for f in files if f["binary"]),
+        },
+    }
+
+
+@app.get("/api/patch")
+def api_patch(escalation_id: int = Query(..., ge=1)) -> dict[str, Any]:
+    """Everything there is to know about a patch before approving it.
+
+    "once i get a write approval task on the patch page, give me a brief
+     rundown of what was changed along with the details of changed file amounts
+     and all the statistics"
+
+    The drawer used to show the escalation's own two sentences and then a grey
+    box reading "the patch is on disk at the path above", which is the dashboard
+    telling the PO to go and open a file in another program {D} at the one gate
+    where reading before deciding is the entire point.
+
+    Four things come back, from three places, because no single one of them has
+    the whole picture: what the build says it did (the ticket's findings JSON,
+    written by the agent), what the diff actually contains (counted here), what
+    it cost (the run row), and the patch text itself.
+    """
+    with _conn() as conn:
+        esc = one(conn, "SELECT * FROM escalations WHERE id = ?", (escalation_id,))
+        if not esc or esc["kind"] != "write-approval":
+            raise HTTPException(404, "no patch waiting under that id")
+
+        try:
+            proposal = json.loads(esc["proposal"] or "{}")
+        except json.JSONDecodeError:
+            proposal = {}
+        ticket_id = proposal.get("ticket_id") or esc["ticket_id"]
+        ticket = one(conn, "SELECT * FROM tickets WHERE id = ?", (ticket_id,)) if ticket_id else None
+        run = one(conn,
+                  "SELECT * FROM runs WHERE ticket_id = ? ORDER BY id DESC LIMIT 1",
+                  (ticket_id,)) if ticket_id else None
+
+    # The agent's own account of the work. It is a claim, not a finding {D} the
+    # diff below is what actually happened {D} but it is the only thing that can
+    # say which acceptance criteria it believes it met and what it skipped.
+    report: dict[str, Any] = {}
+    if ticket and ticket.get("findings"):
+        try:
+            report = json.loads(ticket["findings"])
+        except json.JSONDecodeError:
+            report = {"summary": str(ticket["findings"])[:2000]}
+
+    path = Path(proposal.get("patch") or (ticket or {}).get("artifact_path") or "")
+    patch, error = "", None
+    if path.is_file():
+        try:
+            patch = path.read_text(encoding="utf-8", errors="replace")
+        except OSError as exc:
+            error = f"the patch file would not open: {exc}"
+    elif str(path):
+        error = "the patch file is no longer at the path the escalation recorded"
+    else:
+        error = "this escalation does not name a patch file"
+
+    truncated = len(patch) > PATCH_MAX_CHARS
+    return {
+        "escalation": {"id": esc["id"], "reason": esc["reason"],
+                       "recommendation": esc["recommendation"],
+                       "story_id": esc["story_id"], "raised_at": esc["raised_at"]},
+        "project": proposal.get("project"),
+        "ticket": {"id": ticket_id, "role": (ticket or {}).get("role"),
+                   "title": (ticket or {}).get("title")},
+        "path": str(path) if str(path) else None,
+        "report": report,
+        "stat": _diffstat(patch),
+        "run": {
+            "model": (run or {}).get("model"),
+            "status": (run or {}).get("status"),
+            "started_at": (run or {}).get("started_at"),
+            "ended_at": (run or {}).get("ended_at"),
+            "chargeable_tokens": (run or {}).get("chargeable_tokens"),
+            "total_tokens": (run or {}).get("total_tokens"),
+            "cost_usd": (run or {}).get("cost_usd"),
+        } if run else None,
+        "diff": patch[:PATCH_MAX_CHARS],
+        "truncated": truncated,
+        "error": error,
+    }
+
+
 @app.get("/api/pulse/{pulse_id}")
 def api_pulse(pulse_id: int) -> dict[str, Any]:
     """One heartbeat, in full. The long-form log."""
@@ -1332,7 +1466,7 @@ def act_hire(body: dict = Body(...), x_colony: str | None = Header(None)) -> dic
         project=(body.get("project") or None),
         model=str(body.get("model") or "claude-sonnet-5"),
         write_capable=bool(body.get("write_capable")),
-        max_tokens_run=int(body.get("max_tokens_run") or 120000),
+        max_tokens_run=int(body.get("max_tokens_run") or 400000),
         notes=body.get("notes") or None,
     )
 

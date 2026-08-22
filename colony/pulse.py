@@ -238,6 +238,18 @@ def ensure_blocked_visible(conn: sqlite3.Connection) -> int:
               AND NOT EXISTS (
                   SELECT 1 FROM escalations e
                    WHERE e.story_id = stories.id AND e.resolved_at IS NULL
+              )
+              -- ...and not one the PO dismissed against this exact brief. This
+              -- invariant is what would otherwise make dismissal meaningless:
+              -- close the card, and the very next tick notices a blocked story
+              -- with no card and puts it back. Edit the story in Notion and the
+              -- hash moves, the dismissal stops matching, and the card returns
+              -- — which is the behaviour you want, because the thing it was
+              -- dismissed about has changed.
+              AND NOT EXISTS (
+                  SELECT 1 FROM escalations e
+                   WHERE e.story_id = stories.id AND e.dismissed_at IS NOT NULL
+                     AND (e.raised_hash IS stories.notion_hash OR e.raised_hash IS NULL)
               )"""
     ).fetchall()
     for r in rows:
