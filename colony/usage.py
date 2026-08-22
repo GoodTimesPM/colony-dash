@@ -36,6 +36,10 @@ from pathlib import Path
 
 CACHE = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "claude-usage" / "usage.json"
 
+# Every ledger timestamp is written in this shape, and so is every instant that
+# leaves this module for somewhere that cannot hold a datetime.
+TS = "%Y-%m-%d %H:%M:%S"
+
 # Past this, the tray app has stopped and the figure on screen is a fossil.
 STALE_AFTER = timedelta(minutes=20)
 
@@ -87,6 +91,27 @@ def read() -> dict | None:
         "mtime": mtime,
         "stale": datetime.now() - mtime > STALE_AFTER,
     }
+
+
+def json_safe(sample: dict | None) -> dict | None:
+    """A `read()` result with its instants rendered as ledger timestamps.
+
+    `read()` hands back real `datetime` objects, because everything that does
+    arithmetic on a reset instant wants one. `json.dumps` does not, and the
+    pulse writes its whole context into `pulses.detail` as JSON — so the
+    moment `read()` started parsing instead of passing strings through, every
+    tick began dying at that one boundary. Fifteen of them died before anyone
+    noticed, because a scheduled task that exits 1 looks, from the dashboard,
+    exactly like a colony with nothing to do.
+
+    Anything crossing a serialisation boundary comes through here.
+    """
+    if sample is None:
+        return None
+    out = {}
+    for key, value in sample.items():
+        out[key] = value.strftime(TS) if isinstance(value, datetime) else value
+    return out
 
 
 def next_reset(now: datetime | None = None) -> datetime:
