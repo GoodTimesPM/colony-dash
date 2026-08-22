@@ -399,15 +399,13 @@ def groom_story(conn: sqlite3.Connection, story: sqlite3.Row, terms: dict,
                 WHERE id = ?""",
             (missing[:1000], story["id"]),
         )
-        # `stale_at IS NULL` matters here. A stale card is an open row that is
-        # explicitly no longer trusted, and letting it suppress a fresh question
-        # would mean the Inbox keeps showing the outdated wording forever.
-        already = conn.execute(
-            "SELECT 1 FROM escalations WHERE story_id = ? AND kind = 'needs-info' "
-            "AND resolved_at IS NULL AND stale_at IS NULL",
-            (story["id"],),
-        ).fetchone()
-        if not already:
+        # `question_settled` covers two cases. A stale card is an open row that
+        # is explicitly no longer trusted, and letting it suppress a fresh
+        # question would mean the Inbox keeps showing the outdated wording
+        # forever — so stale rows do not count. A dismissed card does count,
+        # for as long as the brief it was dismissed against stays put.
+        if not control.question_settled(conn, story["id"], "needs-info",
+                                        story["notion_hash"]):
             conn.execute(
                 """INSERT INTO escalations (story_id, ticket_id, kind, reason, recommendation,
                                             est_tokens, raised_hash)
@@ -689,12 +687,8 @@ def answer_po(conn: sqlite3.Connection, terms: dict, projects: list[str]) -> lis
                     WHERE id = ?""",
                 (blocked_on[:1000], story["id"]),
             )
-            already = conn.execute(
-                "SELECT 1 FROM escalations WHERE story_id = ? AND kind = 'needs-info' "
-                "AND resolved_at IS NULL AND stale_at IS NULL",
-                (story["id"],),
-            ).fetchone()
-            if not already:
+            if not control.question_settled(conn, story["id"], "needs-info",
+                                            story["notion_hash"]):
                 conn.execute(
                     """INSERT INTO escalations (story_id, ticket_id, kind, reason,
                                                 recommendation, est_tokens, raised_hash)
@@ -853,7 +847,7 @@ Reply with ONLY a JSON object:
   ],
   "read": ["persona files you actually opened"],
   "model": "claude-sonnet-5",
-  "max_tokens_run": 120000
+  "max_tokens_run": 400000
 }}"""
 
 
@@ -974,7 +968,7 @@ def staff_stories(conn: sqlite3.Connection, terms: dict) -> list[dict]:
             reason=recommendation[:1000],
             model=str(answer.get("model") or terms["model"]),
             write_capable=True,
-            max_tokens_run=int(answer.get("max_tokens_run") or 120000),
+            max_tokens_run=int(answer.get("max_tokens_run") or 400000),
             story_id=story["id"],
         )
         conn.execute(

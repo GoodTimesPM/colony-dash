@@ -205,6 +205,22 @@ def effective_allowance(conn: sqlite3.Connection) -> dict[str, Any]:
 
 
 def _close_escalation(conn: sqlite3.Connection, esc_id: int, decision: str) -> None:
+    """Close a card. A dismissal closes it without answering it.
+
+    `po_decision` stays NULL for a dismissal on purpose. It is the column that
+    says which of the four answers the PO gave, and he gave none of them; every
+    query that asks "what did he decide" would otherwise count a shrug. That is
+    the same shape `settle` already uses for a filed story's questions, so
+    `dismissed_at` is what separates the two moots.
+    """
+    if decision == "dismiss":
+        conn.execute(
+            "UPDATE escalations SET resolved_at = datetime('now','localtime'), "
+            "dismissed_at = datetime('now','localtime') "
+            "WHERE id = ? AND resolved_at IS NULL",
+            (esc_id,),
+        )
+        return
     conn.execute(
         "UPDATE escalations SET resolved_at = datetime('now','localtime'), po_decision = ? "
         "WHERE id = ? AND resolved_at IS NULL",
@@ -217,7 +233,41 @@ def _close_escalation(conn: sqlite3.Connection, esc_id: int, decision: str) -> N
 # and "PO amendd" on the timeline and, once decisions became tickets, into the
 # permanent record of what Jordan actually said.
 _PAST = {"approve": "approved", "reject": "rejected",
-         "defer": "deferred", "amend": "amended"}
+         "defer": "deferred", "amend": "amended", "dismiss": "dismissed"}
+
+
+def question_settled(conn: sqlite3.Connection, story_id: int, kind: str,
+                     story_hash: str | None) -> bool:
+    """Is this question already handled — either still open, or dismissed?
+
+    The raise paths already refused to ask twice while a card was open. They had
+    no way to know a card had been *dismissed*, so the next groom re-derived the
+    same missing information and put the same words back on the page. Jordan
+    dismissed a question about screenshots the day after the screenshots were
+    made readable, and the loop would have asked again on the next tick.
+
+    A dismissal is scoped to the version of the story it was made against, which
+    is what `raised_hash` records. Edit the brief and the question is allowed
+    back, because the PO dismissed a question about *that* text and this is no
+    longer that text. Leave the brief alone and it stays gone.
+
+    A story with no hash gets the conservative answer: a dismissal that cannot
+    be scoped to a version is treated as permanent for that question, since the
+    alternative is asking again immediately and that is the behaviour being
+    fixed.
+    """
+    open_now = conn.execute(
+        "SELECT 1 FROM escalations WHERE story_id = ? AND kind = ? "
+        "AND resolved_at IS NULL AND stale_at IS NULL",
+        (story_id, kind),
+    ).fetchone()
+    if open_now:
+        return True
+    return bool(conn.execute(
+        "SELECT 1 FROM escalations WHERE story_id = ? AND kind = ? "
+        "AND dismissed_at IS NOT NULL AND (raised_hash IS ? OR raised_hash IS NULL)",
+        (story_id, kind, story_hash),
+    ).fetchone())
 
 
 def _asked(esc: sqlite3.Row) -> str:
@@ -250,8 +300,15 @@ def decide(conn: sqlite3.Connection, esc_id: int, decision: str,
                    cannot revisit.
       cost       → acknowledged. The overspend already happened; this is a
                    receipt, not a control.
+
+    And one non-answer. `dismiss` is the Inbox's "x": the question stopped
+    mattering, close it and change nothing. It exists because the four
+    decisions above are all answers, and the only control that could actually
+    clear a tile without answering was "drop story" — which takes the whole
+    story off the board. Tidying the Inbox should not be the most destructive
+    thing you can do in it.
     """
-    if decision not in ("approve", "reject", "defer", "amend"):
+    if decision not in ("approve", "reject", "defer", "amend", "dismiss"):
         raise Refused(f"unknown decision {decision!r}")
 
     esc = conn.execute("SELECT * FROM escalations WHERE id = ?", (esc_id,)).fetchone()
@@ -259,6 +316,11 @@ def decide(conn: sqlite3.Connection, esc_id: int, decision: str,
         raise Refused("no such Inbox item")
     if esc["resolved_at"]:
         raise Refused("already decided")
+    if decision == "dismiss" and esc["kind"] == "write-approval":
+        # There is a real patch on disk and a worktree still checked out behind
+        # it. Closing that question without answering it would strand both, and
+        # the story would sit in `po-review` with nothing left to review it.
+        raise Refused("a patch cannot be dismissed — apply it or reject it")
 
     _record(conn, decision, "escalation", esc_id, note or esc["reason"][:400])
     kind = esc["kind"]
@@ -291,6 +353,30 @@ def decide(conn: sqlite3.Connection, esc_id: int, decision: str,
     conn.execute("UPDATE escalations SET snoozed_until = NULL WHERE id = ?", (esc_id,))
 
     _close_escalation(conn, esc_id, decision)
+
+    if decision == "dismiss":
+        # Deliberately before every kind-specific branch, and deliberately doing
+        # nothing to the story. A dismissal is a statement about the *question*,
+        # not about the work: the story keeps its status, its criteria and its
+        # place on the board, and the only thing that changes is that the colony
+        # stops asking.
+        #
+        # It stops asking about this version of the story, not forever. The row
+        # keeps its `raised_hash`, and the raise paths consult it, so a brief
+        # that gets edited afterwards is allowed to raise the question again
+        # — which is right, because by then the answer might have changed.
+        # Silence bought by a dismissal is silence about one particular fact.
+        if esc["story_id"]:
+            _event(conn, esc["story_id"], "decided",
+                   f"PO dismissed the question: {esc['reason'][:200]}",
+                   note or "no longer relevant")
+        _decision_ticket(
+            conn, story_id=esc["story_id"], title=f"Dismissed: {esc['reason'][:140]}",
+            question=_asked(esc),
+            answer="PO dismissed this — the question stopped mattering. Nothing on the "
+                   "story was changed." + (f"\n\n{note}" if note else ""),
+            esc_id=esc_id)
+        return {"ok": True, "kind": kind, "outcome": "dismissed"}
 
     if kind == "decision" and esc["story_id"] and decision == "approve":
         conn.execute(
@@ -985,7 +1071,7 @@ WRITE_TOOLS = ["Read", "Grep", "Glob", "Edit", "Write"]
 
 def propose_hire(conn: sqlite3.Connection, *, roster_slug: str, role: str,
                  project: str | None, reason: str, model: str = "claude-sonnet-5",
-                 write_capable: bool = False, max_tokens_run: int = 120000,
+                 write_capable: bool = False, max_tokens_run: int = 400000,
                  story_id: int | None = None) -> int:
     """Raise a hire for approval. Does not hire anything.
 
@@ -1013,7 +1099,7 @@ def propose_hire(conn: sqlite3.Connection, *, roster_slug: str, role: str,
 
 def hire(conn: sqlite3.Connection, *, roster_slug: str | None, role: str,
          project: str | None = None, model: str = "claude-sonnet-5",
-         write_capable: bool = False, max_tokens_run: int = 120000,
+         write_capable: bool = False, max_tokens_run: int = 400000,
          notes: str | None = None, _skip_record: bool = False) -> int:
     """Turn a persona into an agent with a contract.
 
