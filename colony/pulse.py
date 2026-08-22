@@ -957,7 +957,8 @@ def _write_pulse_row(conn: sqlite3.Connection, ctx: dict, wake_report: dict | No
             now(), ctx["tier"], ctx["window_start"], ctx["window_end"],
             json.dumps({
                 "notion": {k: board[k] for k in ("configured", "seen", "new", "changed", "error")},
-                "usage": usage,
+                # Not `usage` itself: it carries datetimes, and this is JSON.
+                "usage": usage_mod.json_safe(usage),
                 "finished_runs": ctx["finished"],
                 "halted": ctx["halted"],
                 "wake_reasons": ctx["reasons"],
