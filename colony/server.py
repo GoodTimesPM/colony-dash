@@ -406,7 +406,8 @@ def _inbox(conn: sqlite3.Connection) -> list[dict[str, Any]]:
          -- attention this Inbox is spending.
          ORDER BY stale, snoozed,
                   CASE e.kind WHEN 'write-approval' THEN 0 WHEN 'hire' THEN 1
-                              WHEN 'decision' THEN 2 ELSE 3 END,
+                              WHEN 'decision' THEN 2 WHEN 'brief-changed' THEN 3
+                              ELSE 4 END,
                   e.raised_at DESC
         """,
     )
@@ -561,9 +562,22 @@ def _flight(conn: sqlite3.Connection) -> list[dict[str, Any]]:
 
 
 def _pulses(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    # `tier` records what the tick DECIDED, not what happened. An hour can be
+    # stamped "wake" because the tick found a reason, and then cost nothing
+    # because the wake looked at its job list and stood down. Both facts are
+    # true and together they read like a contradiction on screen.
+    #
+    # `acted` is the second half, taken from the record rather than sniffed out
+    # of the finding text: `actions.wake` is null when no wake was spawned at
+    # all, and carries `skipped` when one was spawned and declined to spend.
+    # Either way the hour was free, and the page labels it a tick.
     return rows(
         conn,
         "SELECT id, pulse_at, tier, finding, anomalies, tokens, duration_ms, "
+        "       CASE WHEN tier <> 'wake' THEN 0 "
+        "            WHEN json_extract(actions, '$.wake') IS NULL THEN 0 "
+        "            WHEN json_extract(actions, '$.wake.skipped') IS NOT NULL THEN 0 "
+        "            ELSE 1 END AS acted, "
         "       CASE WHEN detail IS NULL OR detail = '' THEN 0 ELSE 1 END AS has_detail "
         "FROM pulses ORDER BY pulse_at DESC, id DESC LIMIT ?",
         (PULSE_LIMIT,),
@@ -1251,6 +1265,11 @@ def api_pulse(pulse_id: int) -> dict[str, Any]:
             row["actions_json"] = json.loads(row.get("actions") or "{}")
         except ValueError:
             row["actions_json"] = {}
+        # Same distinction the list makes: did a wake actually spend this hour,
+        # or did the tick merely decide one was warranted? See `_pulses`.
+        wake = row["actions_json"].get("wake")
+        row["acted"] = 1 if (row.get("tier") == "wake" and wake
+                             and not wake.get("skipped")) else 0
         return row
     finally:
         conn.close()
@@ -1393,7 +1412,8 @@ def _thread_state(conn: sqlite3.Connection, escalation_id: int | None,
     elif s["status"] == "ready" and not writers:
         level = "waiting"
         headline = "criteria accepted — waiting on a writer to be hired"
-    elif any(q["kind"] in ("decision", "hire", "write-approval") for q in open_qs):
+    elif any(q["kind"] in ("decision", "hire", "write-approval", "brief-changed")
+             for q in open_qs):
         level = "waiting"
         headline = "waiting on your decision"
     elif s["status"] in ("backlog", "needs-criteria"):

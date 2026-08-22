@@ -1181,6 +1181,10 @@ button.pulse:focus-visible { outline: 2px solid var(--violet); outline-offset: -
 button.pulse[disabled] { cursor: default; }
 .pulse .tier { color: var(--ink-dim); }
 .pulse[data-tier="wake"] .tier { color: var(--mint); }
+/* An hour the tick escalated and the wake declined to spend. Worth picking out
+   of the log — something was found — but it is not a wake, and it must not wear
+   the colour that means tokens left the account. */
+.pulse[data-tier="escalated"] .tier { color: var(--ink); }
 .pulse .find { color: var(--ink-soft); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pulse.gap, .pulse.gap .find { color: var(--coral); }
 .pulse.rolled .find { color: var(--ink-dim); }
@@ -1356,10 +1360,12 @@ button.pulse[disabled] { cursor: default; }
 .msg.ask:not(.closed)[data-kind="decision"] .bubble,
 .msg.ask:not(.closed)[data-kind="hire"] .bubble,
 .msg.ask:not(.closed)[data-kind="write-approval"] .bubble,
+.msg.ask:not(.closed)[data-kind="brief-changed"] .bubble,
 .msg.ask:not(.closed)[data-kind="project"] .bubble { border-color: var(--amber); }
 .msg.ask:not(.closed)[data-kind="decision"] .who,
 .msg.ask:not(.closed)[data-kind="hire"] .who,
 .msg.ask:not(.closed)[data-kind="write-approval"] .who,
+.msg.ask:not(.closed)[data-kind="brief-changed"] .who,
 .msg.ask:not(.closed)[data-kind="project"] .who { color: var(--amber); }
 /* What Ordis took away from it. The only part of the exchange that is still
    worth anything a month later, and it used to live two clicks away in the
@@ -3008,6 +3014,18 @@ function inboxTile(e) {
     const no = el("button", "act no", "reject");
     no.onclick = () => act("decide", { escalation_id: e.id, decision: "reject" });
     acts.append(view, yes, no);
+  } else if (e.kind === "brief-changed" && e.id) {
+    const yes = el("button", "act go", "reopen for grooming");
+    yes.title = "clears the criteria and puts it back in the groom queue — the next wake re-reads the brief";
+    yes.onclick = () => confirmThen(
+      "Reopen “" + (e.story_title || "this story") + "”?\n\n" +
+      "Its acceptance criteria are cleared and the next wake re-reads the whole " +
+      "brief from Notion. Anything already built stays built.",
+      () => act("decide", { escalation_id: e.id, decision: "approve" }));
+    const no = el("button", "act no", "leave it");
+    no.title = "records that the edit did not change the work; the card returns only if you edit the page again";
+    no.onclick = () => act("decide", { escalation_id: e.id, decision: "reject" });
+    acts.append(yes, no);
   } else if (!asksForProject && e.id) {
     const yes = el("button", "act go", "approve");
     yes.onclick = () => act("decide", { escalation_id: e.id, decision: "approve" });
@@ -3503,6 +3521,22 @@ function renderMacros(c) {
   }
 }
 
+// The tier column records what the tick DECIDED; `acted` records what the wake
+// actually did. An hour stamped "wake" that cost nothing is a tick that
+// escalated and then found its job list empty — and calling that a wake, in
+// mint, next to a token count of zero, is the log arguing with itself.
+function tierOf(p) {
+  if (p.tier !== "wake") return p.tier;
+  return p.acted ? "wake" : "tick";
+}
+
+// Distinct from a plain tick in the log, because an escalated hour is worth
+// reading back and a clean one is not.
+function tierKey(p) {
+  if (p.tier !== "wake") return p.tier;
+  return p.acted ? "wake" : "escalated";
+}
+
 function renderPulses(rows) {
   const box = $("pulses");
   box.replaceChildren();
@@ -3534,10 +3568,10 @@ function renderPulses(rows) {
     }
     const p = item.p;
     const row = el("button", "pulse" + (item.roll > 1 ? " rolled" : ""));
-    row.dataset.tier = p.tier;
+    row.dataset.tier = tierKey(p);
     row.append(
       el("span", null, hhmm(p.pulse_at)),
-      el("span", "tier", p.tier),
+      el("span", "tier", tierOf(p)),
       el("span", "find", item.roll > 1 ? `clean ×${item.roll}` : (p.finding || "")),
       el("span", "num", p.tokens ? toks(p.tokens) : ""),
     );
@@ -4569,7 +4603,12 @@ async function openPulse(id) {
   let p;
   try { p = await getJSON("/api/pulse/" + id); }
   catch { body.replaceChildren(el("div", "empty", "could not load that beat")); return; }
-  $("d-eyebrow").textContent = `${p.tier} · ${p.pulse_at}`;
+  // "escalated" rather than "wake": the tick found a reason, a wake was
+  // considered, and nothing was spent. The header used to say WAKE directly
+  // above a body that said "spent nothing — the heartbeat is free".
+  const escalated = p.tier === "wake" && !p.acted;
+  $("d-eyebrow").textContent =
+    `${tierOf(p)}${escalated ? " · escalated" : ""} · ${p.pulse_at}`;
   $("d-title").textContent = p.finding || "clean";
   body.replaceChildren();
 

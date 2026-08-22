@@ -270,6 +270,79 @@ def ensure_blocked_visible(conn: sqlite3.Connection) -> int:
     return len(rows)
 
 
+# Past this point the colony has already read the brief, written criteria from
+# it, and in most cases built against it. `GROOMABLE_WHERE` deliberately does
+# not match these rows — re-grooming an accepted story every time the PO fixes a
+# typo would be expensive and wrong.
+#
+# The consequence nobody designed: editing such a story does nothing at all. The
+# tick sees "1 changed", says so in the log, and drops it. Jordan added a chunk
+# of new scope to "15 Part Job Search" and the next two beats reported a story
+# edit and then stood down, because the queue that would have picked it up
+# excludes exactly this story.
+#
+# A card, not a re-groom. Whether new prose on a built story is new scope or a
+# tidied sentence is a judgment the tick cannot make and a model should not be
+# paid to guess at hourly. So the loop asks, for free, once per version of the
+# brief — `raised_hash` is what makes it once.
+BRIEF_CHANGED_WHERE = """
+    id = :story_id
+    AND dropped_at IS NULL
+    AND settled_as IS NULL
+    -- The colony has a considered view of this story already. That is the whole
+    -- precondition: there is something for the change to invalidate.
+    AND acceptance_criteria IS NOT NULL AND acceptance_criteria <> ''
+    -- Not while a question about it is already open. The PO is looking at a
+    -- card about this story; a second one asking whether the first is still
+    -- current is noise.
+    AND NOT EXISTS (
+        SELECT 1 FROM escalations e
+         WHERE e.story_id = stories.id AND e.resolved_at IS NULL
+           AND e.dismissed_at IS NULL
+    )
+    -- And not one already asked, or dismissed, about this exact brief. The hash
+    -- moves when the prose does, so the next real edit is allowed to ask again.
+    AND NOT EXISTS (
+        SELECT 1 FROM escalations e
+         WHERE e.story_id = stories.id AND e.kind = 'brief-changed'
+           AND e.raised_hash IS stories.notion_hash
+    )
+"""
+
+
+def brief_changed(conn: sqlite3.Connection, story_ids: list[int]) -> list[str]:
+    """Ask about stories the PO edited after the colony was done reading them.
+
+    Free. Returns the titles asked about, for the log.
+    """
+    asked = []
+    for story_id in story_ids:
+        row = conn.execute(
+            f"SELECT id, title, status, notion_hash FROM stories WHERE {BRIEF_CHANGED_WHERE}",
+            {"story_id": story_id},
+        ).fetchone()
+        if not row:
+            continue
+        conn.execute(
+            """INSERT INTO escalations (story_id, kind, reason, recommendation, raised_hash)
+               VALUES (?,'brief-changed',?,?,?)""",
+            (
+                row["id"],
+                f'You edited "{row["title"]}" after the colony finished reading it.',
+                "Its acceptance criteria were written against the older version of "
+                "the brief, so nothing in the loop will pick this edit up on its "
+                "own — a story with criteria is not in the groom queue.\n\n"
+                "Reopen it if the edit is new scope: the criteria are cleared and "
+                "the next wake re-reads the whole brief from Notion. Leave it if "
+                "you were tidying prose. Either way this is asked once per version "
+                "— edit the page again and it comes back.",
+                row["notion_hash"],
+            ),
+        )
+        asked.append(row["title"])
+    return asked
+
+
 def stale_escalations(conn: sqlite3.Connection, story_id: int, new_hash: str) -> int:
     """Flag every open question that was asked about an older version of a story.
 
@@ -319,7 +392,7 @@ def sync_notion(conn: sqlite3.Connection) -> dict:
     """Upsert the board into `stories`. Returns what actually changed."""
     load_env()
     result = {"configured": True, "seen": 0, "new": [], "changed": [], "error": None,
-              "staled": 0, "ticked": [], "filed": [], "revived": []}
+              "staled": 0, "ticked": [], "filed": [], "revived": [], "changed_ids": []}
     try:
         rows = notion.fetch_board()
     except notion.NotionUnconfigured as exc:
@@ -369,6 +442,9 @@ def sync_notion(conn: sqlite3.Connection) -> dict:
             )
             story_id = prev["id"]
             result["changed"].append(row["title"])
+            # Ids as well as titles: `brief_changed` needs to look these rows up
+            # in the ledger, and two stories are allowed to share a name.
+            result["changed_ids"].append(story_id)
             kind, summary = "synced", "Notion row changed"
 
             # Filing is the one thing an hourly sync may change about a story's
@@ -681,6 +757,10 @@ def _tick(conn: sqlite3.Connection) -> dict:
     # backstop, and it costs nothing to run every beat.
     ensure_blocked_visible(conn)
 
+    # The other half of the same rule, one layer later: a story that CAN start,
+    # and has, and then had its brief rewritten underneath it.
+    outrun = brief_changed(conn, board.get("changed_ids", []))
+
     orphans = reap_orphaned_runs(conn)
     # Free housekeeping, done before anything counts the queue: a groom ticket
     # whose question has been answered is a receipt, not work, and leaving it
@@ -776,6 +856,8 @@ def _tick(conn: sqlite3.Connection) -> dict:
 
     # The two halves of M5, both free, both worth a line. Ticked boxes and
     # staled questions are the colony noticing that Jordan moved ahead of it.
+    if outrun:
+        notes.append(f"board: {len(outrun)} brief(s) changed after grooming")
     if board.get("ticked"):
         notes.append(f"notion: {len(board['ticked'])} item(s) ticked off")
     if board.get("staled"):
@@ -801,7 +883,7 @@ def _tick(conn: sqlite3.Connection) -> dict:
         "started": started, "window_start": window_start, "window_end": window_end,
         "tier": tier, "finding": finding, "anomalies": anomalies,
         "usage": usage, "board": board, "reasons": reasons, "notes": notes,
-        "sprint_move": sprint_move,
+        "sprint_move": sprint_move, "outrun": outrun,
         "finished": len(finished), "halted": halted, "changed": changed,
         "orphans": len(orphans), "swept": swept, "dispatched": dispatched, "groomable": pending,
         "decisions": decisions, "candidates": candidates, "queued_drafts": queued_drafts,
@@ -924,7 +1006,10 @@ def _write_pulse_row(conn: sqlite3.Connection, ctx: dict, wake_report: dict | No
                                            or wake_report.get("answered")
                                            or wake_report.get("forged")
                                            or wake_report.get("staffed")):
-            finding += f"; wake skipped: {wake_report['skipped']}"
+            # Not "skipped", which reads as a failure. The tick escalated, the
+            # wake looked at its job list, found it empty, and cost nothing —
+            # that is the loop working, and the word should say so.
+            finding += f" — wake stood down: {wake_report['skipped']}"
         detail += nl + nl + "WAKE"
         if wake_report["skipped"]:
             detail += nl + f"         stood down — {wake_report['skipped']}"
