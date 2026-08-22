@@ -400,6 +400,31 @@ def decide(conn: sqlite3.Connection, esc_id: int, decision: str,
         _event(conn, esc["story_id"], "decided",
                "PO rejected the draft criteria — back for re-grooming", note or None)
         outcome = "sent back for re-grooming"
+    elif kind == "brief-changed" and esc["story_id"] and decision == "approve":
+        # The same move `decision`/reject makes, and for the same reason: the
+        # criteria on this story describe a brief that no longer exists, and
+        # clearing them is what puts a story back in the groom queue. The
+        # attempt budget goes with it — a story groomed twice months ago must
+        # not be permanently unreadable because the PO rewrote it today.
+        conn.execute(
+            "UPDATE stories SET status = 'needs-criteria', acceptance_criteria = NULL, "
+            "updated_at = datetime('now','localtime') WHERE id = ?",
+            (esc["story_id"],),
+        )
+        regroom_budget(conn, esc["story_id"])
+        _event(conn, esc["story_id"], "decided",
+               "PO reopened the story — the brief changed after grooming, "
+               "criteria cleared for a re-read", note or None)
+        outcome = "reopened for grooming"
+    elif kind == "brief-changed" and esc["story_id"] and decision == "reject":
+        # Deliberately does nothing to the story. "That edit was cosmetic" is a
+        # real answer, and it is recorded rather than acted on. The card will
+        # not return for this version of the brief because `raised_hash` already
+        # names it.
+        _event(conn, esc["story_id"], "decided",
+               "PO left the story as it stands — the edit did not change the work",
+               note or None)
+        outcome = "left as it stands"
     elif kind == "hire" and decision == "approve":
         proposal = json.loads(esc["proposal"] or "{}")
         hired = hire(conn, **proposal, _skip_record=True)
