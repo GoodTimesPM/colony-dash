@@ -347,8 +347,10 @@ names the state and the next move.
       Tooling Engineer as `scan-cli-builder` on `personal-desktop-projects`, for
       *Full computer scan*. Rejecting is a real answer — the next pulse proposes someone
       else, and the counter that keeps the roster diverse learns from it either way.
-- [ ] **Restart the dashboard window** to pick up 014/015/016/017/018. The ledger is already
+- [ ] **Restart the dashboard window** to pick up 014 through 019. The ledger is already
       migrated; the running window is serving the older code.
+- [ ] **One `brief-changed` card is waiting** on story #1, "15 Part Job Search". Reopen it
+      if the scope you added is new work, or leave it if you were tidying prose.
 - [ ] Watch the first sprint roll. Sprint 1 now ends Friday 2026-08-28 05:00; the tick that
       crosses that instant closes it and opens Sprint 2 with no goal set, which is a
       deliberate blank for the PO to fill.
@@ -358,6 +360,46 @@ names the state and the next move.
 - [ ] **First live write-capable ticket.** M3 is verified against a copy of the ledger; it
       has not yet been pointed at a real story end-to-end.
 - [ ] Update the published artifact — it still shows the pre-M1 design.
+
+## Finished 2026-08-22 — what the words mean, and the edit that went nowhere
+
+**"wake" was being used for two different things.** `tier` records what the tick *decided*;
+it does not record what happened. An hour stamped `wake` because the tick found a reason,
+whose wake then read its job list and stood down, was drawn in mint next to a token count
+of zero, above a body that said "spent nothing — the heartbeat is free". Thirty-eight of
+the fifty-four `wake` rows in this ledger are that shape. The schema keeps its two tiers,
+because two is the right number and a third would only move the ambiguity; the page asks
+`acted` instead, computed from `actions.wake` in the record rather than sniffed out of the
+finding text, and labels those hours ticks — escalated. `wake skipped:` became
+`wake stood down:`, because skipping is a failure and standing down is the loop working.
+
+The vocabulary, settled, since it kept drifting:
+
+| word | what it is |
+|---|---|
+| **pulse** | the scheduled hourly event. One `pulses` row, every hour. A missing row is the alarm. |
+| **tick** | the free half. Pure Python, no model, zero tokens. Decides whether the hour is worth spending on. |
+| **wake** | the paid half. Ordis runs. Only when the tick found a reason *and* there is a job to do. |
+| **groom** | one job a wake can do: turn a brief with no acceptance criteria into criteria and questions. |
+| **beat** | prose for "one pulse". Not a concept; nothing in the schema knows the word. |
+
+**A brief that changes after grooming now raises a card.** `GROOMABLE_WHERE` excludes any
+story that already has acceptance criteria, deliberately: re-grooming an accepted story
+every time a sentence is fixed would pay a model to reproduce an answer we already have.
+The edge went unwritten. Once a story is groomed, built and accepted, editing its Notion
+page does *nothing* — the tick reports "1 changed" in the log and drops it. Story #1 had
+new scope added to it and two consecutive beats reported a story edit and then stood down,
+because the queue that would have picked it up excludes exactly that story.
+
+`brief-changed` is free: the tick raises it, no model reads it, and `raised_hash` holds it
+to once per version of the brief. Approve clears the criteria *and* the attempt budget and
+puts the story back in the groom queue; reject records that the edit was cosmetic and
+changes nothing; the x dismisses it until the page moves again. Whether new prose on a
+built story is new scope or a tidied sentence is a judgment the tick cannot make and a
+model should not be paid to guess at hourly — so the loop asks.
+
+Migration 019 rebuilds the `escalations` CHECK to admit the word. SQLite cannot alter a
+constraint in place, so the table is copied by name and both indexes are recreated.
 
 ## Finished 2026-08-21 — an x, a ceiling, and the patch you can read
 
