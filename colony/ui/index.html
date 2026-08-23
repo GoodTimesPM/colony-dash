@@ -752,13 +752,6 @@ body.halted .halt-banner { display: flex; }
   font-family: var(--mono); font-size: var(--step--2); color: var(--ink-dim);
   letter-spacing: .06em; text-transform: uppercase;
 }
-/* What Ordis said back, on the face of the tile. A reply you have to open a
-   drawer to discover is a reply you will not read. */
-.tile .said {
-  border-left: 2px solid var(--violet); padding: 4px 0 4px 8px;
-  font-size: var(--step--1); color: var(--ink-soft); white-space: pre-wrap;
-  max-height: 7em; overflow-y: auto;
-}
 .tile .waiting {
   font-family: var(--mono); font-size: var(--step--2); letter-spacing: .06em;
   text-transform: uppercase; color: var(--violet);
@@ -1522,6 +1515,11 @@ pre.diff .file  { color: var(--ink); font-weight: 600; }
 .kv { display: grid; grid-template-columns: auto 1fr; gap: 3px 14px; font-family: var(--mono); font-size: var(--step--1); }
 .kv dt { color: var(--ink-dim); }
 .kv dd { margin: 0; word-break: break-word; }
+/* A date under the line it belongs to rather than on the end of it. On the end
+   it competes with the status for the same reading, and the status is what you
+   came for. */
+.kv dd .stamp { color: var(--ink-dim); font-size: var(--step--2); margin-top: 1px;
+                font-variant-numeric: tabular-nums; }
 
 /* Recent commits are three columns rather than two, because the time earns its
    own: the useful reading is *down* that column — when did this folder last
@@ -1538,6 +1536,7 @@ table.runs { width: 100%; border-collapse: collapse; font-family: var(--mono); f
 table.runs th { text-align: left; font-weight: 600; color: var(--ink-dim); border-bottom: 1px solid var(--rule); padding: 3px 8px 3px 0; }
 table.runs td { padding: 3px 8px 3px 0; border-bottom: 1px solid var(--rule-soft); white-space: nowrap; }
 table.runs td.num { text-align: right; padding-right: 0; }
+table.runs td.dim { color: var(--ink-dim); font-variant-numeric: tabular-nums; }
 .wrap-x { overflow-x: auto; }
 .blk { display: flex; flex-direction: column; gap: 5px; }
 .blk > .lb { font-family: var(--mono); font-size: var(--step--2); letter-spacing: .1em; text-transform: uppercase; color: var(--ink-dim); }
@@ -2175,6 +2174,16 @@ function when(ts) {
   if (!d || isNaN(d)) return String(ts || "").slice(0, 16);
   return d.toLocaleString(undefined,
     { weekday: "short", hour: "numeric", minute: "2-digit" });
+}
+
+// The same fact with its date on it. `when` is for the next few days, where the
+// weekday alone is enough. A ticket or a run can be three weeks old, and "Fri
+// 5:00 AM" does not say which Friday.
+function stamp(ts) {
+  const d = parseTs(ts);
+  if (!d || isNaN(d)) return String(ts || "").slice(0, 16);
+  return d.toLocaleString(undefined,
+    { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
 function renderSprint(sp) {
@@ -2954,13 +2963,13 @@ function inboxTile(e) {
   if (e.snoozed) {
     card.append(el("div", "snooze-note", "snoozed · back " + until(e.snoozed_until)));
   }
-  // The conversation, in the two states it can be in. Both belong on the face
-  // of the tile: a reply nobody can see from the Inbox is a reply nobody reads.
-  if (e.last_reply) {
-    const said = el("div", "said", e.last_reply);
-    said.title = "Ordis answered your reply";
-    card.append(said);
-  }
+  // Ordis's last answer used to be quoted here. It was the wrong place for it:
+  // the answer is usually to something said days ago, so it reads as the card's
+  // own text and buries the question the card is actually asking. The reply
+  // button carries the count, and the whole exchange is one press away.
+  //
+  // What is still queued does belong here, because it changes what the buttons
+  // mean — deciding now decides ahead of an answer you asked for.
   if (e.awaiting_ordis) {
     card.append(el("div", "waiting",
       e.awaiting_ordis + " repl" + (e.awaiting_ordis === 1 ? "y" : "ies") +
@@ -3209,12 +3218,16 @@ async function openCompose(e, opts) {
   box.replaceChildren();
   const wrap = el("div", "compose");
 
-  // Filled by `load()` below, from the server's own reading of the story. It
-  // sits above the proposal because the proposal is one question and this is
-  // whether the story it belongs to can move at all.
+  // Filled by `load()` below, from the server's own reading of the story.
+  //
+  // It used to be pinned here, above the proposal and above every message. That
+  // put it furthest from the box you type in, so on a thread of any length the
+  // one line saying what is actually blocking the story was the one line you
+  // had to scroll back up to find. `load()` now appends it to the end of the
+  // thread instead: the conversation runs oldest to newest, and where the work
+  // stands is the newest thing in it.
   const state = el("div", "state");
   state.style.display = "none";
-  wrap.append(state);
 
   const proposal = el("div", "proposal");
   proposal.append(el("div", "r", e.reason));
@@ -3318,7 +3331,6 @@ async function openCompose(e, opts) {
     const entries = data.entries || [];
     if (!entries.length) {
       thread.append(el("div", "empty", "nothing has been said about this yet"));
-      return;
     }
     for (const m of entries) {
       if (m.kind === "question") {
@@ -3354,6 +3366,9 @@ async function openCompose(e, opts) {
       }
       thread.append(row);
     }
+    // Last, so it reads as where the conversation has got to, and so it sits
+    // directly above the box.
+    thread.append(state);
   };
   load();
 
@@ -4443,9 +4458,16 @@ async function openStory(id) {
       // SQLite cannot widen in place; `decided_esc_id` is what makes it a
       // decision, exactly as `po_message_id` is what makes a ticket a reply.
       const decision = !!t.decided_esc_id;
-      r.append(el("dt", null, `#${t.id} ${decision ? "decision" : t.intent}`),
-               el("dd", null, decision ? (t.findings || "decided")
-                                       : `${t.status} · ${t.role}`));
+      const dd = el("dd", null, decision ? (t.findings || "decided")
+                                         : `${t.status} · ${t.role}`);
+      // When it was opened, and when it stopped. Without dates this list cannot
+      // answer the first question anyone asks of it — is #19 from this morning
+      // or from last week — and the ids only say what order things happened in.
+      const life = stamp(t.created_at) +
+                   (t.closed_at && t.closed_at !== t.created_at
+                      ? "  ·  closed " + stamp(t.closed_at) : "");
+      dd.append(el("div", "stamp", life));
+      r.append(el("dt", null, `#${t.id} ${decision ? "decision" : t.intent}`), dd);
       rows.append(r);
       if (["staffed", "open"].includes(t.status)) {
         const c = el("button", "act no", "cancel ticket #" + t.id);
@@ -4460,11 +4482,20 @@ async function openStory(id) {
     const box = el("div", "wrap-x");
     const t = el("table", "runs");
     const head = el("tr");
-    ["run", "role", "status", "chargeable", "total", "$"].forEach((h) => head.append(el("th", null, h)));
+    ["run", "started", "took", "role", "status", "chargeable", "total", "$"]
+      .forEach((h) => head.append(el("th", null, h)));
     t.append(head);
     for (const r of data.runs) {
       const tr = el("tr");
-      tr.append(el("td", null, "#" + r.id), el("td", null, r.agent_role), el("td", null, r.status),
+      // Two clocks, because they answer different questions. "started" places
+      // the run in the week; "took" is how long the agent was actually working,
+      // which is the number you want when a run cost more than you expected.
+      const secs = r.ended_at && r.started_at
+        ? (parseTs(r.ended_at) - parseTs(r.started_at)) / 1000 : null;
+      tr.append(el("td", null, "#" + r.id),
+                el("td", "dim", stamp(r.started_at)),
+                el("td", "dim", secs == null ? "—" : clock(secs)),
+                el("td", null, r.agent_role), el("td", null, r.status),
                 el("td", "num", toks(r.chargeable_tokens || r.total_tokens)),
                 el("td", "num dim", toks(r.total_tokens)), el("td", "num dim", usd(r.cost_usd)));
       t.append(tr);
@@ -4622,11 +4653,12 @@ async function openAgent(id) {
     const box = el("div", "wrap-x");
     const t = el("table", "runs");
     const head = el("tr");
-    ["run", "ticket", "status", "chargeable"].forEach((h) => head.append(el("th", null, h)));
+    ["run", "started", "ticket", "status", "chargeable"].forEach((h) => head.append(el("th", null, h)));
     t.append(head);
     for (const r of a.runs) {
       const tr = el("tr");
-      tr.append(el("td", null, "#" + r.id), el("td", null, r.ticket_title || "—"),
+      tr.append(el("td", null, "#" + r.id), el("td", "dim", stamp(r.started_at)),
+                el("td", null, r.ticket_title || "—"),
                 el("td", null, r.status), el("td", "num", toks(r.chargeable_tokens || r.total_tokens)));
       t.append(tr);
     }

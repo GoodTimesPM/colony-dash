@@ -378,16 +378,16 @@ def _inbox(conn: sqlite3.Connection) -> list[dict[str, Any]]:
                -- counted only its own episode showed "reply to Ordis" on a
                -- story with six messages behind it, because the escalation it
                -- happened to be attached to was two minutes old. The counts
-               -- and the last answer belong to the conversation, and the
-               -- conversation belongs to the story (see `control.thread`).
+               -- belong to the conversation, and the conversation belongs to
+               -- the story (see `control.thread`). The last answer itself is
+               -- not here: the tile quoted it and the quote read as the card's
+               -- own words, so the count on the reply button is the whole
+               -- signal now.
                (SELECT COUNT(*) FROM po_messages m
                  WHERE m.escalation_id = e.id OR m.story_id = e.story_id)          AS messages,
                (SELECT COUNT(*) FROM po_messages m
                  WHERE (m.escalation_id = e.id OR m.story_id = e.story_id)
                    AND m.author = 'po' AND m.status = 'unread')                    AS awaiting_ordis,
-               (SELECT m.body FROM po_messages m
-                 WHERE (m.escalation_id = e.id OR m.story_id = e.story_id)
-                   AND m.author = 'ordis' ORDER BY m.id DESC LIMIT 1)              AS last_reply,
                (SELECT m.at FROM po_messages m
                  WHERE m.escalation_id = e.id OR m.story_id = e.story_id
                  ORDER BY m.id DESC LIMIT 1)                                       AS last_message_at,
