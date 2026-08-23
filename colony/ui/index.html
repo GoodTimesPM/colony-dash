@@ -1902,7 +1902,13 @@ body.snapping .snapbar { display: flex; }
 const $ = (id) => document.getElementById(id);
 const STATUS_LABEL = {
   "backlog": "backlog", "needs-info": "needs info", "needs-criteria": "needs criteria",
-  "ready": "ready", "in-progress": "running", "po-review": "po review", "accepted": "done",
+  "ready": "ready", "in-progress": "running", "po-review": "po review",
+  // Not "done". `accepted` means the PO approved one patch and the files landed
+  // — it says nothing about whether the project is finished, and printing DONE
+  // over a story whose Notion row still reads In Progress is the board deciding
+  // that for him. The real finished state is `settled_as`, which only his Notion
+  // status or his own button can set, and it has its own chip.
+  "accepted": "delivered",
 };
 
 // ── formatting ──────────────────────────────────────────────────────────────

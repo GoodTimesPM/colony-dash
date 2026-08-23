@@ -349,8 +349,10 @@ names the state and the next move.
       else, and the counter that keeps the roster diverse learns from it either way.
 - [ ] **Restart the dashboard window** to pick up 014 through 019. The ledger is already
       migrated; the running window is serving the older code.
-- [ ] **One `brief-changed` card is waiting** on story #1, "15 Part Job Search". Reopen it
-      if the scope you added is new work, or leave it if you were tidying prose.
+- [ ] **Story #1 is back in the groom queue.** The card was retired — delivered stories now
+      resume on their own — and "15 Part Job Search" is sitting in *needs criteria* waiting
+      for a wake to re-read the brief you grew. File the Notion row as Done when you want
+      that to stop.
 - [ ] Watch the first sprint roll. Sprint 1 now ends Friday 2026-08-28 05:00; the tick that
       crosses that instant closes it and opens Sprint 2 with no goal set, which is a
       deliberate blank for the PO to fill.
@@ -360,6 +362,56 @@ names the state and the next move.
 - [ ] **First live write-capable ticket.** M3 is verified against a copy of the ledger; it
       has not yet been pointed at a real story end-to-end.
 - [ ] Update the published artifact — it still shows the pre-M1 design.
+
+## Finished 2026-08-22 — nothing is done until the PO says it is
+
+**A project is not over because one batch of it landed.** The board printed DONE on
+"15 Part Job Search" the moment the patch from ticket #22 was approved, and the PO had
+never said any such thing:
+
+> "just because I finish one part of the project does not mean I am completely finished
+> with the project ... running projects are the norm for this type of work ... once I
+> added more info into the notion project folder, I want that to be taken as more info to
+> the same project to continue production."
+
+Two faults under one symptom. The **label** was simply wrong: `accepted` means the PO
+approved a patch and the files landed uncommitted, and `index.html` mapped it to the word
+*done*. The real finished state is `settled_as`, which only a Notion status or the PO's own
+button can set, and story #1 did not have it — `settled_as` was NULL and the Notion row still
+read In Progress. The board was announcing a decision nobody had made. The lane is
+**delivered** now.
+
+The **behaviour** was the same mistake one layer down. A story in `accepted` has acceptance
+criteria, so `wake.GROOMABLE_WHERE` skips it; it is not `ready`, so nothing dispatches it.
+It is a parking space with no exit. Editing the Notion page produced `1 changed` in the log
+and nothing else, which is how a project that is still being worked on becomes invisible to
+the loop that is supposed to be working on it.
+
+`pulse.resume_delivered` is the exit. A delivered story whose brief changes, and whose
+Notion row still says **In Progress**, has its criteria cleared and its attempt budget
+returned, and lands back in *needs criteria* for the next wake to read whole. It does not
+ask first: on a running project more scope is the expected thing, not an event worth a card.
+The check is free — no model runs, the re-read is an ordinary groom on the next wake and is
+subject to the ordinary budget. Two guards carry the whole safety of it: the row must still
+be In Progress (a row filed as Done, Shelved, or moved to Exploring is not asking for more
+work), and the hash must actually have moved, which the sync's own changed list guarantees.
+
+The `brief-changed` card from earlier today stays, for the other statuses — a story in
+*ready*, *running*, or *po review* whose brief moves under it is a genuine question, and
+auto-clearing criteria mid-build would be destructive. `BRIEF_CHANGED_WHERE` excludes
+`accepted` so the two never race. The one card that had been raised was retired: under the
+new rule it was asking a question that answers itself.
+
+### The rule this settles
+
+> "I don't want you to change statuses of projects cause that changes how you read these
+> projects."
+
+The colony may move a story through the **working** lanes — `needs-criteria`, `backlog`,
+`ready`, `in-progress`, `po-review`, `needs-info` — because that is the loop reporting where
+work is. It may **never** put a story in a lane that reads as finished (`accepted`,
+`archived`, any `settled_as`), and it may never push a Status to Notion. Ending things is
+the PO's, in Notion or on a button, and nowhere else.
 
 ## Finished 2026-08-22 — what the words mean, and the edit that went nowhere
 
