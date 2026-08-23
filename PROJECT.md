@@ -368,6 +368,50 @@ names the state and the next move.
       again from the code rather than patching it a line at a time.
 - [ ] Update the published artifact — it still shows the pre-M1 design.
 
+## Finished 2026-08-23 — a patch that half applied and said it had not
+
+Applying the patch from ticket #54 printed `the patch would not apply:` followed by five
+files applied cleanly, a three-way merge, and `error: job-search/assisted-apply/apply/main.py:
+does not exist in index`. Every part of that report was misleading.
+
+`apply_patch` ran `git apply --3way --check` and then `git apply --3way`. The `--check` pass
+was there to make the apply all-or-nothing, and it does not do that: with `--3way` it reports
+success when a merge is *possible*, not when it is clean. The real apply then merged five
+files into the working tree, hit a conflict on `apply/main.py`, wrote conflict markers into
+it, left stages 1/2/3 in the index, and exited non-zero. `control._settle_patch` caught the
+non-zero exit and reported a refusal. So the PO was told nothing had landed while six files
+had changed under him, one of them with conflict markers in it. The `does not exist in index`
+line came from a second press of Apply: once a path is conflicted it has no stage 0, and
+`git apply --index` looks for stage 0.
+
+`apply_patch` now tries a strict `git apply --index` first, which really is all-or-nothing,
+and only falls back to `--3way` when strict refuses. A `--3way` failure is checked against
+`git diff --diff-filter=U`: an empty list means nothing moved and it is a real refusal, and a
+non-empty list raises the new `worktree.PatchConflict` carrying the paths. `_settle_patch`
+catches that separately, keeps the card open, and writes a story event naming the conflicted
+files and saying plainly that the rest of the patch is already in the tree.
+
+### The reason there was a conflict at all
+
+`worktree.create` branches from `HEAD`. The PO's working tree carries staged, uncommitted
+work almost all the time — nine files under `job-search/assisted-apply/` had been sitting in
+the index for days — and the agent never saw any of it. It built against HEAD, so its patch
+described a file that no longer existed anywhere except in git.
+
+Both sides of the conflict were real work. The patch added `discord` to the import line in
+`apply/main.py`; the uncommitted tree had added `notion_sync` to the same line. Both modules
+are called in the merged file, so both imports were kept. The second conflicted line was
+byte-identical to HEAD on the patch's side, meaning the patch never touched it and the
+overlap was incidental, so the tree's version stood. Ticket #54's card was closed as approved
+by hand rather than by pressing Apply again, because a second Apply re-runs the same merge
+against the same HEAD base and would have overwritten the resolution with markers a second
+time.
+
+This will happen again on every story whose project folder has uncommitted work in it, which
+is most of them. The fix is to seed the worktree with the live tree's uncommitted state for
+the ticket's write scope, record that state as the diff base, and take the agent's patch
+against it. That is a change to how patches are produced and it has not been made.
+
 ## Finished 2026-08-22 — the DONE badge, and delivered stories that keep going
 
 The board printed DONE on "15 Part Job Search" as soon as the patch from ticket #22

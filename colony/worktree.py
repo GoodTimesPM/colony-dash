@@ -38,6 +38,21 @@ class WorktreeError(RuntimeError):
     """git refused. The caller turns this into a blocked ticket, never a crash."""
 
 
+class PatchConflict(WorktreeError):
+    """The patch landed, but part of it needs the PO to finish the merge.
+
+    A separate type because the caller has to say something different. Every
+    other failure means nothing changed on disk; this one means most of the
+    patch is already in the working tree and some files have conflict markers
+    in them. Telling the PO "the patch would not apply" when this happens sends
+    him back to an editor full of files he thinks are untouched.
+    """
+
+    def __init__(self, message: str, paths: list[str]):
+        super().__init__(message)
+        self.paths = paths
+
+
 def _git(*args: str, cwd: Path | None = None) -> str:
     proc = proc_mod.run(
         ["git", *args],
@@ -106,13 +121,36 @@ def save_patch(ticket_id: int, text: str) -> Path:
     return out
 
 
+def conflicted() -> list[str]:
+    """Paths git has left in a conflicted state in the live tree."""
+    try:
+        raw = _git("diff", "--name-only", "--diff-filter=U")
+    except (WorktreeError, subprocess.SubprocessError, OSError):
+        return []
+    return [line.strip() for line in raw.splitlines() if line.strip()]
+
+
 def apply_patch(ticket_id: int) -> dict:
     """Land an approved patch in the live tree, uncommitted.
 
-    `--3way` so a patch that was written against a slightly older tree still
-    applies cleanly where it can. `--check` runs first: a patch that will not
-    apply must be reported as a refusal, not discovered halfway through with
-    half the files written.
+    Two passes, and the order matters.
+
+    The strict `git apply --index` goes first. It is all-or-nothing: either
+    every hunk lands exactly as written or nothing is touched. When it succeeds
+    the PO is looking at the patch he approved and nothing was guessed.
+
+    Only when strict refuses do we fall back to `--3way`, which merges a patch
+    written against a slightly older tree. That fallback is not a safe retry,
+    and the old code treated it as one. `--3way --check` reports success when a
+    merge is *possible*, not when it is clean, and a three-way apply that hits a
+    conflict writes the files anyway: conflict markers in the working tree,
+    stages 1/2/3 in the index, and a non-zero exit. The old code caught that
+    exit and said "the patch would not apply", which was wrong twice — most of
+    the patch had applied, and the PO was sent back to a tree with conflict
+    markers in it that nothing had told him about.
+
+    So a conflict is now reported as a conflict, by name, and the caller keeps
+    the escalation open because finishing the merge is the PO's job.
     """
     patch = PATCH_DIR / f"ticket-{ticket_id}.patch"
     if not patch.is_file():
@@ -121,10 +159,29 @@ def apply_patch(ticket_id: int) -> dict:
     if not text.strip():
         raise WorktreeError("the patch is empty — the run changed nothing")
 
-    _git("apply", "--3way", "--check", str(patch))
-    _git("apply", "--3way", str(patch))
-    return {"applied": True, "patch": str(patch),
-            "files": text.count("\ndiff --git ") + text.startswith("diff --git ")}
+    files = text.count("\ndiff --git ") + text.startswith("diff --git ")
+    result = {"applied": True, "patch": str(patch), "files": files, "merged": False}
+
+    try:
+        _git("apply", "--index", "--check", str(patch))
+        _git("apply", "--index", str(patch))
+        return result
+    except WorktreeError:
+        pass
+
+    try:
+        _git("apply", "--3way", str(patch))
+    except WorktreeError as exc:
+        stuck = conflicted()
+        if not stuck:
+            # Nothing on disk moved, so this really is a refusal.
+            raise
+        raise PatchConflict(
+            f"{len(stuck)} file(s) need you to finish the merge: "
+            + ", ".join(stuck), stuck) from exc
+
+    result["merged"] = True
+    return result
 
 
 def remove(ticket_id: int) -> None:
