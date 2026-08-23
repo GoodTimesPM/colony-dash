@@ -368,6 +368,37 @@ names the state and the next move.
       again from the code rather than patching it a line at a time.
 - [ ] Update the published artifact — it still shows the pre-M1 design.
 
+## Finished 2026-08-23 — where the blocker sits, and when things happened
+
+Three changes to what the drawers and the Inbox show, all from the same reading
+session.
+
+**The Inbox card no longer quotes Ordis's last answer.** It used to print the
+most recent thing Ordis said under the card's own text. That answer is often to
+something said days earlier, so it read as part of the question the card was
+asking and pushed the actual ask out of view. The reply button already carries
+the message count and the whole exchange is one press behind it. The `last_reply`
+subquery came out of the snapshot query with it — nothing renders it now, and it
+was pulling a full message body into every poll.
+
+**The blocked banner moved to the bottom of the conversation.** In the reply
+drawer it was pinned above the proposal and above every message, which put it as
+far from the box you type in as it could get. On a thread with ten messages in it
+the one line saying what is holding the story was the line you had to scroll back
+up to find. It is appended to the end of the thread now: the conversation runs
+oldest to newest, where the work stands is the newest thing in it, and it sits
+directly above the textarea. The colours and the four levels are unchanged.
+
+**Tickets and runs carry dates.** The story drawer listed `#19 research done ·
+investigator` and a run table with no clock in it, so neither list could answer
+whether a row was from this morning or from three weeks ago — the ids only give
+the order. Tickets now show when they were opened and, if closed, when they
+closed. The runs table gained a `started` column and a `took` column, the second
+being `ended_at - started_at`, which is the number worth having when a run cost
+more than expected. The agent drawer's run table gained `started` too. A new
+`stamp()` helper prints month, day and time; the existing `when()` prints a
+weekday and is still right for things inside the next few days.
+
 ## Finished 2026-08-23 — a patch that half applied and said it had not
 
 Applying the patch from ticket #54 printed `the patch would not apply:` followed by five
