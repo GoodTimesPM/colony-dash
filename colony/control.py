@@ -467,6 +467,24 @@ def _settle_patch(conn: sqlite3.Connection, esc: sqlite3.Row, decision: str,
 
     try:
         applied = worktree.apply_patch(int(ticket_id))
+    except worktree.PatchConflict as exc:
+        # Not a refusal. The files are already in his working tree, some of them
+        # with conflict markers in them, and the worktree stays until the merge
+        # is finished so the patch can be read against its source. Saying so in
+        # the story history matters more than usual: the tree changed under him
+        # and the card is about to tell him the opposite.
+        conn.execute("UPDATE escalations SET resolved_at = NULL, po_decision = NULL "
+                     "WHERE id = ?", (esc["id"],))
+        if story_id:
+            _event(conn, story_id, "note",
+                   f"patch applied with {len(exc.paths)} conflict(s) — needs your merge",
+                   "The rest of the patch is in your working tree already. These "
+                   "files have conflict markers in them:\n\n"
+                   + "\n".join(exc.paths)
+                   + "\n\nA conflict here means the patch and your own uncommitted "
+                     "work changed the same lines. Resolve them, then press Apply "
+                     "again to close this card.")
+        raise Refused(str(exc))
     except Exception as exc:
         # An escalation that cannot be actioned must stay open. Closing it would
         # tell the loop a change landed that did not.
