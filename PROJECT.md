@@ -363,46 +363,50 @@ names the state and the next move.
       has not yet been pointed at a real story end-to-end.
 - [ ] Update the published artifact — it still shows the pre-M1 design.
 
-## Finished 2026-08-22 — nothing is done until the PO says it is
+## Finished 2026-08-22 — the DONE badge, and delivered stories that keep going
 
-**A project is not over because one batch of it landed.** The board printed DONE on
-"15 Part Job Search" the moment the patch from ticket #22 was approved, and the PO had
-never said any such thing:
+The board printed DONE on "15 Part Job Search" as soon as the patch from ticket #22
+was approved. The PO had not said the project was finished, and did not want the loop
+deciding that for him:
 
 > "just because I finish one part of the project does not mean I am completely finished
 > with the project ... running projects are the norm for this type of work ... once I
 > added more info into the notion project folder, I want that to be taken as more info to
 > the same project to continue production."
 
-Two faults under one symptom. The **label** was simply wrong: `accepted` means the PO
-approved a patch and the files landed uncommitted, and `index.html` mapped it to the word
-*done*. The real finished state is `settled_as`, which only a Notion status or the PO's own
-button can set, and story #1 did not have it — `settled_as` was NULL and the Notion row still
-read In Progress. The board was announcing a decision nobody had made. The lane is
-**delivered** now.
+There were two faults behind the one symptom.
 
-The **behaviour** was the same mistake one layer down. A story in `accepted` has acceptance
-criteria, so `wake.GROOMABLE_WHERE` skips it; it is not `ready`, so nothing dispatches it.
-It is a parking space with no exit. Editing the Notion page produced `1 changed` in the log
-and nothing else, which is how a project that is still being worked on becomes invisible to
-the loop that is supposed to be working on it.
+The first was the label. `accepted` means the PO approved a patch and the files landed in
+the working tree uncommitted, and `index.html` mapped that status to the word *done*. The
+status that actually means finished is `settled_as`, which only a Notion status or the PO's
+own button can set. Story #1 did not have it: `settled_as` was NULL and the Notion row still
+read In Progress. So the board was reporting a decision nobody had made. That lane now
+reads **delivered**.
 
-`pulse.resume_delivered` is the exit. A delivered story whose brief changes, and whose
-Notion row still says **In Progress**, has its criteria cleared and its attempt budget
-returned, and lands back in *needs criteria* for the next wake to read whole. It does not
-ask first: on a running project more scope is the expected thing, not an event worth a card.
-The check is free — no model runs, the re-read is an ordinary groom on the next wake and is
-subject to the ordinary budget. Two guards carry the whole safety of it: the row must still
-be In Progress (a row filed as Done, Shelved, or moved to Exploring is not asking for more
-work), and the hash must actually have moved, which the sync's own changed list guarantees.
+The second fault was that the code behaved the way the label read. A story in `accepted`
+has acceptance criteria, so `wake.GROOMABLE_WHERE` skips it, and it is not `ready`, so
+nothing dispatches it. There was no way out of that status except by hand. Editing the
+Notion page produced `1 changed` in the log and no other effect, so a project that was
+still being worked on had become invisible to the loop meant to work on it.
 
-The `brief-changed` card from earlier today stays, for the other statuses — a story in
-*ready*, *running*, or *po review* whose brief moves under it is a genuine question, and
-auto-clearing criteria mid-build would be destructive. `BRIEF_CHANGED_WHERE` excludes
-`accepted` so the two never race. The one card that had been raised was retired: under the
-new rule it was asking a question that answers itself.
+`pulse.resume_delivered` gives that status a way out. When a delivered story's brief
+changes and its Notion row still says **In Progress**, the check clears the acceptance
+criteria, returns the grooming attempt budget, and moves the story back to *needs criteria*
+for the next wake to re-read. It does not raise a card first, because on a running project
+more scope is expected rather than unusual. The check itself costs nothing: no model runs
+in the tick, and the re-read is an ordinary groom on the next wake under the usual budget.
 
-### The rule this settles
+Two conditions keep it safe. The Notion row must still say In Progress, so a row filed as
+Done or Shelved, or moved to Exploring, does not resume. And the page hash must have
+changed, which the sync's own list of changed ids guarantees.
+
+The `brief-changed` card from earlier today still applies to the other statuses. When a
+story is *ready*, *running*, or *po review* and its brief moves underneath it, that is worth
+asking about, and clearing the criteria during a build would throw away work in progress.
+`BRIEF_CHANGED_WHERE` now excludes `accepted`, so the card and the resume never fire on the
+same story. The one card already raised was retired, since the new rule answers it.
+
+### What the colony may set, and what it may not
 
 > "I don't want you to change statuses of projects cause that changes how you read these
 > projects."
