@@ -289,6 +289,9 @@ BRIEF_CHANGED_WHERE = """
     id = :story_id
     AND dropped_at IS NULL
     AND settled_as IS NULL
+    -- Not the delivered case. `resume_delivered` has that one, and it does not
+    -- ask: on a running project more scope is the norm, not an event.
+    AND status <> 'accepted'
     -- The colony has a considered view of this story already. That is the whole
     -- precondition: there is something for the change to invalidate.
     AND acceptance_criteria IS NOT NULL AND acceptance_criteria <> ''
@@ -308,6 +311,82 @@ BRIEF_CHANGED_WHERE = """
            AND e.raised_hash IS stories.notion_hash
     )
 """
+
+
+# A story the PO approved a patch on, whose Notion brief has since grown.
+#
+# `accepted` was read, by the board and by every queue that looks at status, as
+# the end of the line. It is not. It means one batch of work landed in the
+# working tree, and on a project that is still In Progress in Notion the next
+# batch is the expected thing:
+#
+#     "just because I finish one part of the project does not mean I am
+#      completely finished with the project ... once I added more info into the
+#      notion project folder, I want that to be taken as more info to the same
+#      project to continue production."
+#
+# So this does not ask. It clears the criteria — and the criteria are the only
+# reason the groom queue was skipping the story — and hands the brief back to
+# the next wake to read whole. The attempt budget goes with it, because a story
+# groomed twice before delivery must not be unreadable after it.
+#
+# Two guards, and they are the whole safety of it. The Notion row must still say
+# In Progress — a row the PO filed as Done or Shelved is not asking for more
+# work, it is finished, and `settled_as` catches most of that but not a row
+# moved to Exploring. And `notion_hash` has to have actually moved, which is the
+# caller's job: the ids come from the sync's own changed list.
+#
+# Nothing here is a terminal status and nothing here writes to Notion. Under the
+# rule the PO set — the colony may move a story through the working lanes and may
+# never move it into one that reads as finished — this is the loop putting work
+# back on the board, which is the direction it is allowed to go.
+RESUME_DELIVERED_WHERE = """
+    id = :story_id
+    AND status = 'accepted'
+    AND dropped_at IS NULL
+    AND settled_as IS NULL
+    AND notion_status = :workable
+"""
+
+
+def resume_delivered(conn: sqlite3.Connection, story_ids: list[int]) -> list[str]:
+    """Put delivered stories whose brief grew back in the groom queue.
+
+    Free — no model runs here. The re-read happens on the next wake, and only
+    if the wake budget allows it, same as any other groom.
+
+    Returns the titles resumed, for the log.
+    """
+    from . import control
+
+    resumed = []
+    for story_id in story_ids:
+        row = conn.execute(
+            f"SELECT id, title FROM stories WHERE {RESUME_DELIVERED_WHERE}",
+            {"story_id": story_id, "workable": notion.WORKABLE_STATUS},
+        ).fetchone()
+        if not row:
+            continue
+        conn.execute(
+            "UPDATE stories SET status = 'needs-criteria', acceptance_criteria = NULL, "
+            "updated_at = datetime('now','localtime') WHERE id = ?",
+            (row["id"],),
+        )
+        control.regroom_budget(conn, row["id"])
+        conn.execute(
+            """INSERT INTO story_events (story_id, kind, summary, detail)
+               VALUES (?, 'note', ?, ?)""",
+            (row["id"],
+             "brief grew after delivery — back in the groom queue",
+             "The last batch was delivered and the Notion row still says "
+             "In Progress, so this edit is more scope on a running project "
+             "rather than a new one. The criteria written against the older "
+             "brief are cleared; the next wake re-reads the whole page.\n\n"
+             "Nothing already built was touched. File the row as Done or "
+             "Shelved in Notion when you want this to stop."),
+        )
+        resumed.append(row["title"])
+    return resumed
 
 
 def brief_changed(conn: sqlite3.Connection, story_ids: list[int]) -> list[str]:
@@ -759,6 +838,9 @@ def _tick(conn: sqlite3.Connection) -> dict:
 
     # The other half of the same rule, one layer later: a story that CAN start,
     # and has, and then had its brief rewritten underneath it.
+    # Order matters: a delivered story is resumed, not asked about, and
+    # `brief_changed` excludes the resumed status rather than racing it.
+    resumed = resume_delivered(conn, board.get("changed_ids", []))
     outrun = brief_changed(conn, board.get("changed_ids", []))
 
     orphans = reap_orphaned_runs(conn)
@@ -856,6 +938,8 @@ def _tick(conn: sqlite3.Connection) -> dict:
 
     # The two halves of M5, both free, both worth a line. Ticked boxes and
     # staled questions are the colony noticing that Jordan moved ahead of it.
+    if resumed:
+        notes.append(f"board: {len(resumed)} delivered story(s) grew — back in the groom queue")
     if outrun:
         notes.append(f"board: {len(outrun)} brief(s) changed after grooming")
     if board.get("ticked"):
@@ -883,7 +967,7 @@ def _tick(conn: sqlite3.Connection) -> dict:
         "started": started, "window_start": window_start, "window_end": window_end,
         "tier": tier, "finding": finding, "anomalies": anomalies,
         "usage": usage, "board": board, "reasons": reasons, "notes": notes,
-        "sprint_move": sprint_move, "outrun": outrun,
+        "sprint_move": sprint_move, "outrun": outrun, "resumed": resumed,
         "finished": len(finished), "halted": halted, "changed": changed,
         "orphans": len(orphans), "swept": swept, "dispatched": dispatched, "groomable": pending,
         "decisions": decisions, "candidates": candidates, "queued_drafts": queued_drafts,
