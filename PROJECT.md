@@ -361,6 +361,11 @@ names the state and the next move.
       none has been drafted yet, because drafting costs tokens and that is the PO's call.
 - [ ] **First live write-capable ticket.** M3 is verified against a copy of the ledger; it
       has not yet been pointed at a real story end-to-end.
+- [ ] **The manual is frozen on purpose.** `file` → `manual` in the header opens a
+      snapshot of the vocabulary, the lanes, the four gates, and the troubleshooting list,
+      dated 2026-08-22. It reads nothing from the ledger and is not maintained as the code
+      changes. When the workflow settles, delete `MANUAL` in `index.html` and write it
+      again from the code rather than patching it a line at a time.
 - [ ] Update the published artifact — it still shows the pre-M1 design.
 
 ## Finished 2026-08-22 — the DONE badge, and delivered stories that keep going
