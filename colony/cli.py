@@ -306,9 +306,16 @@ def cmd_shortcut(conn: sqlite3.Connection, args) -> int:
 
 
 def cmd_pulse(conn: sqlite3.Connection, args) -> int:
-    from . import pulse as pulse_mod
+    from . import control, pulse as pulse_mod
 
-    return pulse_mod.run(conn, dry_run=args.dry_run, allow_wake=not args.no_wake)
+    try:
+        return pulse_mod.run(conn, dry_run=args.dry_run, allow_wake=not args.no_wake)
+    except control.Busy as exc:
+        # The scheduled task runs this every hour. A collision with a beat
+        # forced from the dashboard is a normal event, not a failed task, so it
+        # says so in the log and exits 0.
+        print(f"stood down {chr(8212)} {exc}")
+        return 0
 
 
 def cmd_forge(conn: sqlite3.Connection, args) -> int:
