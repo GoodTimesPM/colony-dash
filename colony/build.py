@@ -24,7 +24,7 @@ import json
 import os
 import sqlite3
 
-from . import agent, attachments as attach, db, worktree
+from . import agent, attachments as attach, control, db, worktree
 
 BUILD_TIMEOUT_S = int(os.environ.get("COLONY_BUILD_TIMEOUT", "900"))
 
@@ -47,11 +47,23 @@ def pending(conn: sqlite3.Connection, limit: int = BUILD_LIMIT) -> list[sqlite3.
 
 
 def build_prompt(ticket: sqlite3.Row, workdir: str,
-                 attached: list[dict] | None = None) -> str:
-    """The work order. Says what may be touched, in the words of the scope itself."""
+                 attached: list[dict] | None = None,
+                 scope: list[str] | None = None) -> str:
+    """The work order. Says what may be touched, in the words of the scope itself.
+
+    `scope` is the folder list off the agent's contract, which the PO can widen
+    from the contract drawer. It defaults to the story's own folder, which is
+    what every contract holds until he changes one.
+    """
     criteria = (ticket["acceptance_criteria"] or "").strip() or "(none recorded — ask, do not guess)"
     brief = (ticket["description"] or "").strip() or "(the Notion page body is empty)"
     project = ticket["project"]
+    folders = list(scope or []) or [project]
+    # Backslashes throughout: a sub-project reads as `job-search/assisted-apply`
+    # everywhere else in the colony, but half a path in each separator is the
+    # kind of detail an agent stops trusting.
+    scope_lines = "\n".join(
+        "  " + workdir.rstrip("\\/") + "\\" + f.replace("/", "\\") for f in folders)
     return f"""You are a build agent in Jordan's colony of Claude agents. Ordis is the Scrum
 Master; Jordan is the Product Owner and has approved this work.
 
@@ -62,11 +74,16 @@ This is a throwaway checkout. It is not Jordan's working tree. Your changes will
 be turned into a patch that Jordan reads and approves before anything lands.
 
 WRITE SCOPE — you may create and edit files ONLY under:
-  {workdir}\\{project}
+{scope_lines}
 
 Everywhere else in this checkout is READ-ONLY to you. You have no shell: no
 git commands, no package installs, no network. If a change needs any of those,
 stop and say so in your report instead of working around it.
+
+This checkout is git's copy of the last commit, so files git does not track are
+not here: no `.env`, no build output, nothing Jordan has edited but not yet
+committed. If a criterion depends on one of those, say so plainly — an absent
+`.env` means the setting is not visible to you, not that it is unset.
 
 STORY #{ticket['sid']}: {ticket['story_title']}
 
@@ -144,7 +161,8 @@ def run_one(conn: sqlite3.Connection, ticket: sqlite3.Row) -> dict:
         outcome["verdict"] = "no worktree"
         return outcome
 
-    prompt = build_prompt(ticket, str(work), attach.for_story(conn, ticket["sid"]))
+    prompt = build_prompt(ticket, str(work), attach.for_story(conn, ticket["sid"]),
+                          scope=control.scope_projects(terms.get("write_scope")))
     conn.execute("UPDATE tickets SET work_order = ? WHERE id = ?", (prompt, tid))
 
     result = agent.run_ticket(

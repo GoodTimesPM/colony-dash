@@ -368,6 +368,48 @@ names the state and the next move.
       again from the code rather than patching it a line at a time.
 - [ ] Update the published artifact — it still shows the pre-M1 design.
 
+## Finished 2026-08-24 — a write scope the PO can change
+
+**The scope is on the contract now, and the contract drawer can edit it.** A
+write scope used to be one folder, derived once from the project an agent was
+hired on, with nothing in the dashboard able to change it afterwards. Open a
+write-capable agent and its drawer shows the folders it may edit as chips, a
+dropdown of every folder the colony knows about, and a box for typing one that
+is not in the list. Save writes the contract and records a `scope` action, so
+the change reads back in the log like every other one.
+
+**Why it had to change.** Story #1 was filed under `job-search/assisted-apply`,
+and three of its six criteria were about `job-search/job-radar` — the OG-tracker
+sync, a PROJECT.md checkbox, and a live run. The build agent skipped all three
+and said why: "a project I have no write access to — my scope is
+job-search/assisted-apply only". That was the contract working correctly. The
+missing piece was any way for the PO to widen it short of retiring the agent and
+hiring it again.
+
+**What the change does not do.** The agent keeps the project it was hired on.
+`dispatch` still matches a story to an agent by that project and
+`build.contract` still looks the contract up by it, so widening a scope is not
+the same as moving an agent. The server checks each folder exists under
+`D:\ALL STUFF\PROJECTS` before storing it, refuses `..`, absolute paths, dot
+folders and an empty list, and refuses a read-only contract outright — there is
+no write scope to widen on one.
+
+**The work order names every folder.** `build_prompt` listed one path under
+WRITE SCOPE; it now lists the contract's folders, one per line. Migration 021
+adds `scope` to the `po_actions` verbs, the same rebuild 020 did.
+
+**A worktree is git's copy of the last commit, and the work order now says so.**
+The other half of the same story: the agent reported `NOTION_API_KEY` and
+`NOTION_JOBS_DB` as unset when both are set in
+`job-search/assisted-apply/.env`. `.env` is in that project's `.gitignore`, and
+a worktree is checked out from HEAD, so the file is not in the checkout at all.
+`claude -p` also runs with the worktree as its working directory and no
+`--add-dir`, so the real `.env` is out of reach from there too — which is the
+behaviour we want for a credential file. What was wrong was the report: an agent
+that cannot see a setting was saying the setting is not set. The prompt now
+states that untracked and uncommitted files are absent, and that an absent
+`.env` means invisible rather than unset.
+
 ## Finished 2026-08-23 — a beat you can ask for
 
 **Migration 020: both buttons returned 500 until `po_actions` learned the verb.**
