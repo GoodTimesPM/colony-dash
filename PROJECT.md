@@ -370,6 +370,15 @@ names the state and the next move.
 
 ## Finished 2026-08-23 — a beat you can ask for
 
+**Migration 020: both buttons returned 500 until `po_actions` learned the verb.**
+Every control writes itself down before it acts, and `force_pulse` passes
+'pulse' as the action name. The CHECK on `po_actions.action` did not list it, so
+the INSERT failed, the endpoint returned 500 and the dashboard showed
+"refused (500)". No beat ran, because the thread starts after the record. 020
+adds 'pulse' to the list and nothing else. The check that shipped with the
+feature called `pulse.run` directly and never went through `force_pulse`, which
+is why it passed on something that could not work.
+
 **Pulse now, and tick only, in Macros.** The heartbeat was a Windows scheduled
 task and nothing else: if you wanted the colony to look at the world you waited
 for :07. There are two buttons now. "Pulse now" runs a full beat, wake included,
