@@ -265,7 +265,7 @@ def ensure_blocked_visible(conn: sqlite3.Connection) -> int:
         conn.execute(
             """INSERT INTO escalations (story_id, kind, reason, recommendation, raised_hash)
                VALUES (?,'needs-info',?,?,?)""",
-            (r["id"], f'"{r["title"]}" cannot start yet.', ask[:1000], r["notion_hash"]),
+            (r["id"], f'"{r["title"]}" cannot start yet.', control.card_text(ask), r["notion_hash"]),
         )
     return len(rows)
 

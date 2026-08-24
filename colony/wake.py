@@ -273,7 +273,7 @@ def _event(conn, story_id, kind, summary, detail=None, ticket_id=None, tokens=0)
     conn.execute(
         """INSERT INTO story_events (story_id, ticket_id, kind, summary, detail, tokens)
            VALUES (?,?,?,?,?,?)""",
-        (story_id, ticket_id, kind, summary[:400], detail, tokens),
+        (story_id, ticket_id, kind, _gist(str(summary), 400), detail, tokens),
     )
 
 
@@ -385,8 +385,11 @@ def groom_story(conn: sqlite3.Connection, story: sqlite3.Row, terms: dict,
                VALUES (?,?,'decision',?,?,?,?)""",
             (story["id"], ticket_id,
              f'"{story["title"]}" has draft acceptance criteria awaiting your approval.',
-             criteria[:1000], result.chargeable_tokens, story["notion_hash"]),
+             control.card_text(criteria), result.chargeable_tokens, story["notion_hash"]),
         )
+        # The story just stopped being blocked — it has criteria and it is
+        # waiting on the PO, which is a different thing and a different colour.
+        control.clear_needs_info(conn, story["id"])
         _event(conn, story["id"], "groomed",
                answer.get("summary") or "acceptance criteria drafted",
                criteria, ticket_id, result.chargeable_tokens)
@@ -397,7 +400,7 @@ def groom_story(conn: sqlite3.Connection, story: sqlite3.Row, terms: dict,
             """UPDATE stories SET status = 'needs-info', blocked_reason = ?,
                       updated_at = datetime('now','localtime')
                 WHERE id = ?""",
-            (missing[:1000], story["id"]),
+            (control.card_text(missing), story["id"]),
         )
         # `question_settled` covers two cases. A stale card is an open row that
         # is explicitly no longer trusted, and letting it suppress a fresh
@@ -411,7 +414,7 @@ def groom_story(conn: sqlite3.Connection, story: sqlite3.Row, terms: dict,
                                             est_tokens, raised_hash)
                    VALUES (?,?,'needs-info',?,?,?,?)""",
                 (story["id"], ticket_id, f'"{story["title"]}" cannot start yet.',
-                 missing[:1000], result.chargeable_tokens, story["notion_hash"]),
+                 control.card_text(missing), result.chargeable_tokens, story["notion_hash"]),
             )
             # The old wording is superseded, not merely accompanied.
             conn.execute(
@@ -501,6 +504,22 @@ def reply_prompt(msg: sqlite3.Row, esc: sqlite3.Row | None, story: sqlite3.Row |
         "You may read files under D:\\ALL STUFF\\PROJECTS to check anything he",
         "refers to. Be frugal — a few targeted reads, not a survey.",
         "",
+        "What you can establish, and what you cannot. Your tools are Read, Grep",
+        "and Glob. You have no Bash, you cannot run a script, and you cannot call",
+        "an API. So you can establish what a file contains, and you can establish",
+        "nothing whatever about whether code works. Never write that something is",
+        "live, running, working, fixed, verified or no longer failing. You have",
+        "no way to see any of that, and an agent downstream will read the line as",
+        "a finding and build on it.",
+        "",
+        "When he tells you he has done something, check it and name the file you",
+        "checked. A `.env` file is outside your read scope and always will be. A",
+        "`.env.example` is a committed template: a value in it says nothing about",
+        "the `.env` sitting next to it, and reporting one as the other is how this",
+        "rule came to be written. If the claim rests on a file you cannot read,",
+        "say so — \"I cannot read .env, so I am taking your word for it\" is a",
+        "useful sentence and a false confirmation is not.",
+        "",
         "Your job is NOT to have a conversation. A reply that produces only prose",
         "leaves this story exactly where it was, and a story that sits still while",
         "the two of you talk about it is the failure this loop exists to prevent.",
@@ -530,14 +549,18 @@ def reply_prompt(msg: sqlite3.Row, esc: sqlite3.Row | None, story: sqlite3.Row |
         "{",
         '  "answer": "what you are saying back to Jordan, under 1200 characters",',
         '  "settled": "what he decided, written as fact for an agent who was not in',
-        '              this conversation and will read only this line — or null",',
+        '              this conversation and will read only this line. If you could not',
+        '              check it yourself, begin the line with `Jordan says` — or null",',
         '  "still_blocked_on": "the ONE specific decision that now blocks this work,',
         '              phrased as a question only he can answer — or null if nothing',
         '              is blocking and the work can proceed",',
         '  "project": "a folder from the list if his message settled which one, else null",',
         '  "new_project": "a folder name he asked you to treat as new work, else null",',
         '  "recommendation": "a revised one-line recommendation for the Inbox tile, or null",',
-        '  "learned": "one durable thing worth keeping, or null"',
+        '  "learned": "one durable thing worth keeping, or null",',
+        '  "checked": ["the files you actually opened to support `settled`, by path.',
+        '              Empty if you opened none — that is a fine answer and a far',
+        '              better one than a path you did not read"]',
         "}",
     ]
     return "\n".join(lines)
@@ -626,7 +649,7 @@ def answer_po(conn: sqlite3.Connection, terms: dict, projects: list[str]) -> lis
         # with.
         if esc is not None and answer.get("recommendation"):
             conn.execute("UPDATE escalations SET recommendation = ? WHERE id = ?",
-                         (str(answer["recommendation"])[:1000], esc["id"]))
+                         (control.card_text(answer["recommendation"]), esc["id"]))
 
         # ── what the reply changed ───────────────────────────────────────────
         #
@@ -644,6 +667,23 @@ def answer_po(conn: sqlite3.Connection, terms: dict, projects: list[str]) -> lis
         # it close would be the loop agreeing that talking counted as progress.
         settled = str(answer.get("settled") or "").strip()
         blocked_on = str(answer.get("still_blocked_on") or "").strip()
+
+        # A settled line becomes standing fact: the groom agent reads it, writes
+        # acceptance criteria on top of it, and never sees this conversation. So
+        # the basis has to travel with the claim. Ordis has no Bash and cannot
+        # observe a running program, and the reply that forced this said
+        # "NOTION_OG_TRACKER_DB is set in .env.example — it's live now, not just
+        # logging 'not set'", having read a committed template and nothing else.
+        # The key really is set, but in `.env`, which he cannot read; and "live
+        # now" was something he had no way to observe and which was not true. The
+        # next groom wrote acceptance criteria on top of both. So if he names no
+        # file he actually opened, the line goes down as Jordan's word.
+        raw_checked = answer.get("checked") or []
+        if isinstance(raw_checked, str):
+            raw_checked = [raw_checked]
+        checked = [str(p).strip() for p in raw_checked if str(p).strip()]
+        if settled and not checked and not settled.lower().startswith("jordan says"):
+            settled = f"Jordan says: {settled} (Ordis opened no file to check this.)"
         acted: list[str] = []
 
         # Closed first, and only on action. The fresh card below checks for an
@@ -657,14 +697,16 @@ def answer_po(conn: sqlite3.Connection, terms: dict, projects: list[str]) -> lis
             )
 
         if story is not None and settled:
-            entry = f"[PO, {msg['at']}] {settled[:2000]}"
+            entry = f"[PO, {msg['at']}] {settled}"
             conn.execute(
                 """UPDATE stories SET po_answers = COALESCE(po_answers || ?, ?),
                           updated_at = datetime('now','localtime')
                     WHERE id = ?""",
                 ("\n\n" + entry, entry, story["id"]),
             )
-            _said(conn, story["id"], "decided", settled[:1000], ticket_id, 0)
+            _said(conn, story["id"], "decided",
+                  settled + ("\n\nOrdis read: " + ", ".join(checked) if checked else ""),
+                  ticket_id, 0)
             if story["status"] == "needs-info":
                 conn.execute(
                     """UPDATE stories SET status = 'backlog', blocked_reason = NULL,
@@ -676,6 +718,9 @@ def answer_po(conn: sqlite3.Connection, terms: dict, projects: list[str]) -> lis
                 # of the story that is gone; without this the story re-enters
                 # the queue already at its attempt ceiling and never groomed.
                 control.regroom_budget(conn, story["id"])
+                # Every card that said it could not start, not just the one he
+                # happened to reply to.
+                control.clear_needs_info(conn, story["id"])
                 acted.append("unblocked → back in the groom queue")
             else:
                 acted.append("recorded on the story")
@@ -685,7 +730,7 @@ def answer_po(conn: sqlite3.Connection, terms: dict, projects: list[str]) -> lis
                 """UPDATE stories SET status = 'needs-info', blocked_reason = ?,
                           updated_at = datetime('now','localtime')
                     WHERE id = ?""",
-                (blocked_on[:1000], story["id"]),
+                (control.card_text(blocked_on), story["id"]),
             )
             if not control.question_settled(conn, story["id"], "needs-info",
                                             story["notion_hash"]):
@@ -695,7 +740,7 @@ def answer_po(conn: sqlite3.Connection, terms: dict, projects: list[str]) -> lis
                        VALUES (?,?,'needs-info',?,?,?,?)""",
                     (story["id"], ticket_id,
                      f'"{story["title"]}" is blocked on one decision.',
-                     blocked_on[:1000], result.chargeable_tokens, story["notion_hash"]),
+                     control.card_text(blocked_on), result.chargeable_tokens, story["notion_hash"]),
                 )
                 acted.append("new blocker raised in your Inbox")
 
@@ -965,7 +1010,7 @@ def staff_stories(conn: sqlite3.Connection, terms: dict) -> list[dict]:
 
         esc_id = control.propose_hire(
             conn, roster_slug=slug, role=role, project=story["project"],
-            reason=recommendation[:1000],
+            reason=control.card_text(recommendation),
             model=str(answer.get("model") or terms["model"]),
             write_capable=True,
             max_tokens_run=int(answer.get("max_tokens_run") or 400000),
