@@ -368,6 +368,47 @@ names the state and the next move.
       again from the code rather than patching it a line at a time.
 - [ ] Update the published artifact — it still shows the pre-M1 design.
 
+## Finished 2026-08-23 — a card cut at 1000 characters, and a confirmation nobody could make
+
+Three faults, found from one screenshot of story #1's reply drawer.
+
+**The card was cut off in the middle of a word.** The banner ended "The weekly
+command runs and pr". Every card's text was stored through a `[:1000]` — eight
+sites in `wake.py`, one in `pulse.py` — and story #1's acceptance criteria are
+1359 characters, so the PO was being asked to approve a list whose last two
+bullets he could not see. Nothing was wrong with the display; the text was
+already gone by the time it reached the page. The cap is now
+`control.card_text`, which keeps 8000 characters, cuts at a word if it ever has
+to cut at all, and puts an ellipsis there so a cut is visible as a cut. Story
+#1's live card was repaired from `stories.acceptance_criteria`, which had kept
+the whole thing. `_event` shortens a summary with `_gist` now instead of
+slicing at 400, for the same reason.
+
+**Ordis confirmed something he had no way to check.** He wrote "NOTION_OG_TRACKER_DB
+is set in .env.example with the database ID — it's live now, not just logging
+'not set'." The key is set, but in `.env`, which is outside his read scope; he
+read the committed template beside it and reported one as the other. "It's live
+now" he could not observe at all — his contract denies Bash, so he cannot run a
+program and cannot see one run. The next groom then wrote acceptance criteria on
+top of both claims. `reply_prompt` now states plainly what Read, Grep and Glob
+can establish and what they cannot, forbids the words live, running, working,
+fixed and verified, and names the `.env` / `.env.example` trap. The reply JSON
+gained a `checked` list: the files he actually opened to support `settled`. If it
+comes back empty, `answer_po` records the settled line as "Jordan says: ...
+(Ordis opened no file to check this.)", so the agent downstream reads it as
+somebody's word rather than as a finding.
+
+**The story said "blocked" while it waited on an approval.** Story #1 was
+`po-review` with criteria drafted and `blocked_reason` NULL, and the drawer
+still showed the coral "it cannot start until this is answered" banner. One
+`needs-info` card from that morning was still open, and one open card of that
+kind is what paints the banner. Nothing closed those cards on the happy path D
+only the branch that raised a *new* blocker superseded the old one. The new
+`control.clear_needs_info` runs at the two points a story stops being blocked:
+criteria drafted, and a PO reply that puts it back in the groom queue. Story
+#1's stale card was closed by hand; its drawer now reads amber, "waiting on your
+decision".
+
 ## Finished 2026-08-23 — where the blocker sits, and when things happened
 
 Three changes to what the drawers and the Inbox show, all from the same reading

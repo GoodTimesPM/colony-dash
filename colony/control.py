@@ -35,6 +35,23 @@ from . import attachments as attach, db
 
 HALT_FILE = db.RUNTIME_DIR / "HALT"
 
+# How much of a card's own text is kept. It was 1000 characters, a number
+# nobody chose for a reason, and short enough to cut a list of acceptance
+# criteria in half: the last bullet of story #1 reached the PO as "The weekly
+# command runs and pr". A card cut in the middle reads as the whole ask, so
+# the PO answers a question he has not seen the end of.
+CARD_TEXT = 8000
+
+
+def card_text(text: str) -> str:
+    """A card's text in full, cut only if it is absurd, and visibly when it is."""
+    text = str(text or "")
+    if len(text) <= CARD_TEXT:
+        return text
+    cut = text[:CARD_TEXT]
+    space = cut.rfind(" ")
+    return (cut[:space] if space > CARD_TEXT * 0.9 else cut).rstrip() + "\u2026"
+
 # The whole dial, end to end. `allowance_boost` is stored as a *signed* delta
 # from the sprint's designed baseline, so the baseline stays visible next to
 # whatever the PO has done to it — and the PO can take it to the whole week or
@@ -234,6 +251,30 @@ def _close_escalation(conn: sqlite3.Connection, esc_id: int, decision: str) -> N
 # permanent record of what Jordan actually said.
 _PAST = {"approve": "approved", "reject": "rejected",
          "defer": "deferred", "amend": "amended", "dismiss": "dismissed"}
+
+
+def clear_needs_info(conn: sqlite3.Connection, story_id: int) -> int:
+    """
+    Close the "cannot start yet" cards for a story that has started.
+
+    A needs-info card is the story saying it is blocked, and the reply drawer
+    reads it exactly that way: one open card of that kind paints the banner
+    coral and says nothing can start until it is answered. Nothing closed
+    those cards on the happy path — only the branch that raised a *new*
+    blocker superseded the old one. So story #1 answered its blocker at
+    09:07, was groomed, drafted criteria and reached `po-review`, and the
+    drawer still told the PO it could not start, while what it was actually
+    waiting for was his approval of the criteria sitting under that banner.
+
+    Called from the two places a story stops being blocked: criteria drafted,
+    and a PO reply that put it back in the groom queue.
+    """
+    return conn.execute(
+        """UPDATE escalations
+              SET resolved_at = datetime('now','localtime'), po_decision = 'amend'
+            WHERE story_id = ? AND kind = 'needs-info' AND resolved_at IS NULL""",
+        (story_id,),
+    ).rowcount
 
 
 def question_settled(conn: sqlite3.Connection, story_id: int, kind: str,
