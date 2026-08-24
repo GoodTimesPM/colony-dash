@@ -31,7 +31,23 @@ from . import db, proc as proc_mod
 ROOT = db.PROJECTS_ROOT
 WORKTREE_DIR = db.RUNTIME_DIR / "worktrees"
 PATCH_DIR = db.RUNTIME_DIR / "patches"
+BASE_DIR = db.RUNTIME_DIR / "bases"
 GIT_TIMEOUT_S = 120
+
+# Files a contract with `sees_secrets` gets a copy of. Names, not patterns: a
+# pattern eventually matches something nobody meant to hand over.
+SECRET_NAMES = (".env", ".env.local", ".env.development", "credentials.json",
+                "service-account.json", "secrets.toml")
+
+# One untracked file bigger than this is not source, and copying it into every
+# worktree costs more than it is worth. `personal-desktop-projects` holds
+# 590 MB of untracked binaries; without a limit a build there would copy them.
+MAX_SEED_FILE_BYTES = 2 * 1024 * 1024
+MAX_SEED_TOTAL_BYTES = 64 * 1024 * 1024
+
+# Never copied into a worktree at any size: the colony's own runtime, which
+# contains the worktree we are filling.
+SEED_SKIP_DIRS = {".git", ".colony", "__pycache__", "node_modules", ".venv", "venv"}
 
 
 class WorktreeError(RuntimeError):
@@ -73,6 +89,131 @@ def path_for(ticket_id: int) -> Path:
     return WORKTREE_DIR / f"ticket-{ticket_id}"
 
 
+def _in_scope(rel: str, scope: list[str]) -> bool:
+    """Is this repo-relative path inside one of the agent's folders?"""
+    return any(rel == f or rel.startswith(f + "/") for f in scope)
+
+
+def _copy_into(rel: str, dest_root: Path) -> int:
+    """One live file into the checkout. Returns the bytes copied, 0 if skipped."""
+    src = ROOT / rel
+    if not src.is_file():
+        return 0
+    dest = dest_root / rel
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(src, dest)
+    return dest.stat().st_size
+
+
+def _dirty_tracked() -> list[str]:
+    """Tracked files whose live content differs from HEAD, staged or not."""
+    raw = _git("status", "--porcelain", "-z", "--untracked-files=no")
+    out, parts = [], raw.split("\0")
+    i = 0
+    while i < len(parts):
+        entry = parts[i]
+        i += 1
+        if len(entry) < 4:
+            continue
+        xy, path = entry[:2], entry[3:]
+        if "R" in xy or "C" in xy:      # rename/copy carries a second path
+            i += 1
+        if "D" in xy:                   # a deletion has nothing to copy
+            continue
+        out.append(path)
+    return out
+
+
+def _untracked_in(scope: list[str]) -> list[str]:
+    """Untracked, non-ignored files inside the agent's folders."""
+    if not scope:
+        return []
+    raw = _git("ls-files", "--others", "--exclude-standard", "-z", "--", *scope)
+    return [p for p in raw.split("\0") if p]
+
+
+def _secret_files(scope: list[str]) -> list[str]:
+    """Credential files worth handing to a contract that is allowed them.
+
+    Gathered from the top-level project containing each scope folder, not from
+    the scope folder alone. `job-search/assisted-apply` reads
+    `job-search/job-radar/.env` on purpose -- same integration, same database --
+    and a scope-only search would miss the file the code actually loads.
+    """
+    roots = {f.split("/")[0] for f in scope}
+    found: list[str] = []
+    for top in sorted(roots):
+        base = ROOT / top
+        if not base.is_dir():
+            continue
+        for path in base.rglob("*"):
+            if path.name not in SECRET_NAMES or not path.is_file():
+                continue
+            if SEED_SKIP_DIRS & set(path.relative_to(ROOT).parts):
+                continue
+            found.append(path.relative_to(ROOT).as_posix())
+    return sorted(found)
+
+
+def _base_file(ticket_id: int) -> Path:
+    return BASE_DIR / f"ticket-{ticket_id}.tree"
+
+
+def base_tree(ticket_id: int) -> str:
+    """The tree the run started from. Falls back to HEAD for an older ticket."""
+    path = _base_file(ticket_id)
+    if path.is_file():
+        sha = path.read_text(encoding="utf-8").strip()
+        if sha:
+            return sha
+    return "HEAD"
+
+
+def seed(ticket_id: int, scope: list[str], secrets: bool = False) -> dict:
+    """Bring the checkout up to what is on disk, then record that as the base.
+
+    Order matters. Everything git should diff against goes in first and gets
+    written into a tree; the credential files go in after that, so they are not
+    in the base and cannot appear in a patch as a deletion either -- `diff`
+    removes them again before it looks.
+    """
+    path = path_for(ticket_id)
+    scope = [f.strip("/") for f in (scope or []) if f.strip("/")]
+    report = {"tracked": 0, "untracked": 0, "secrets": [], "skipped": []}
+
+    total = 0
+    for rel in _dirty_tracked():
+        if SEED_SKIP_DIRS & set(rel.split("/")):
+            continue
+        total += _copy_into(rel, path)
+        report["tracked"] += 1
+
+    for rel in _untracked_in(scope):
+        if SEED_SKIP_DIRS & set(rel.split("/")):
+            continue
+        try:
+            size = (ROOT / rel).stat().st_size
+        except OSError:
+            continue
+        if size > MAX_SEED_FILE_BYTES or total + size > MAX_SEED_TOTAL_BYTES:
+            report["skipped"].append(rel)
+            continue
+        total += _copy_into(rel, path)
+        report["untracked"] += 1
+
+    _git("add", "-A", cwd=path)
+    BASE_DIR.mkdir(parents=True, exist_ok=True)
+    _base_file(ticket_id).write_text(_git("write-tree", cwd=path).strip(),
+                                     encoding="utf-8")
+
+    if secrets:
+        for rel in _secret_files(scope):
+            if _copy_into(rel, path):
+                report["secrets"].append(rel)
+
+    return report
+
+
 def create(ticket_id: int) -> Path:
     """Open an isolated checkout for one ticket.
 
@@ -84,6 +225,7 @@ def create(ticket_id: int) -> Path:
     path = path_for(ticket_id)
     if path.exists():
         remove(ticket_id)
+    _base_file(ticket_id).unlink(missing_ok=True)
 
     WORKTREE_DIR.mkdir(parents=True, exist_ok=True)
     branch = branch_for(ticket_id)
@@ -93,15 +235,38 @@ def create(ticket_id: int) -> Path:
     return path
 
 
+def _drop_secrets(ticket_id: int) -> None:
+    """Take the credential files back out before git is allowed to look.
+
+    They were copied in after the base tree was written, so git has never seen
+    them. Removing them here keeps it that way whatever the agent did to them:
+    a patch can never carry a key, and an agent that edited a `.env` finds the
+    edit simply did not happen, which is the right answer.
+    """
+    path = path_for(ticket_id)
+    for found in list(path.rglob("*")):
+        if found.name in SECRET_NAMES and found.is_file():
+            try:
+                found.unlink()
+            except OSError:
+                pass
+
+
 def diff(ticket_id: int) -> str:
-    """Everything the run changed, as a patch against the branch point."""
+    """Everything the run changed, as a patch against the seeded base.
+
+    Against the base and not HEAD: the checkout was brought up to Jordan's
+    uncommitted state before the agent started, so diffing against HEAD would
+    hand back his own edits as though the agent had written them.
+    """
     path = path_for(ticket_id)
     if not path.is_dir():
         return ""
+    _drop_secrets(ticket_id)
     # Stage into the index first: `git diff` alone cannot see files the agent
     # created, and a new file is the most common thing a build ticket produces.
     _git("add", "-A", cwd=path)
-    return _git("diff", "--cached", "--binary", cwd=path)
+    return _git("diff", "--cached", "--binary", base_tree(ticket_id), cwd=path)
 
 
 def stat(ticket_id: int) -> str:
@@ -109,7 +274,7 @@ def stat(ticket_id: int) -> str:
     if not path.is_dir():
         return ""
     try:
-        return _git("diff", "--cached", "--stat", cwd=path)
+        return _git("diff", "--cached", "--stat", base_tree(ticket_id), cwd=path)
     except WorktreeError:
         return ""
 

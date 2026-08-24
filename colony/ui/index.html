@@ -695,6 +695,8 @@ body.halted .halt-banner { display: flex; }
   box-shadow: var(--shadow);
 }
 .tile[data-kind="write-approval"] { border-width: 2px; }
+.tile[data-kind="run-request"] { border-width: 2px; }
+.tile[data-kind="run-request"] .rec .detail { font-family: var(--mono); }
 
 /* Ready to start. Amber across the rest of this panel means "this needs you",
    and it does need him — but it needs a go, not an answer, and a tile that
@@ -733,7 +735,12 @@ body.halted .halt-banner { display: flex; }
 .tile .k .dismiss:hover, .tile .k .dismiss:focus-visible { color: var(--coral); opacity: 1; }
 .tile .k .age + .dismiss { margin-left: 0; }
 .tile .r { font-size: var(--step-1); line-height: 1.35; }
-.tile .rec { font-size: var(--step--1); color: var(--ink-soft); white-space: pre-wrap; max-height: 8.5em; overflow-y: auto; }
+.tile .rec, .rec.long { font-size: var(--step--1); color: var(--ink-soft); }
+/* The fold, not a scrollbar: `.rec` now holds a `longText` block, and an
+   inner scroll region inside the scrolling inbox hid the end of a report. */
+.rec.long .detail { background: none; border: 0; padding: 0; margin: 0;
+  max-height: none; color: inherit; font-family: inherit; }
+.rec.long .detail.clip { max-height: 8.5em; }
 .tile .meta { font-family: var(--mono); font-size: var(--step--2); color: var(--ink-dim); }
 .tile .acts { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: auto; padding-top: 4px; }
 /* The picker gets its own row rather than sharing one with the buttons. It is
@@ -2959,7 +2966,11 @@ function inboxTile(e) {
     k.append(x);
   }
   card.append(k, el("div", "r", e.reason));
-  if (e.recommendation) card.append(el("div", "rec", e.recommendation));
+  if (e.recommendation) {
+    const rec = longText(e.recommendation, 520);
+    rec.classList.add("rec");
+    card.append(rec);
+  }
   if (e.snoozed) {
     card.append(el("div", "snooze-note", "snoozed · back " + until(e.snoozed_until)));
   }
@@ -3060,6 +3071,23 @@ function inboxTile(e) {
     const no = el("button", "act no", "reject");
     no.onclick = () => act("decide", { escalation_id: e.id, decision: "reject" });
     acts.append(view, yes, no);
+  } else if (e.kind === "run-request" && e.id) {
+    // The one card that runs something on the live tree rather than proposing a
+    // change to it. The command is in the card text above, verbatim, because
+    // approving a command you have not read is the whole risk here.
+    const yes = el("button", "act go", "run it");
+    yes.title = "runs it in the project folder and puts the output on the story";
+    yes.onclick = () => confirmThen(
+      "Run this command against your live tree?\n\n" +
+      (e.reason || "").replace(/^.*?: `/, "") .replace(/`$/, "") + "\n\n" +
+      "It runs in the project folder with a 90 second limit. Nothing is committed " +
+      "and no patch is applied \u2014 the output goes on the story so the next " +
+      "build can read it.",
+      () => act("decide", { escalation_id: e.id, decision: "approve" }));
+    const no = el("button", "act no", "don\u2019t run it");
+    no.title = "records that you declined; the story keeps its other findings";
+    no.onclick = () => act("decide", { escalation_id: e.id, decision: "reject" });
+    acts.append(yes, no);
   } else if (e.kind === "brief-changed" && e.id) {
     const yes = el("button", "act go", "reopen for grooming");
     yes.title = "clears the criteria and puts it back in the groom queue — the next wake re-reads the brief";
@@ -3231,7 +3259,11 @@ async function openCompose(e, opts) {
 
   const proposal = el("div", "proposal");
   proposal.append(el("div", "r", e.reason));
-  if (e.recommendation) proposal.append(el("div", "rec", e.recommendation));
+  if (e.recommendation) {
+    const rec = longText(e.recommendation, 520);
+    rec.classList.add("rec");
+    proposal.append(rec);
+  }
   const meta = [];
   if (e.story_title) meta.push(e.story_title);
   if (e.project) meta.push(e.project + (e.project_source === "confirmed" ? "" : " (guess)"));
@@ -4682,6 +4714,7 @@ async function openAgent(id) {
   body.append(facts);
 
   if (a.write_capable) body.append(scopeEditor(a));
+  body.append(secretsEditor(a));
   for (const k of ["tools_allowed", "tools_denied", "read_scope"]) {
     if (a[k]) body.append(sectionBlock(k.replace("_", " "), a[k]));
   }
@@ -4791,6 +4824,38 @@ function scopeEditor(a) {
   draw();
   return blk("write scope — the folders this agent may edit, inside its worktree",
              list, row, typed);
+}
+
+// Whether the checkout this agent works in contains the `.env` files. Off by
+// default. It is here rather than folded into the scope editor because it is a
+// different question: the scope is about writing, this is about reading a file
+// git never puts in a worktree, which is why an agent once reported a key that
+// is set as unset.
+function secretsEditor(a) {
+  let on = !!a.sees_secrets;
+  const state = el("div", "dim");
+  const btn = el("button", "act");
+  const draw = () => {
+    state.textContent = on
+      ? "Its checkout gets a copy of every .env found in the projects it works "
+        + "in. Values never reach a patch — the files are removed before the "
+        + "diff is taken — but the agent can read them, so its report could "
+        + "repeat one."
+      : "Its checkout has no .env in it. The agent can tell you that a key is "
+        + "not visible; it cannot tell you whether the key is set.";
+    btn.textContent = on ? "hide the credentials" : "let it read the credentials";
+    btn.classList.toggle("go", !on);
+  };
+  btn.onclick = async () => {
+    const out = await act("secrets", { agent_id: a.id, on: !on });
+    if (!out) return;
+    on = !on;
+    a.sees_secrets = on ? 1 : 0;
+    toast(a.role + (on ? " can read .env" : " cannot read .env"), "good");
+    draw();
+  };
+  draw();
+  return blk("credentials — whether .env is copied into its checkout", state, btn);
 }
 
 async function openPulse(id) {
