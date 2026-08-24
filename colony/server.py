@@ -1294,6 +1294,8 @@ def api_agent(agent_id: int) -> dict[str, Any]:
             "ON t.id = r.ticket_id WHERE r.agent_role = ? ORDER BY r.started_at DESC LIMIT 20",
             (row["role"],),
         )
+        row["scope_folders"] = control.scope_projects(row.get("write_scope"))
+        row["all_projects"] = projects_mod.project_dirs()
         return row
     finally:
         conn.close()
@@ -1511,6 +1513,17 @@ def act_hire(body: dict = Body(...), x_colony: str | None = Header(None)) -> dic
         write_capable=bool(body.get("write_capable")),
         max_tokens_run=int(body.get("max_tokens_run") or 400000),
         notes=body.get("notes") or None,
+    )
+
+
+@app.post("/api/act/scope")
+def act_scope(body: dict = Body(...), x_colony: str | None = Header(None)) -> dict[str, Any]:
+    """Widen or narrow one hired agent's write scope."""
+    _guard(x_colony)
+    return _act(
+        control.set_write_scope,
+        int(body["agent_id"]),
+        [str(p) for p in (body.get("projects") or [])],
     )
 
 

@@ -4681,9 +4681,11 @@ async function openAgent(id) {
   if (a.notes) add("notes", a.notes);
   body.append(facts);
 
-  for (const k of ["tools_allowed", "tools_denied", "read_scope", "write_scope"]) {
+  if (a.write_capable) body.append(scopeEditor(a));
+  for (const k of ["tools_allowed", "tools_denied", "read_scope"]) {
     if (a[k]) body.append(sectionBlock(k.replace("_", " "), a[k]));
   }
+  if (a.write_scope && !a.write_capable) body.append(sectionBlock("write scope", a.write_scope));
   if (a.runs && a.runs.length) {
     const box = el("div", "wrap-x");
     const t = el("table", "runs");
@@ -4700,6 +4702,95 @@ async function openAgent(id) {
     box.append(t);
     body.append(blk("runs", box));
   }
+}
+
+// The write scope started as one folder, derived from the project the agent was
+// hired on, and nothing could change it afterwards. That is too narrow the
+// moment a story's work crosses a folder boundary: a build agent scoped to
+// `job-search/assisted-apply` skipped half its criteria because the files it
+// needed sat in `job-search/job-radar`, and correctly said so rather than
+// writing outside its contract. The scope is the PO's decision, so it belongs
+// on the contract where he can see it and change it.
+//
+// The picker offers the folders the colony already knows about — every project
+// with a PROJECT.md, plus the top-level folders that contain them — so picking
+// the parent of a sub-project is one click. The server checks the folder exists
+// under the projects root before it stores anything, because a typed path is
+// still possible and a scope pointing nowhere is worse than a narrow one.
+function scopeEditor(a) {
+  let folders = (a.scope_folders || []).slice();
+  const list = el("div");
+  list.style.display = "flex";
+  list.style.flexWrap = "wrap";
+  list.style.gap = "6px";
+  list.style.marginBottom = "8px";
+
+  const save = el("button", "act go", "save scope");
+  const draw = () => {
+    list.replaceChildren();
+    if (!folders.length) list.append(el("span", "dim", "no folder — this agent cannot build"));
+    for (const f of folders) {
+      const chip = el("span", "chip live");
+      chip.style.textTransform = "none";
+      chip.append(f + "/ ");
+      const x = el("button", null, "\u00d7");
+      x.title = "remove " + f;
+      x.style.cssText = "background:none;border:0;color:inherit;cursor:pointer;padding:0 0 0 2px;font:inherit";
+      x.onclick = () => { folders = folders.filter((v) => v !== f); draw(); };
+      chip.append(x);
+      list.append(chip);
+    }
+    save.disabled = !folders.length
+      || folders.join("\u0000") === (a.scope_folders || []).join("\u0000");
+  };
+
+  const pick = el("select", "pick");
+  const fill = () => {
+    pick.replaceChildren();
+    const head = el("option", null, "— add a folder —");
+    head.value = "";
+    pick.append(head);
+    for (const p of (a.all_projects || []).slice().sort(
+      (x, y) => x.localeCompare(y, undefined, { sensitivity: "base" }))) {
+      const o = el("option", null, p);
+      o.value = p;
+      pick.append(o);
+    }
+  };
+  fill();
+  pick.onchange = () => {
+    const v = pick.value;
+    pick.value = "";
+    if (v && !folders.includes(v)) { folders.push(v); draw(); }
+  };
+
+  const typed = el("input", "field");
+  typed.placeholder = "or type a folder, relative to the projects root";
+  typed.onkeydown = (ev) => {
+    if (ev.key !== "Enter") return;
+    ev.preventDefault();
+    const v = typed.value.trim().replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
+    typed.value = "";
+    if (v && !folders.includes(v)) { folders.push(v); draw(); }
+  };
+
+  save.onclick = async () => {
+    const out = await act("scope", { agent_id: a.id, projects: folders });
+    if (!out) return;
+    toast(`${a.role} writes in ${folders.join(", ")}`, "good");
+    a.scope_folders = folders.slice();
+    draw();
+  };
+
+  const row = el("div");
+  row.style.display = "flex";
+  row.style.gap = "7px";
+  row.style.alignItems = "center";
+  row.append(pick, save);
+
+  draw();
+  return blk("write scope — the folders this agent may edit, inside its worktree",
+             list, row, typed);
 }
 
 async function openPulse(id) {

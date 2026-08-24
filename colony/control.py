@@ -1266,6 +1266,94 @@ DEFAULT_READ_SCOPE = ["D:/ALL STUFF/PROJECTS/**"]
 READ_ONLY_TOOLS = ["Read", "Grep", "Glob"]
 WRITE_TOOLS = ["Read", "Grep", "Glob", "Edit", "Write"]
 
+# A write scope is a list of project folders, written down as globs because
+# that is the shape the contract has always had. It started as exactly one
+# folder, derived from the project an agent was hired on, and that turned out
+# to be too narrow the first time real work needed it: a story filed under
+# `job-search/assisted-apply` had criteria about `job-search/job-radar`, and
+# the build agent skipped half its list rather than write outside its scope.
+# Widening it is a decision the PO makes per agent, so these two functions are
+# the only place globs and folder names are converted into each other.
+
+ROOT_POSIX = db.PROJECTS_ROOT.as_posix()
+
+
+def scope_globs(projects: list[str]) -> list[str]:
+    """Folder names to the glob form stored on the contract."""
+    return [f"{ROOT_POSIX}/{p}/**" for p in projects]
+
+
+def scope_projects(raw: Any) -> list[str]:
+    """The stored contract back to plain folder names, in order, deduplicated.
+
+    Takes the JSON text off the row or an already-parsed list, so callers do
+    not each have to remember which one they are holding.
+    """
+    if not raw:
+        return []
+    globs = json.loads(raw) if isinstance(raw, str) else list(raw)
+    out: list[str] = []
+    for g in globs:
+        name = str(g)
+        if name.startswith(ROOT_POSIX + "/"):
+            name = name[len(ROOT_POSIX) + 1:]
+        name = name.rstrip("*").rstrip("/")
+        if name and name not in out:
+            out.append(name)
+    return out
+
+
+def _check_scope_folder(name: str) -> str:
+    """One folder the PO picked, or a refusal saying which rule it broke."""
+    name = str(name).strip().replace("\\", "/").strip("/")
+    if not name or name == ".":
+        raise Refused("a write scope needs a folder — 'write anywhere' is not a scope")
+    if ".." in name.split("/") or ":" in name:
+        raise Refused(f"{name!r} is not a folder inside the projects directory")
+    if name.split("/")[0].startswith("."):
+        raise Refused(f"{name!r} is a dot folder — the colony never writes in one")
+    if not (db.PROJECTS_ROOT / name).is_dir():
+        raise Refused(f"there is no folder {name!r} under {ROOT_POSIX}")
+    return name
+
+
+def set_write_scope(conn: sqlite3.Connection, agent_id: int,
+                    projects: list[str]) -> dict[str, Any]:
+    """Change which folders one hired agent may write in.
+
+    Only the folders change. The agent keeps the project it was hired on,
+    because that is what `dispatch` matches a story against and what
+    `build.contract` looks the contract up by — widening the scope is not the
+    same as moving the agent to a different project.
+    """
+    row = conn.execute("SELECT * FROM agents WHERE id = ?", (agent_id,)).fetchone()
+    if not row:
+        raise Refused("no such agent")
+    if row["status"] == "retired":
+        raise Refused(f"{row['role']} is retired — hire it again before changing its scope")
+    if not row["write_capable"]:
+        raise Refused(
+            f"{row['role']} is read-only. A read-only contract has no write scope to widen; "
+            f"hire it again with write ticked if it needs one."
+        )
+
+    folders: list[str] = []
+    for p in projects or []:
+        name = _check_scope_folder(p)
+        if name not in folders:
+            folders.append(name)
+    if not folders:
+        raise Refused("pick at least one folder — an empty scope would block every build")
+
+    before = scope_projects(row["write_scope"])
+    conn.execute("UPDATE agents SET write_scope = ? WHERE id = ?",
+                 (json.dumps(scope_globs(folders)), agent_id))
+    _record(conn, "scope", "agent", agent_id,
+            f"{row['role']}: " + ", ".join(folders)
+            + (f" (was {', '.join(before)})" if before and before != folders else ""))
+    return {"ok": True, "role": row["role"], "write_scope": folders}
+
+
 
 def propose_hire(conn: sqlite3.Connection, *, roster_slug: str, role: str,
                  project: str | None, reason: str, model: str = "claude-sonnet-5",
@@ -1324,7 +1412,7 @@ def hire(conn: sqlite3.Connection, *, roster_slug: str | None, role: str,
         raise Refused(f"{role} is already hired" + (f" on {project}" if project else ""))
 
     tools = WRITE_TOOLS if write_capable else READ_ONLY_TOOLS
-    write_scope = [f"D:/ALL STUFF/PROJECTS/{project}/**"] if write_capable else None
+    write_scope = scope_globs([project]) if write_capable else None
     seed = roster_slug or role
 
     if existing:
@@ -1446,13 +1534,17 @@ def dispatch(conn: sqlite3.Connection, story_id: int) -> dict[str, Any]:
     if open_ticket:
         raise Refused(f"ticket #{open_ticket['id']} is already queued for this story")
 
+    # The ticket records the agent's scope, not the story's folder. They are the
+    # same until the PO widens one, and after that the ticket has to say which
+    # of the two the build actually ran under.
+    folders = scope_projects(agent["write_scope"]) or [story["project"]]
     _record(conn, "dispatch", "story", story_id, f"{story['project']} · {agent['role']}")
     cur = conn.execute(
         """INSERT INTO tickets (story_id, title, intent, role, status, write_scope,
                                 requires_po, approved_at)
            VALUES (?,?,'implement',?,'staffed',?,1,datetime('now','localtime'))""",
         (story_id, f"Implement: {story['title']}"[:200], agent["role"],
-         f"D:/ALL STUFF/PROJECTS/{story['project']}"),
+         json.dumps(scope_globs(folders))),
     )
     ticket_id = cur.lastrowid
     conn.execute(
@@ -1460,7 +1552,8 @@ def dispatch(conn: sqlite3.Connection, story_id: int) -> dict[str, Any]:
         "WHERE id = ?", (story_id,)
     )
     _event(conn, story_id, "staffed",
-           f"PO dispatched to {agent['role']} — worktree, write scope {story['project']}/",
+           f"PO dispatched to {agent['role']} — worktree, write scope "
+           + ", ".join(f"{f}/" for f in folders),
            f"ticket #{ticket_id}")
     _decision_ticket(
         conn, story_id=story_id, title=f"Decision: start building “{story['title'][:90]}”?",
