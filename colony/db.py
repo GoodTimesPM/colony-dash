@@ -78,7 +78,33 @@ def migrate(conn: sqlite3.Connection, *, verbose: bool = True) -> list[str]:
                 )
             continue
 
-        conn.executescript(f"BEGIN;\n{text}\nCOMMIT;")
+        # Foreign keys off for the duration. A migration that widens a CHECK
+        # has to rebuild the table -- SQLite cannot alter a constraint in place
+        # -- and dropping a table other tables point at trips the constraint
+        # even though the rename puts every reference back. This is what
+        # SQLite's own "making other kinds of table schema changes" procedure
+        # says to do. `defer_foreign_keys` is not a substitute: it counts
+        # violations rather than re-checking them, and a DROP raises a count
+        # that recreating the parent never lowers.
+        #
+        # The pragma is a no-op inside a transaction, so it goes outside one.
+        conn.execute("PRAGMA foreign_keys = OFF")
+        try:
+            conn.executescript(f"BEGIN;\n{text}\nCOMMIT;")
+        finally:
+            conn.execute("PRAGMA foreign_keys = ON")
+
+        # And now check what the constraint would have checked. This is new:
+        # before, a migration could leave a reference pointing at nothing and
+        # the ledger would carry the damage silently.
+        broken = conn.execute("PRAGMA foreign_key_check").fetchall()
+        if broken:
+            raise RuntimeError(
+                f"{sql_file.name} left {len(broken)} dangling reference(s), "
+                f"first in table {broken[0][0]!r}. The schema change is applied; "
+                f"the ledger is not consistent."
+            )
+
         conn.execute(
             "INSERT INTO _migrations (filename, sha256) VALUES (?, ?)", (sql_file.name, digest)
         )

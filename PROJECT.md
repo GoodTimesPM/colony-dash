@@ -368,6 +368,82 @@ names the state and the next move.
       again from the code rather than patching it a line at a time.
 - [ ] Update the published artifact — it still shows the pre-M1 design.
 
+## Finished 2026-08-24 — the checkout an agent gets, and a way to hand work back
+
+Four things, all from the same run. Story #1's build agent skipped three of six
+criteria and its report was cut off mid-sentence on the card.
+
+**The report is not cut off any more.** The escalation's `recommendation` was
+written with `[:2000]`, so a card that had more to say ended at "LOOK C". SQLite
+has no length limit, so the cap bought nothing. It is gone, along with the caps
+on a ticket's findings and on the text of a reply to Ordis. The one-line
+headline fields keep a limit, but `build.clip` now cuts them on a word boundary
+and marks the cut, so a shortened line never reads as a finished one. On the
+card the report is a `longText` block: folded to a few lines with a button
+saying how many characters are behind it, the same as everywhere else on the
+page. It used to be an 8.5em box with its own scrollbar inside the scrolling
+inbox.
+
+**The worktree holds what is on disk, not just what is committed.** This was
+the real cause of two of the three skipped criteria. `create` checked out HEAD
+and stopped, so nine files Jordan had staged in `job-search/assisted-apply` and
+not committed were absent, and the agent reported truthfully that
+`PROPOSAL_next_steps.md` does not exist. `worktree.seed` now copies in every
+tracked file that differs from HEAD repo-wide, plus every untracked file inside
+the agent's scope folders, and records the result with `git write-tree`. The
+diff is taken against that tree rather than HEAD, so Jordan's own uncommitted
+work does not come back in the patch as though an agent had written it. No
+commit is involved: a tree object is not a commit and master is untouched. One
+untracked file over 2 MB is skipped and the work order says how many were.
+
+**A contract can be allowed to read the credential files.** `.env` is git-ignored
+in every project here, so a worktree never contained one, and an agent asked
+whether `NOTION_API_KEY` is set answered that it is not — which was wrong, and
+was the second thing Jordan asked about. `agents.sees_secrets` is off by
+default; the contract drawer has a switch for it. When it is on, `seed` copies
+the `.env` files from the top-level project containing each scope folder, after
+the base tree is written, and `diff` deletes them before it looks. A key
+therefore cannot reach a patch even if the agent edits the file. What the switch
+cannot stop is an agent repeating a value in its report, which is why it is a
+decision and not a default, and why the work order tells the agent to name the
+key and never the value.
+
+**A build agent can hand over a command instead of skipping the criterion.**
+The third skipped criterion was "run `py -m apply.main auto` and confirm the OG
+tracker row appears", and a build agent has Read, Grep, Glob, Edit and Write and
+nothing else. It now writes the command into `needs_run` and the colony raises a
+`run-request` card carrying the command, the criterion it answers, and what a
+correct result looks like. Approving runs it in the project folder with a
+90-second limit, puts the whole transcript on the story as a finding, and sends
+the story back to `ready`. It does not move to `accepted` and it does not touch
+Notion: the command answered a question, and what that means for the story is
+Jordan's decision. `colony/runner.py` refuses `git push`, `git commit`, a forced
+git operation, a recursive force delete, a pipe into a shell, and anything
+outside the projects directory — a refused request is recorded on the story
+rather than put in front of the PO.
+
+**And the next agent reads what the last one found.** `build.history` puts the
+story's findings, learnings and decisions into the work order, details included,
+oldest first. That is what makes a run-request worth raising: the output of the
+command comes back as a finding, and the next build reads it instead of asking
+again.
+
+**One thing the runner fixed on the way past.** Migration 023 rebuilds
+`escalations` to widen a CHECK, and `tickets` and `po_messages` both hold a
+foreign key into it, so the drop failed at COMMIT. `PRAGMA defer_foreign_keys`
+does not help: it counts violations rather than re-checking them, and a
+`DROP TABLE` raises a count that recreating the parent never lowers, so the
+commit fails while `foreign_key_check` reports nothing wrong. `db.migrate` now
+runs each migration with foreign keys off, as SQLite's own procedure for this
+says to, and runs `foreign_key_check` afterwards. That check is new: before,
+a migration could leave a dangling reference and nothing would say so. 019 did
+the same rebuild and got away with it.
+
+Not done, and worth saying: nothing here lets agents talk to each other
+directly. They pass work through the story, which is the only place a decision
+is recorded. Live ledger backed up to `.colony/ledger.pre023.bak` before 022 and
+023 were applied.
+
 ## Finished 2026-08-24 — a write scope the PO can change
 
 **The scope is on the contract now, and the contract drawer can edit it.** A

@@ -46,14 +46,102 @@ def pending(conn: sqlite3.Connection, limit: int = BUILD_LIMIT) -> list[sqlite3.
     ).fetchall()
 
 
+# What an earlier run on the same story is allowed to tell this one. Findings
+# and learnings are work; a `staffed` or `dispatched` row is bookkeeping and
+# would fill the section with the colony talking about itself.
+HISTORY_KINDS = ("finding", "learning", "note", "decided", "blocked")
+
+
+def history(conn: sqlite3.Connection, story_id: int, limit: int = 12) -> list[dict]:
+    """What earlier runs and PO decisions on this story already established."""
+    rows = conn.execute(
+        f"""SELECT kind, summary, detail, at FROM story_events
+             WHERE story_id = ? AND kind IN ({','.join('?' * len(HISTORY_KINDS))})
+             ORDER BY id DESC LIMIT ?""",
+        (story_id, *HISTORY_KINDS, limit),
+    ).fetchall()
+    return [dict(r) for r in reversed(rows)]
+
+
+def history_note(events: list[dict] | None) -> str:
+    """The section of the work order that says what is already known.
+
+    Details are included, not just the one-line summaries: the useful thing in
+    a run-request is the command's output, and that lives in the detail.
+    """
+    if not events:
+        return ""
+    out = ["--- what the colony already found out on this story ---",
+           "Earlier runs and decisions, oldest first. Take these as established.",
+           "If one of them is wrong, say so in your report rather than quietly "
+           "working around it.", ""]
+    for e in events:
+        out.append(f"[{e['at']}] {e['kind']}: {e['summary']}")
+        detail = (e.get("detail") or "").strip()
+        if detail:
+            body = (detail if len(detail) <= 1800
+                    else detail[:1800] + "\n  — the rest is on the story")
+            out.append("\n".join("  " + line for line in body.splitlines()))
+        out.append("")
+    out.append("--- end of what is already known ---")
+    return "\n".join(out)
+
+
+def seeded_note(seeded: dict | None) -> str:
+    """What the checkout holds beyond the last commit, in the work order's words.
+
+    An agent that does not know its checkout was seeded reads a file it half
+    expects to be stale and hedges everything it says about it. An agent that
+    does not know a credential file is absent reports the setting as unset,
+    which is the mistake that made this paragraph necessary.
+    """
+    if not seeded:
+        return ("This checkout is git's copy of the last commit. Files git does not "
+                "track are not here: no `.env`, no build output, nothing Jordan has "
+                "edited but not yet committed. If a criterion depends on one of "
+                "those, say so plainly — an absent `.env` means the setting is not "
+                "visible to you, not that it is unset.")
+
+    moved = (seeded.get("tracked") or 0) + (seeded.get("untracked") or 0)
+    lines = [
+        f"This checkout is the last commit plus Jordan's uncommitted work: "
+        f"{moved} file(s) were copied in from his live tree before you started, "
+        f"so a file he has edited or staged but not committed IS here and IS "
+        f"current. Your patch is taken against that seeded state, so his changes "
+        f"will not show up as yours."
+    ]
+    secrets = seeded.get("secrets") or []
+    if secrets:
+        lines.append(
+            "Credential files were copied in as well: "
+            + ", ".join(secrets)
+            + ". Read them when a criterion turns on what is configured. Never "
+            "copy a value out of one into your report, a comment, a test, or any "
+            "file you write — say which key is set or unset and stop there. "
+            "Edits you make to these files are discarded and never reach a patch.")
+    else:
+        lines.append(
+            "Credential files were NOT copied in: this contract does not have "
+            "them. If a criterion turns on whether a key is configured, say that "
+            "you could not see the file. An absent `.env` means the setting is "
+            "not visible to you, not that it is unset.")
+    if seeded.get("skipped"):
+        lines.append(f"{len(seeded['skipped'])} untracked file(s) were too large to "
+                     f"copy and are absent.")
+    return "\n\n".join(lines)
+
+
 def build_prompt(ticket: sqlite3.Row, workdir: str,
                  attached: list[dict] | None = None,
-                 scope: list[str] | None = None) -> str:
+                 scope: list[str] | None = None,
+                 seeded: dict | None = None,
+                 known: list[dict] | None = None) -> str:
     """The work order. Says what may be touched, in the words of the scope itself.
 
     `scope` is the folder list off the agent's contract, which the PO can widen
     from the contract drawer. It defaults to the story's own folder, which is
-    what every contract holds until he changes one.
+    what every contract holds until he changes one. `seeded` is what
+    `worktree.seed` put in the checkout on top of the commit.
     """
     criteria = (ticket["acceptance_criteria"] or "").strip() or "(none recorded — ask, do not guess)"
     brief = (ticket["description"] or "").strip() or "(the Notion page body is empty)"
@@ -77,13 +165,16 @@ WRITE SCOPE — you may create and edit files ONLY under:
 {scope_lines}
 
 Everywhere else in this checkout is READ-ONLY to you. You have no shell: no
-git commands, no package installs, no network. If a change needs any of those,
-stop and say so in your report instead of working around it.
+git commands, no package installs, no network.
 
-This checkout is git's copy of the last commit, so files git does not track are
-not here: no `.env`, no build output, nothing Jordan has edited but not yet
-committed. If a criterion depends on one of those, say so plainly — an absent
-`.env` means the setting is not visible to you, not that it is unset.
+You are not the only one working on this. When a criterion needs a command run
+— a script, a test, a real API call — do not skip it and do not fake it. Put
+the command in `needs_run` with the criterion it answers and what a correct
+result looks like. Jordan sees the command, runs it against the live tree, and
+the output comes back on the story for whoever picks it up next. Do the rest of
+the work in the same run; a `needs_run` entry is a handover, not a stop.
+
+{seeded_note(seeded)}
 
 STORY #{ticket['sid']}: {ticket['story_title']}
 
@@ -95,6 +186,7 @@ STORY #{ticket['sid']}: {ticket['story_title']}
 {criteria[:3000]}
 --- end criteria ---
 {attach.evidence(attached or [])}
+{history_note(known)}
 
 Read {project}/PROJECT.md first — it is that project's source of truth for
 status and decisions. Match the surrounding code: its naming, its comment
@@ -112,16 +204,36 @@ When you are done, reply with ONLY a JSON object, no prose around it:
   "skipped": [{{"criterion": "...", "why": "..."}}],
   "files": ["relative/paths/you/changed"],
   "summary": "one sentence for the dashboard, under 140 characters",
+  "needs_run": [{{"command": "one shell command, as you would type it",
+                  "why": "the criterion it answers",
+                  "expect": "what a correct result looks like"}}],
   "risks": "anything Jordan should look at closely in the diff, or null",
   "learned": "one thing worth keeping about this codebase, or null"
 }}"""
+
+
+def clip(text: str, limit: int) -> str:
+    """Shorten a headline without letting it look like the text just stopped.
+
+    Only for the one-line fields -- `story_events.summary`, a ticket title.
+    Report bodies are never clipped: an agent that took the trouble to say
+    which criterion it skipped and why should have all of that reach the card.
+    """
+    text = (text or "").strip()
+    if len(text) <= limit:
+        return text
+    cut = text[:limit - 1]
+    space = cut.rfind(" ")
+    if space > limit * 0.6:
+        cut = cut[:space]
+    return cut.rstrip(" ,;:.-") + "…"
 
 
 def _event(conn, story_id, kind, summary, detail=None, ticket_id=None, tokens=0):
     conn.execute(
         """INSERT INTO story_events (story_id, ticket_id, kind, summary, detail, tokens)
            VALUES (?,?,?,?,?,?)""",
-        (story_id, ticket_id, kind, summary[:400], detail, tokens),
+        (story_id, ticket_id, kind, clip(summary, 400), detail, tokens),
     )
 
 
@@ -152,8 +264,14 @@ def run_one(conn: sqlite3.Connection, ticket: sqlite3.Row) -> dict:
         outcome["verdict"] = "no write contract"
         return outcome
 
+    folders = control.scope_projects(terms.get("write_scope")) or [ticket["project"]]
     try:
         work = worktree.create(tid)
+        # The checkout starts as git's copy of the last commit. Seeding brings
+        # it up to what is actually on disk, because half the criteria on the
+        # run that prompted this pointed at files Jordan had staged and not
+        # committed, and the agent honestly reported they did not exist.
+        seeded = worktree.seed(tid, folders, secrets=bool(terms.get("sees_secrets")))
     except Exception as exc:  # git refused; a blocked ticket, never a crashed pulse
         conn.execute("UPDATE tickets SET status = 'blocked', findings = ? WHERE id = ?",
                      (f"could not open a worktree: {exc}", tid))
@@ -162,7 +280,8 @@ def run_one(conn: sqlite3.Connection, ticket: sqlite3.Row) -> dict:
         return outcome
 
     prompt = build_prompt(ticket, str(work), attach.for_story(conn, ticket["sid"]),
-                          scope=control.scope_projects(terms.get("write_scope")))
+                          scope=folders, seeded=seeded,
+                          known=history(conn, ticket["sid"]))
     conn.execute("UPDATE tickets SET work_order = ? WHERE id = ?", (prompt, tid))
 
     result = agent.run_ticket(
@@ -205,17 +324,17 @@ def run_one(conn: sqlite3.Connection, ticket: sqlite3.Row) -> dict:
         patch, stat = "", f"(could not diff the worktree: {exc})"
 
     answer = result.json_payload() or {}
-    summary = (answer.get("summary") or result.text[:200] or "build finished").strip()
+    summary = (answer.get("summary") or clip(result.text, 200) or "build finished").strip()
 
     if not patch.strip():
         conn.execute(
             "UPDATE tickets SET status = 'blocked', findings = ?, "
             "closed_at = datetime('now','localtime') WHERE id = ?",
-            ((result.error or result.text or "no changes")[:4000], tid),
+            (result.error or result.text or "no changes", tid),
         )
         conn.execute("UPDATE stories SET status = 'ready' WHERE id = ?", (sid,))
         _event(conn, sid, "note", f"build changed nothing: {summary}",
-               result.text[:4000] or None, tid, result.chargeable_tokens)
+               result.text or None, tid, result.chargeable_tokens)
         worktree.remove(tid)
         outcome["verdict"] = "no changes"
         return outcome
@@ -227,7 +346,7 @@ def run_one(conn: sqlite3.Connection, ticket: sqlite3.Row) -> dict:
     conn.execute(
         "UPDATE tickets SET status = 'done', findings = ?, artifact_path = ?, "
         "closed_at = datetime('now','localtime') WHERE id = ?",
-        (json.dumps(answer, indent=2)[:8000] if answer else result.text[:8000], str(path), tid),
+        (json.dumps(answer, indent=2) if answer else result.text, str(path), tid),
     )
     conn.execute("UPDATE stories SET status = 'po-review', "
                  "updated_at = datetime('now','localtime') WHERE id = ?", (sid,))
@@ -236,8 +355,9 @@ def run_one(conn: sqlite3.Connection, ticket: sqlite3.Row) -> dict:
     # the whole milestone is built around.
     detail_bits = [stat.strip()]
     if answer.get("skipped"):
-        detail_bits.append("SKIPPED:\n" + "\n".join(
-            f"  · {s.get('criterion')} — {s.get('why')}" for s in answer["skipped"]))
+        detail_bits.append("SKIPPED:\n" + "\n\n".join(
+            f"  · {s.get('criterion')}\n    → {s.get('why')}"
+            for s in answer["skipped"]))
     if answer.get("risks"):
         detail_bits.append("LOOK CLOSELY AT:\n  " + str(answer["risks"]))
     conn.execute(
@@ -247,16 +367,74 @@ def run_one(conn: sqlite3.Connection, ticket: sqlite3.Row) -> dict:
         (sid, tid,
          f'"{ticket["story_title"]}" has a patch waiting — {files} file'
          f'{"s" if files != 1 else ""} changed in {ticket["project"]}/.',
-         "\n\n".join(b for b in detail_bits if b)[:2000],
+         "\n\n".join(b for b in detail_bits if b),
          json.dumps({"ticket_id": tid, "patch": str(path), "project": ticket["project"]}),
          result.chargeable_tokens),
     )
+    _raise_run_requests(conn, ticket, answer)
     _event(conn, sid, "finding", summary, stat, tid, result.chargeable_tokens)
     if answer.get("learned"):
-        _event(conn, sid, "learning", str(answer["learned"])[:400], None, tid, 0)
+        _event(conn, sid, "learning", clip(str(answer["learned"]), 400),
+               str(answer["learned"]), tid, 0)
 
     outcome["verdict"] = f"patch ready ({files} file{'s' if files != 1 else ''})"
     return outcome
+
+
+def _raise_run_requests(conn: sqlite3.Connection, ticket: sqlite3.Row,
+                        answer: dict) -> int:
+    """Turn the agent's `needs_run` list into cards the PO can act on.
+
+    A build agent has no shell, so a criterion phrased "run X and confirm Y"
+    used to come back as a skip with a paragraph explaining why. The paragraph
+    was correct and got nobody any closer. Now the agent writes the command it
+    would have run and the colony asks Jordan whether to run it.
+
+    Refused commands are not raised. Nothing is gained by putting a card in
+    front of him that says `git push` on it; the reason is recorded on the
+    story instead so the agent's request is not silently dropped.
+    """
+    from . import runner
+
+    wanted = answer.get("needs_run") or []
+    if isinstance(wanted, (str, dict)):
+        wanted = [wanted]
+    raised = 0
+    for item in wanted:
+        if isinstance(item, str):
+            item = {"command": item}
+        if not isinstance(item, dict):
+            continue
+        command = str(item.get("command") or "").strip()
+        why = str(item.get("why") or "").strip()
+        expect = str(item.get("expect") or "").strip()
+        try:
+            command = runner.check(command)
+            runner.check_folder(ticket["project"])
+        except runner.RunRefused as exc:
+            _event(conn, ticket["sid"], "note",
+                   f"{ticket['role']} asked to run a command the colony will not run",
+                   f"$ {command}\n\n{exc}", ticket["id"], 0)
+            continue
+        body = [f"$ {command}", f"  in {ticket['project']}/"]
+        if why:
+            body.append("Why it is needed:\n" + why)
+        if expect:
+            body.append("What it expects to see:\n" + expect)
+        body.append("Nothing else runs. The output goes on the story and the story "
+                    "goes back to the queue, so the next build reads what happened.")
+        conn.execute(
+            """INSERT INTO escalations (story_id, ticket_id, kind, reason,
+                                        recommendation, proposal, est_tokens)
+               VALUES (?,?,'run-request',?,?,?,0)""",
+            (ticket["sid"], ticket["id"],
+             f'{ticket["role"]} needs a command run: `{command}`',
+             "\n\n".join(body),
+             json.dumps({"command": command, "project": ticket["project"],
+                         "ticket_id": ticket["id"]})),
+        )
+        raised += 1
+    return raised
 
 
 def run(conn: sqlite3.Connection, limit: int = BUILD_LIMIT) -> list[dict]:

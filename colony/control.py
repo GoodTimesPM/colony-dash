@@ -586,6 +586,8 @@ def decide(conn: sqlite3.Connection, esc_id: int, decision: str,
         outcome = f"hired as agent #{hired['agent_id']}"
     elif kind == "write-approval":
         outcome = _settle_patch(conn, esc, decision, note)
+    elif kind == "run-request":
+        outcome = _settle_run(conn, esc, decision, note)
     elif esc["story_id"]:
         _event(conn, esc["story_id"], "decided",
                f"PO {_PAST.get(decision, decision)}: {esc['reason'][:200]}",
@@ -598,6 +600,51 @@ def decide(conn: sqlite3.Connection, esc_id: int, decision: str,
                                     + (f"\n\n{note}" if note else ""),
         esc_id=esc_id)
     return {"ok": True, "outcome": outcome, "kind": kind}
+
+
+def _settle_run(conn: sqlite3.Connection, esc: sqlite3.Row, decision: str,
+                note: str) -> str:
+    """Run the command a build agent asked for, or decline it.
+
+    The output goes on the story as an event whether the command succeeded or
+    not. A failing command is usually the answer the criterion wanted, and a
+    story whose history records what happened is one the next agent does not
+    have to ask about.
+
+    The story goes back to `ready` after a run. It does not go to `accepted`
+    and it does not move to any lane that reads as finished: the run answered a
+    question, and deciding whether that finishes the story is Jordan's.
+    """
+    from . import runner
+
+    proposal = json.loads(esc["proposal"] or "{}")
+    story_id = esc["story_id"]
+    command = proposal.get("command") or ""
+    project = proposal.get("project") or ""
+
+    if decision != "approve":
+        if story_id:
+            _event(conn, story_id, "decided",
+                   f"PO declined to run `{command}`", note or None)
+        return "not run"
+
+    result = runner.execute(command, project)
+    text = runner.transcript(result)
+    if story_id:
+        _event(conn, story_id, "finding",
+               ("ran `" + command + "` — exit "
+                + ("timed out" if result["timed_out"] else str(result["code"]))),
+               text)
+        # Back to the queue, not forward. The command answered something; what
+        # that means for the story is a decision, and decisions are the PO's.
+        conn.execute(
+            "UPDATE stories SET status = 'ready', updated_at = datetime('now','localtime') "
+            "WHERE id = ? AND status NOT IN ('archived','accepted')", (story_id,))
+    _record(conn, "run", "escalation", esc["id"],
+            f"{command} — exit " + str(result["code"]))
+    if result["timed_out"]:
+        return f"gave up after {runner.TIMEOUT_S}s"
+    return f"ran it — exit {result['code']}, {len(result['out'])} characters of output"
 
 
 def _settle_patch(conn: sqlite3.Connection, esc: sqlite3.Row, decision: str,
@@ -1148,11 +1195,11 @@ def reply(conn: sqlite3.Connection, *, escalation_id: int | None = None,
            VALUES (?,?,'research','open',?,0,?)""",
         (story_id,
          f"Reply to Ordis: {(body or files[0]['label'])[:120]}",
-         body[:8000] + ("\n\n[" + str(len(files)) + " attached]" if files else ""),
+         body + ("\n\n[" + str(len(files)) + " attached]" if files else ""),
          message_id),
     )
 
-    said = body[:2000] + (("\nattached: " + ", ".join(f["label"] for f in files))
+    said = body + (("\nattached: " + ", ".join(f["label"] for f in files))
                           if files else "")
     _record(conn, "note", "escalation" if escalation_id else "story",
             escalation_id or story_id, said[:400])
@@ -1352,6 +1399,34 @@ def set_write_scope(conn: sqlite3.Connection, agent_id: int,
             f"{row['role']}: " + ", ".join(folders)
             + (f" (was {', '.join(before)})" if before and before != folders else ""))
     return {"ok": True, "role": row["role"], "write_scope": folders}
+
+
+def set_secrets(conn: sqlite3.Connection, agent_id: int, on: bool) -> dict[str, Any]:
+    """Decide whether this agent's checkout gets the credential files.
+
+    A build agent works in a checkout of git's contents, and `.env` is ignored
+    by git in every project here, so by default the file is simply absent. That
+    default is right for most work and wrong for the rest: an agent asked to
+    confirm the OG-tracker sync can read NOTION_API_KEY cannot tell an unset key
+    from a file it was never shown, and the run that prompted this reported the
+    second as the first.
+
+    Turning it on copies the credential files in after the diff base is taken
+    and removes them again before the diff, so a key cannot reach a patch. What
+    it cannot do is stop an agent repeating a value in its report, which is why
+    this is the PO's decision and not a default.
+    """
+    row = conn.execute("SELECT id, role, status FROM agents WHERE id = ?",
+                       (agent_id,)).fetchone()
+    if not row:
+        raise Refused("no such agent")
+    if row["status"] == "retired":
+        raise Refused(f"{row['role']} is retired — hire it again first")
+    on = bool(on)
+    conn.execute("UPDATE agents SET sees_secrets = ? WHERE id = ?", (int(on), agent_id))
+    _record(conn, "scope", "agent", agent_id,
+            f"{row['role']}: credentials " + ("visible in its checkout" if on else "hidden"))
+    return {"ok": True, "role": row["role"], "sees_secrets": on}
 
 
 

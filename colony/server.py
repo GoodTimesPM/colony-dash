@@ -1527,6 +1527,13 @@ def act_scope(body: dict = Body(...), x_colony: str | None = Header(None)) -> di
     )
 
 
+@app.post("/api/act/secrets")
+def act_secrets(body: dict = Body(...), x_colony: str | None = Header(None)) -> dict[str, Any]:
+    """Decide whether this agent's checkout is given the credential files."""
+    _guard(x_colony)
+    return _act(control.set_secrets, int(body["agent_id"]), bool(body.get("on")))
+
+
 @app.post("/api/act/retire")
 def act_retire(body: dict = Body(...), x_colony: str | None = Header(None)) -> dict[str, Any]:
     _guard(x_colony)
