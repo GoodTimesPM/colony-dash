@@ -26,9 +26,13 @@ file on disk cannot be blocked by a locked database or an unresponsive server.
 
 from __future__ import annotations
 
+import contextlib
 import json
+import os
 import re
 import sqlite3
+import threading
+from datetime import datetime, timedelta
 from typing import Any
 
 from . import attachments as attach, db
@@ -162,6 +166,116 @@ def halt(conn: sqlite3.Connection, on: bool, reason: str = "") -> dict[str, Any]
     elif HALT_FILE.exists():
         HALT_FILE.unlink()
     return {"halted": on, "reason": reason}
+
+
+# ── forcing a beat ─────────────────────────────────────────────────────────────
+#
+# The heartbeat is a Windows scheduled task that fires at :07 every hour and
+# knows nothing about this module. Forcing a pulse does not touch it: the
+# 1:07 beat happens, a forced beat at 1:37 happens, and the 2:07 beat still
+# happens on time. What a forced beat must not do is collide with a
+# scheduled one, because two pulses running at once would both sync Notion,
+# both reap the same orphaned runs, and possibly both dispatch the same
+# story. So every pulse — scheduled, typed at the CLI, or forced from the
+# dashboard — takes this lock first, and a second one stands down rather
+# than queueing.
+PULSE_LOCK = db.RUNTIME_DIR / "pulse.lock"
+# The scheduled task is killed at 30 minutes (schedule.py sets
+# ExecutionTimeLimit), so a lock older than that belongs to a process that no
+# longer exists and holding the heartbeat off for it would be worse than the
+# collision it guards against.
+PULSE_LOCK_STALE = timedelta(minutes=35)
+
+
+class Busy(Refused):
+    """Another pulse holds the lock. A refusal, and a 409, not an error."""
+
+
+def pulse_running() -> bool:
+    """True when a pulse holds the lock and the lock is not stale."""
+    try:
+        held = datetime.fromtimestamp(PULSE_LOCK.stat().st_mtime)
+    except OSError:
+        return False
+    return datetime.now() - held < PULSE_LOCK_STALE
+
+
+@contextlib.contextmanager
+def pulse_lock():
+    """Hold the one-pulse-at-a-time lock, or raise `Busy`.
+
+    A plain file, created O_EXCL, rather than anything cleverer: the three
+    callers are separate processes and the only thing they reliably share is
+    the disk.
+    """
+    PULSE_LOCK.parent.mkdir(parents=True, exist_ok=True)
+    if not pulse_running():
+        with contextlib.suppress(OSError):
+            PULSE_LOCK.unlink()
+    try:
+        fd = os.open(str(PULSE_LOCK), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError:
+        raise Busy("a pulse is already running " + chr(8212) +
+                   " this one stood down rather than beat twice at once")
+    try:
+        os.write(fd, ("pid %d at %s\n" % (
+            os.getpid(), datetime.now().strftime("%Y-%m-%d %H:%M:%S"))).encode())
+        os.close(fd)
+        yield
+    finally:
+        with contextlib.suppress(OSError):
+            PULSE_LOCK.unlink()
+
+
+def force_pulse(conn: sqlite3.Connection, *, allow_wake: bool = True) -> dict[str, Any]:
+    """Beat now, in the background, without moving the schedule.
+
+    This is the one control that can spend tokens on its own — the wake it
+    escalates to is the same wake the hourly beat would run. HALT and the
+    allowance still get their say, exactly as they do at :07, so the button
+    is not a way around either of them; it only asks the question sooner.
+
+    A pulse takes seconds when it is clean and minutes when it wakes, which
+    is far too long to hold an HTTP request open, so it runs on a thread with
+    its own connection. What comes back is "started", not "finished" — the
+    pulse log is where it finishes.
+    """
+    if pulse_running():
+        raise Busy("a pulse is already running")
+    _record(conn, "pulse", "colony", None,
+            "forced a beat" + ("" if allow_wake else " (tick only, no wake)"))
+
+    def beat() -> None:
+        from . import pulse as pulse_mod   # local: pulse imports this module
+
+        own = db.connect()
+        try:
+            pulse_mod.run(own, allow_wake=allow_wake, forced=True)
+        except Busy:
+            pass          # the scheduled task got there first; it will log its own row
+        except Exception as exc:                      # noqa: BLE001 — a thread
+            # has nowhere to raise to, and a forced beat that dies silently is
+            # exactly the "pulses are not happening" complaint this control
+            # exists to answer.
+            _log_pulse_error(exc)
+        finally:
+            own.close()
+
+    threading.Thread(target=beat, name="forced-pulse", daemon=True).start()
+    return {"started": True, "wake": allow_wake}
+
+
+def _log_pulse_error(exc: BaseException) -> None:
+    """Into the same file the scheduled task writes, so there is one place to look."""
+    import traceback
+
+    path = db.RUNTIME_DIR / "pulse.log"
+    with contextlib.suppress(OSError):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "a", encoding="utf-8", errors="replace") as fh:
+            fh.write("\n%s  forced pulse failed\n" %
+                     datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+            fh.write("".join(traceback.format_exception(exc)))
 
 
 def _baseline(conn: sqlite3.Connection) -> float:

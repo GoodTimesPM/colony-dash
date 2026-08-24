@@ -3450,6 +3450,36 @@ function renderMacros(c) {
   box.append(halt);
   box.append(el("hr", "macro-rule"));
 
+  // Beating out of turn. The scheduled task and this button are independent:
+  // the task fires at :07 whatever happens here, so a beat forced at 1:37 sits
+  // between the 1:07 and 2:07 beats rather than replacing either of them.
+  const hb = el("div", "macro");
+  hb.append(el("div", "lb", "heartbeat"));
+  const beating = !!c.pulse_running;
+  const r0 = el("div", "row");
+  const nowb = el("button", "act go", beating ? "beating\u2026" : "pulse now");
+  nowb.disabled = beating;
+  nowb.title = "one full beat: sync, look, and wake if there is a reason";
+  nowb.onclick = async () => {
+    const out = await act("pulse", { wake: true });
+    if (out) { toast("beat started — its row lands in the pulse log when it ends", "good");
+               setTimeout(refresh, 1500); }
+  };
+  const tickb = el("button", "act", "tick only");
+  tickb.disabled = beating;
+  tickb.title = "the free half — sync, reap and look, but never wake";
+  tickb.onclick = async () => {
+    const out = await act("pulse", { wake: false });
+    if (out) { toast("tick started — free, no wake", "good"); setTimeout(refresh, 1500); }
+  };
+  r0.append(nowb, tickb);
+  hb.append(r0);
+  hb.append(el("div", "why", beating
+    ? "A beat is running. Nothing else may beat until it finishes."
+    : "The scheduled task beats once an hour at :07. This runs one extra now and leaves that alone — the next automatic beat still comes at its own time."));
+  box.append(hb);
+  box.append(el("hr", "macro-rule"));
+
   // Allowance. Stored beside the sprint's designed budget, never on top of it.
   const band = c.allowance;
   const al = el("div", "macro");
@@ -3601,10 +3631,13 @@ function renderPulses(rows) {
   const out = [];
   for (let i = 0; i < rows.length; i++) {
     const p = rows[i], prev = rows[i + 1];
-    if (out.length && out[out.length - 1].roll && p.tier === "tick" && (p.finding || "") === "clean") {
+    // A forced beat never rolls up into "clean x6". You asked for it by hand,
+    // so you get to see it happened.
+    const plain = p.tier === "tick" && (p.finding || "") === "clean" && !p.forced;
+    if (out.length && out[out.length - 1].roll && plain) {
       out[out.length - 1].roll++; continue;
     }
-    out.push({ p, roll: p.tier === "tick" && (p.finding || "") === "clean" ? 1 : 0 });
+    out.push({ p, roll: plain ? 1 : 0 });
     if (prev) {
       const gapH = (parseTs(p.pulse_at) - parseTs(prev.pulse_at)) / 36e5;
       if (gapH > 1.6) out.push({ gap: Math.round(gapH) });
@@ -3624,7 +3657,9 @@ function renderPulses(rows) {
     row.append(
       el("span", null, hhmm(p.pulse_at)),
       el("span", "tier", tierOf(p)),
-      el("span", "find", item.roll > 1 ? `clean ×${item.roll}` : (p.finding || "")),
+      el("span", "find", item.roll > 1
+          ? `clean ×${item.roll}`
+          : ((p.finding || "") + (p.forced ? " · forced" : ""))),
       el("span", "num", p.tokens ? toks(p.tokens) : ""),
     );
     row.title = p.has_detail ? "open the full account of this beat" : p.pulse_at;

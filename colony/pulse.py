@@ -769,7 +769,8 @@ def decisions_since(conn: sqlite3.Connection, since: str) -> int:
 # ── the pulse ─────────────────────────────────────────────────────────────────
 
 
-def run(conn: sqlite3.Connection, *, dry_run: bool = False, allow_wake: bool = True) -> int:
+def run(conn: sqlite3.Connection, *, dry_run: bool = False, allow_wake: bool = True,
+        forced: bool = False) -> int:
     """One heartbeat. Zero tokens: everything here is pure Python.
 
     The *tick* is one transaction, so `dry_run` can roll it back and mean what it
@@ -782,7 +783,22 @@ def run(conn: sqlite3.Connection, *, dry_run: bool = False, allow_wake: bool = T
     that spend real tokens, and a rollback cannot un-spend them. If the machine
     dies mid-wake, the ledger must still show the run and what it cost. Evidence
     of spending is never allowed to be provisional.
+
+    `forced` means a person asked for this beat out of turn. It changes two
+    things and deliberately nothing else: the row says so, and the row does not
+    claim the schedule has moved. Everything the pulse does — the sync, the
+    escalation bar, HALT, the allowance — is the same work at 1:37 as at 1:07.
+
+    Only one pulse runs at a time. The scheduled task, the CLI and the dashboard
+    are three separate processes that can all arrive at once, and two pulses
+    beating together would sync Notion twice and reap the same runs twice. The
+    second one raises `control.Busy` and stands down.
     """
+    with control.pulse_lock():
+        return _beat(conn, dry_run=dry_run, allow_wake=allow_wake, forced=forced)
+
+
+def _beat(conn: sqlite3.Connection, *, dry_run: bool, allow_wake: bool, forced: bool) -> int:
     conn.execute("BEGIN")
     try:
         ctx = _tick(conn)
@@ -798,7 +814,7 @@ def run(conn: sqlite3.Connection, *, dry_run: bool = False, allow_wake: bool = T
         wake_report = wake_mod.run(conn, ctx["usage"])
 
     if not dry_run:
-        _write_pulse_row(conn, ctx, wake_report)
+        _write_pulse_row(conn, ctx, wake_report, forced=forced)
     _report(ctx, wake_report, dry_run=dry_run)
     return 0
 
@@ -1068,7 +1084,8 @@ def _detail(ctx: dict) -> str:
     return chr(10).join(lines)
 
 
-def _write_pulse_row(conn: sqlite3.Connection, ctx: dict, wake_report: dict | None) -> None:
+def _write_pulse_row(conn: sqlite3.Connection, ctx: dict, wake_report: dict | None,
+                     *, forced: bool = False) -> None:
     """Close the hour. Written after the wake so `tokens` is what was really spent."""
     board, usage = ctx["board"], ctx["usage"]
     finding = ctx["finding"]
@@ -1113,6 +1130,19 @@ def _write_pulse_row(conn: sqlite3.Connection, ctx: dict, wake_report: dict | No
             detail += (nl + f"  staff  #{item['story_id']} -> {item['verdict']}"
                        f" ({item['tokens']:,} tok)")
 
+    # The strip reads `next_pulse_at` off the newest row and shows it as "next
+    # beat in 23m". For a scheduled beat, now + an hour is right. For a forced
+    # one it is a lie: the task still fires at :07, so a beat forced at 1:37
+    # would put the next one at 2:37 and the strip would be wrong for half an
+    # hour. A forced beat keeps whatever the last real beat promised.
+    next_at = (datetime.now() + PULSE_INTERVAL).strftime("%Y-%m-%d %H:%M:%S")
+    if forced:
+        prev = conn.execute(
+            "SELECT next_pulse_at FROM pulses ORDER BY pulse_at DESC, id DESC LIMIT 1"
+        ).fetchone()
+        if prev and prev["next_pulse_at"] and prev["next_pulse_at"] > now():
+            next_at = prev["next_pulse_at"]
+
     cur = conn.execute(
         """
         INSERT INTO pulses (pulse_at, tier, window_start, window_end, actions,
@@ -1133,11 +1163,12 @@ def _write_pulse_row(conn: sqlite3.Connection, ctx: dict, wake_report: dict | No
                 "wake_reasons": ctx["reasons"],
                 "projects": ctx["changed"],
                 "wake": wake_report,
+                "forced": forced,
             }),
             finding[:1000], ctx["anomalies"],
             (wake_report or {}).get("tokens", 0),
             int((time.monotonic() - ctx["started"]) * 1000),
-            (datetime.now() + PULSE_INTERVAL).strftime("%Y-%m-%d %H:%M:%S"),
+            next_at,
             detail,
         ),
     )

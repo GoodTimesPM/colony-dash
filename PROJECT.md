@@ -368,6 +368,42 @@ names the state and the next move.
       again from the code rather than patching it a line at a time.
 - [ ] Update the published artifact — it still shows the pre-M1 design.
 
+## Finished 2026-08-23 — a beat you can ask for
+
+**Pulse now, and tick only, in Macros.** The heartbeat was a Windows scheduled
+task and nothing else: if you wanted the colony to look at the world you waited
+for :07. There are two buttons now. "Pulse now" runs a full beat, wake included,
+and "tick only" runs the free half — sync, reap and look, but never spend. HALT
+and the allowance still apply, so neither button is a way around them; they only
+ask the question sooner.
+
+**The schedule does not move.** The task fires at :07 whatever the dashboard
+does, so a beat forced at 1:37 sits between the 1:07 and the 2:07 beats rather
+than replacing either. The strip reads `next_pulse_at` off the newest pulse row,
+and writing now + an hour there would have made a forced beat lie about when the
+next automatic one is due, so a forced row carries forward whatever the last
+scheduled beat promised. The row is stamped `forced` in its `actions` JSON, the
+pulse log labels it, and it is kept out of the "clean ×6" rollup — you asked for
+it by hand, so you get to see that it happened.
+
+**One pulse at a time.** This was already a hole: the scheduled task, the CLI and
+the dashboard are three separate processes, and two pulses running together
+would sync Notion twice, reap the same orphaned runs twice, and could dispatch
+the same story twice. Every entry point now takes `control.pulse_lock()`, a
+plain O_EXCL file in the runtime directory, and the second arrival raises
+`control.Busy` and stands down rather than queueing. A lock older than 35
+minutes is treated as abandoned, because the scheduler kills its own task at 30.
+The CLI prints "stood down" and exits 0, so a collision does not read as a
+failed scheduled task.
+
+**The request does not wait for the beat.** A pulse takes seconds when it is
+clean and minutes when it wakes, which is far too long to hold an HTTP request
+open, so `control.force_pulse` records the action, starts a thread with its own
+connection and returns "started". The button reads "beating…" while the lock
+is held. A beat that dies on the thread appends its traceback to the same
+`pulse.log` the scheduled task writes, because a forced beat that failed
+silently is exactly the complaint the control exists to answer.
+
 ## Finished 2026-08-23 — a card cut at 1000 characters, and a confirmation nobody could make
 
 Three faults, found from one screenshot of story #1's reply drawer.

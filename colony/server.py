@@ -578,7 +578,8 @@ def _pulses(conn: sqlite3.Connection) -> list[dict[str, Any]]:
         "            WHEN json_extract(actions, '$.wake') IS NULL THEN 0 "
         "            WHEN json_extract(actions, '$.wake.skipped') IS NOT NULL THEN 0 "
         "            ELSE 1 END AS acted, "
-        "       CASE WHEN detail IS NULL OR detail = '' THEN 0 ELSE 1 END AS has_detail "
+        "       CASE WHEN detail IS NULL OR detail = '' THEN 0 ELSE 1 END AS has_detail, "
+        "       COALESCE(json_extract(actions, '$.forced'), 0) AS forced "
         "FROM pulses ORDER BY pulse_at DESC, id DESC LIMIT ?",
         (PULSE_LIMIT,),
     )
@@ -786,6 +787,10 @@ def _controls(conn: sqlite3.Connection) -> dict[str, Any]:
         # comment on a Notion page is not a token. One can be on while the other
         # is off, and conflating them would make a paused colony look mute.
         "notion_write": control.get_control(conn, "notion_write", "1") == "1",
+        # A forced beat runs on a thread and takes minutes when it wakes, so the
+        # button has to be able to say "running" rather than sit there looking
+        # unpressed. True for a scheduled beat as well — the lock is shared.
+        "pulse_running": control.pulse_running(),
         "outbox": outbox_mod.depth(conn),
         "notion_statuses": list(notion_mod.WRITABLE_STATUS),
     }
@@ -1474,6 +1479,24 @@ def act_allowance(body: dict = Body(...), x_colony: str | None = Header(None)) -
     if "allowance" in body:
         return _act(control.set_allowance_pct, float(body["allowance"]))
     return _act(control.set_allowance, float(body["boost"]))
+
+
+@app.post("/api/act/pulse")
+def act_pulse(body: dict = Body(...), x_colony: str | None = Header(None)) -> dict[str, Any]:
+    """Beat now. Not `_act`: the pulse opens its own transaction on its own thread.
+
+    Running it inside `_act` would hold a write transaction open across a beat
+    that takes minutes, and the pulse's own `BEGIN` would then sit behind it
+    until the busy timeout gave up.
+    """
+    _guard(x_colony)
+    conn = _rw()
+    try:
+        return {"ok": True, **control.force_pulse(conn, allow_wake=bool(body.get("wake", True)))}
+    except control.Refused as exc:
+        raise HTTPException(409, str(exc))
+    finally:
+        conn.close()
 
 
 @app.post("/api/act/hire")
