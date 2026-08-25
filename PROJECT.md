@@ -368,6 +368,51 @@ names the state and the next move.
       again from the code rather than patching it a line at a time.
 - [ ] Update the published artifact — it still shows the pre-M1 design.
 
+## Finished 2026-08-25 — a panel for work that is already done
+
+"I want there to be a "completed dispatches" or "completed stories". That way i
+can keep track of progress and check on work that has been done so i dont
+accidentally work on the same thing just cause i forgot we worked on something."
+
+Every panel on this dashboard was about what is happening or what needs a
+decision. Nothing on it answered "what has this colony actually produced", and
+the closest thing — the Board's `filed` toggle — answers a different question:
+where a story stands, not what came out of it. A story can be filed with three
+deliveries behind it or none, and the toggle shows the same row either way.
+
+**Completed** is the middle column's third panel now, under the Board. Two kinds
+of thing end and both are in one list sorted by the date they finished:
+
+| kind | what it is | when it is added |
+| --- | --- | --- |
+| dispatch | an `implement` ticket that reached `done` | when its ticket closes |
+| story | a story filed `done`, `shipped` or `shelved` | when Jordan files it |
+
+A dispatch is listed whether or not its story is finished, because the patch it
+delivered is the thing you would otherwise rebuild by hand next week. A story
+filed `not-started` is not listed at all: nothing happened, and a record of
+finished work that includes work nobody began stops being worth reading.
+
+The part that makes it a record rather than a list of dates is the window. Each
+entry covers the ground from the *previous* delivery on the same story to this
+one, not from the moment its ticket was cut. Most of what happens around a
+dispatch — the questions, the answers, the criteria being argued over —
+happens before the ticket exists, so an episode that started at `created_at`
+would leave out the reason the work was done. `_episode_window` in `server.py`
+picks the boundary; `_episode` merges `control.conversation` with the
+`story_events` that are not message mirrors, and returns them in one order.
+
+The tile carries counts and the drawer carries text. Counts, because the list
+rides in the snapshot that every panel shares and text does not belong there:
+messages, questions, blockers, learnings, runs, tokens, dollars. Clicking a tile
+opens `/api/completed/detail`, which is where the work order, the findings, the
+skip list, the runs table, the tickets cut in the window and the whole
+conversation live.
+
+Nothing on this panel writes. It reads `tickets.status`, which a ticket sets when
+its own run closes, and `settled_as`, which is Jordan's word for a story and
+stays his.
+
 ## Finished 2026-08-24 — the lane a story fell into, and Ordis reading its own pulse
 
 Two blockers stood on story #1 at once, and neither was what it said it was.

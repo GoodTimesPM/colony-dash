@@ -713,6 +713,7 @@ else is a view over the ledger — the dashboard can never be the reason state c
 | PO Inbox | `escalations WHERE resolved_at IS NULL` | **The only panel that asks for anything.** Empty = close the tab. |
 | In Flight | open `tickets` + unsent `notion_outbox` | Beside the Inbox, because it answers the question the Inbox creates: what did pressing that actually start? Read-only. |
 | Pulse log | `pulses ORDER BY pulse_at DESC` | Heartbeat monitor. Consecutive "clean" rows collapse; a *missing* row renders red. |
+| Completed | done `implement` tickets + filed `stories` | The record. Every delivery and every filed story, newest first, each opening the whole episode behind it. The only panel that never asks for anything and never writes. |
 | Files | `projects.scan()` + the lazy tree | What moved on disk. Sortable three ways — see below. |
 | Forge | `skills WHERE status='candidate'` | Promotion queue, ranked by tokens saved. |
 | Spend | `runs` rolled up by day/role/story | Burn rate, most expensive story, tokens per accepted story. |
