@@ -24,7 +24,7 @@ import json
 import os
 import sqlite3
 
-from . import agent, attachments as attach, control, db, worktree
+from . import agent, attachments as attach, control, db, voice, worktree
 
 BUILD_TIMEOUT_S = int(os.environ.get("COLONY_BUILD_TIMEOUT", "900"))
 
@@ -196,6 +196,8 @@ and do not add dependencies.
 Work the criteria in order. If one of them turns out to be impossible or wrong,
 do the others in full and say precisely which one you left and why — scaling the
 work down is Jordan's call, not yours.
+
+{voice.STYLE}
 
 When you are done, reply with ONLY a JSON object, no prose around it:
 

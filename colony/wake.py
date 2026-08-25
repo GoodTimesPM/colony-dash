@@ -26,7 +26,8 @@ import re
 import sqlite3
 
 from . import (agent, attachments as attach, build as build_mod, control, db,
-               forge as forge_mod, pulse as pulse_mod, roster as roster_mod)
+               forge as forge_mod, pulse as pulse_mod, roster as roster_mod,
+               voice)
 
 # How many stories one wake may groom. A wake is coalescing — an hour with six
 # new stories is one wake — so this is the throttle that keeps a bulk Notion
@@ -228,6 +229,8 @@ Your job is to answer one question: **is there enough here to build?**
 
 You do NOT decide that this story is ready to work on. Jordan does. You are
 drafting for his approval.
+
+{voice.STYLE}
 
 Reply with ONLY a JSON object, no prose around it:
 
@@ -543,6 +546,8 @@ def reply_prompt(msg: sqlite3.Row, esc: sqlite3.Row | None, story: sqlite3.Row |
         "",
         "Still yours to refuse: approving, rejecting and confirming a project are",
         "his decisions, and this reply makes none of them.",
+        "",
+        voice.STYLE,
         "",
         "Reply with ONLY a JSON object:",
         "",
@@ -879,6 +884,8 @@ How to choose. These are rules, not advice:
 
 Show your work: name the two finalists you did NOT choose and what separated
 them. A choice you cannot account for is one Jordan has no way to check.
+
+{voice.STYLE}
 
 Reply with ONLY a JSON object:
 
