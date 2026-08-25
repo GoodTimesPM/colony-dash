@@ -4797,17 +4797,32 @@ async function openCompleted(arg) {
   // skip list is how a story gets called finished twice.
   const f = d.findings || {};
   if (f.summary) body.append(sectionBlock("what it delivered", f.summary));
+  // `list` takes an array of plain strings and nothing else. `skipped` arrives
+  // as {criterion, why} objects and `risks` and `learned` arrive as single
+  // strings, so both are handled on their own terms below. Handing a string to
+  // a for..of loop iterates its characters, which is how a 294-character risk
+  // note rendered as 294 rows of one letter each.
   const list = (label, arr, mark) => {
-    if (!arr || !arr.length) return;
+    if (!Array.isArray(arr) || !arr.length) return;
     const box = el("div", "blk");
     for (const item of arr) box.append(el("div", null, mark + "  " + item));
     body.append(blk(label + "  ·  " + arr.length, box));
   };
+  const skipped = (Array.isArray(f.skipped) ? f.skipped : []).map((sk) =>
+    sk && typeof sk === "object"
+      ? [sk.criterion, sk.why].filter(Boolean).join("  —  ")
+      : String(sk));
   list("criteria met", f.done, "✓");
-  list("skipped", f.skipped, "✗");
+  list("skipped", skipped, "✗");
+  // The commands the agent handed over rather than ran. They are half the story
+  // of a skipped criterion, and the card that carried them is long gone by the
+  // time anyone opens this panel.
+  list("handed over to be run", (Array.isArray(f.needs_run) ? f.needs_run : [])
+    .map((n) => n && typeof n === "object"
+      ? [n.command, n.why].filter(Boolean).join("  —  ") : String(n)), "$");
   list("files touched", f.files, "·");
-  list("risks", f.risks, "!");
-  list("learned", f.learned, "·");
+  if (f.risks) body.append(sectionBlock("look closely at", String(f.risks)));
+  if (f.learned) body.append(sectionBlock("learned", String(f.learned)));
   if (d.brief) body.append(sectionBlock("brief", d.brief));
   if (d.acceptance_criteria) body.append(sectionBlock("acceptance criteria", d.acceptance_criteria));
   if (d.done_items && d.done_items.length) list("to-dos ticked", d.done_items, "✓");
