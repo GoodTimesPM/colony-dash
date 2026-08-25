@@ -110,6 +110,7 @@ def snapshot() -> dict[str, Any]:
             "inbox": _ready(conn) + _inbox(conn),
             "flight": _flight(conn),
             "pulses": _pulses(conn),
+            "completed": _completed(conn),
             "forge": _forge(conn),
             "spend": _spend(conn),
             "roster": _roster_summary(conn),
@@ -355,6 +356,179 @@ def _board(conn: sqlite3.Connection) -> dict[str, Any]:
         "dropped": dropped,
         "settled": settled,
     }
+
+
+# Notes that only mirror a message. The message itself is already in the
+# conversation with its whole body on it, so the mirror would double every
+# exchange in the episode timeline.
+MIRROR_NOTES = {"PO wrote to Ordis about this", "Ordis answered the PO"}
+
+# What a story being "filed" has to say for the work to count as done. A story
+# nobody started is filed too, and putting it in a list of finished work is how
+# that list stops being worth reading.
+COMPLETED_SETTLED = ("done", "shipped", "shelved")
+
+
+def _findings(raw: Any) -> dict[str, Any] | None:
+    """A ticket's findings. JSON when the agent wrote JSON, prose when it did not."""
+    if not raw:
+        return None
+    try:
+        value = json.loads(raw)
+    except (TypeError, ValueError):
+        return {"summary": str(raw)}
+    if isinstance(value, dict):
+        return value
+    return {"summary": str(value)}
+
+
+def _episode_window(conn: sqlite3.Connection, story_id: int | None,
+                    prev_at: str | None, fallback: str | None) -> str:
+    """Where this episode starts: the last deliverable, or the story's first day.
+
+    The obvious start is the moment the ticket was cut, and it is the wrong one.
+    Most of what happened before a dispatch — the questions, the answers, the
+    criteria being argued over — happened *before* the ticket existed, and those
+    are the part Jordan is looking for when he asks what took place. So an
+    episode runs from the previous delivery on the same story to this one.
+    """
+    if prev_at:
+        return prev_at
+    if fallback:
+        return fallback
+    if story_id:
+        row = one(conn, "SELECT created_at FROM stories WHERE id = ?", (story_id,))
+        if row:
+            return row["created_at"] or ""
+    return ""
+
+
+def _episode_counts(conn: sqlite3.Connection, story_id: int | None,
+                    since: str, until: str) -> dict[str, int]:
+    """How much conversation an episode holds, without loading any of it.
+
+    These are the numbers on the tile. The tile is in the snapshot every panel
+    shares, so it carries counts and the detail endpoint carries text.
+    """
+    if not story_id:
+        return {"messages": 0, "questions": 0, "blockers": 0, "learnings": 0}
+    p = (story_id, story_id, since, until)
+    messages = conn.execute(
+        """SELECT COUNT(*) FROM po_messages m
+            WHERE (m.story_id = ?
+                   OR m.escalation_id IN (SELECT id FROM escalations WHERE story_id = ?))
+              AND m.at > ? AND m.at <= ?""", p).fetchone()[0]
+    q = (story_id, since, until)
+    questions = conn.execute(
+        "SELECT COUNT(*) FROM escalations WHERE story_id = ? AND raised_at > ? "
+        "AND raised_at <= ?", q).fetchone()[0]
+    blockers = conn.execute(
+        "SELECT COUNT(*) FROM escalations WHERE story_id = ? AND raised_at > ? "
+        "AND raised_at <= ? AND kind = 'needs-info'", q).fetchone()[0]
+    learnings = conn.execute(
+        "SELECT COUNT(*) FROM story_events WHERE story_id = ? AND kind = 'learning' "
+        "AND at > ? AND at <= ?", q).fetchone()[0]
+    return {"messages": messages, "questions": questions,
+            "blockers": blockers, "learnings": learnings}
+
+
+def _completed(conn: sqlite3.Connection, limit: int = 60) -> list[dict[str, Any]]:
+    """Everything that finished, newest first.
+
+    "I want there to be a 'completed dispatches' or 'completed stories'. That
+    way i can keep track of progress and check on work that has been done so i
+    dont accidentally work on the same thing just cause i forgot we worked on
+    something."
+
+    The Board's `filed` toggle answers "where does this story stand" and this
+    answers a different question: what has this colony actually produced, in
+    what order. A dispatch that delivered a patch belongs here whether or not
+    the story it came off is finished, because the patch is the thing you would
+    otherwise rebuild by hand next week.
+
+    Nothing here is a status change and nothing here writes. It reads
+    `settled_as`, which is Jordan's word for a story, and `tickets.status`,
+    which the ticket sets when its own run closes.
+    """
+    out: list[dict[str, Any]] = []
+
+    for t in rows(conn, """
+        SELECT t.id, t.story_id, t.title, t.role, t.artifact_path, t.findings,
+               t.created_at, t.closed_at,
+               s.title AS story_title, s.project, s.status AS story_status,
+               s.settled_as, s.created_at AS story_created_at,
+               (SELECT MAX(p.closed_at) FROM tickets p
+                 WHERE p.story_id = t.story_id AND p.intent = 'implement'
+                   AND p.status = 'done' AND p.closed_at < t.closed_at)  AS prev_at,
+               (SELECT COUNT(*) FROM runs r WHERE r.ticket_id = t.id)     AS runs,
+               (SELECT COALESCE(SUM(COALESCE(r.chargeable_tokens, r.total_tokens)), 0)
+                  FROM runs r WHERE r.ticket_id = t.id)                   AS tokens,
+               (SELECT COALESCE(SUM(r.cost_usd), 0)
+                  FROM runs r WHERE r.ticket_id = t.id)                   AS usd
+          FROM tickets t
+          LEFT JOIN stories s ON s.id = t.story_id
+         WHERE t.intent = 'implement' AND t.status = 'done'
+         ORDER BY t.closed_at DESC LIMIT ?
+    """, (limit,)):
+        found = _findings(t.pop("findings", None)) or {}
+        since = _episode_window(conn, t["story_id"], t.pop("prev_at", None),
+                                t.pop("story_created_at", None))
+        out.append({
+            "kind": "dispatch", "id": t["id"], "ref": "ticket #%d" % t["id"],
+            "at": t["closed_at"], "since": since, "started_at": t["created_at"],
+            "title": t["story_title"] or t["title"],
+            "story_id": t["story_id"], "story_status": t["story_status"],
+            "settled_as": t["settled_as"], "project": t["project"], "role": t["role"],
+            "summary": found.get("summary") or "",
+            "done_n": len(found.get("done") or []),
+            "skipped_n": len(found.get("skipped") or []),
+            "files_n": len(found.get("files") or []),
+            "patch": bool(t["artifact_path"]),
+            "runs": t["runs"], "tokens": t["tokens"], "usd": t["usd"],
+            **_episode_counts(conn, t["story_id"], since, t["closed_at"] or ""),
+        })
+
+    for st in rows(conn, """
+        SELECT s.id, s.title, s.project, s.status, s.settled_as, s.updated_at,
+               s.created_at, s.notion_page_id, s.done_items, s.open_items,
+               (SELECT MAX(p.closed_at) FROM tickets p
+                 WHERE p.story_id = s.id AND p.intent = 'implement'
+                   AND p.status = 'done')                                 AS prev_at,
+               (SELECT COUNT(*) FROM tickets p
+                 WHERE p.story_id = s.id AND p.intent = 'implement'
+                   AND p.status = 'done')                                 AS dispatches,
+               (SELECT COUNT(*) FROM runs r JOIN tickets p ON p.id = r.ticket_id
+                 WHERE p.story_id = s.id)                                 AS runs,
+               (SELECT COALESCE(SUM(COALESCE(r.chargeable_tokens, r.total_tokens)), 0)
+                  FROM runs r JOIN tickets p ON p.id = r.ticket_id
+                 WHERE p.story_id = s.id)                                 AS tokens,
+               (SELECT COALESCE(SUM(r.cost_usd), 0)
+                  FROM runs r JOIN tickets p ON p.id = r.ticket_id
+                 WHERE p.story_id = s.id)                                 AS usd
+          FROM stories s
+         WHERE s.settled_as IN (%s) AND s.dropped_at IS NULL
+         ORDER BY s.updated_at DESC LIMIT ?
+    """ % ",".join("?" * len(COMPLETED_SETTLED)), COMPLETED_SETTLED + (limit,)):
+        done_n = len(_json_list(st.pop("done_items", None)))
+        open_n = len(_json_list(st.pop("open_items", None)))
+        at = st["updated_at"] or st["created_at"]
+        since = _episode_window(conn, st["id"], st.pop("prev_at", None),
+                                st["created_at"])
+        out.append({
+            "kind": "story", "id": st["id"], "ref": "story #%d" % st["id"],
+            "at": at, "since": since, "started_at": st["created_at"],
+            "title": st["title"], "story_id": st["id"],
+            "story_status": st["status"], "settled_as": st["settled_as"],
+            "project": st["project"], "role": None,
+            "summary": "", "done_n": done_n, "skipped_n": open_n, "files_n": 0,
+            "patch": False, "dispatches": st["dispatches"],
+            "runs": st["runs"], "tokens": st["tokens"], "usd": st["usd"],
+            **_episode_counts(conn, st["id"], since, at or ""),
+        })
+
+    # One order for two kinds of thing, because the question is chronological.
+    out.sort(key=lambda r: (r["at"] or "", r["kind"], r["id"]), reverse=True)
+    return out[:limit]
 
 
 def _json_list(raw: Any) -> list:
@@ -1462,6 +1636,105 @@ def thread(escalation_id: int | None = None, story_id: int | None = None) -> dic
         return {"messages": control.thread(conn, escalation_id, story_id),
                 "entries": control.conversation(conn, escalation_id, story_id),
                 "state": _thread_state(conn, escalation_id, story_id)}
+    finally:
+        conn.close()
+
+
+def _episode(conn: sqlite3.Connection, story_id: int | None,
+             since: str, until: str) -> list[dict[str, Any]]:
+    """Everything that happened on a story between two moments, in one order.
+
+    The conversation is `control.conversation` — what was said, what was asked,
+    what was learned — and the rest of it is `story_events`: groomed, staffed,
+    blocked, decided, synced. They are merged rather than listed separately
+    because the order is the story, and reading a decision without the question
+    that came two rows above it is the failure this panel exists to fix.
+    """
+    if not story_id:
+        return []
+    out = [r for r in control.conversation(conn, story_id=story_id)
+           if since < (r.get("at") or "") <= (until or "9999")]
+    for ev in rows(conn, """SELECT id, at, kind, summary, detail, tokens
+                              FROM story_events
+                             WHERE story_id = ? AND kind <> 'learning'
+                               AND at > ? AND at <= ? ORDER BY at""",
+                   (story_id, since, until or "9999")):
+        if ev["kind"] == "note" and ev["summary"] in MIRROR_NOTES:
+            continue
+        out.append({"kind": "event", "ev_kind": ev["kind"], "at": ev["at"],
+                    "id": ev["id"], "body": ev["summary"],
+                    "detail": ev["detail"], "tokens": ev["tokens"] or 0})
+    out.sort(key=lambda r: ((r["at"] or ""), 0 if r["kind"] == "question" else 1, r["id"]))
+    return out
+
+
+@app.get("/api/completed/detail")
+def completed_detail(kind: str, id: int) -> dict[str, Any]:
+    """One finished thing, with the whole episode behind it. Read-only."""
+    conn = _conn()
+    try:
+        if kind == "dispatch":
+            t = one(conn, """SELECT t.*, s.title AS story_title, s.project,
+                                    s.status AS story_status, s.settled_as,
+                                    s.created_at AS story_created_at
+                               FROM tickets t LEFT JOIN stories s ON s.id = t.story_id
+                              WHERE t.id = ?""", (id,))
+            if not t:
+                raise HTTPException(404, "no ticket %d" % id)
+            prev = one(conn, """SELECT MAX(closed_at) AS at FROM tickets
+                                 WHERE story_id = ? AND intent = 'implement'
+                                   AND status = 'done' AND closed_at < ?""",
+                       (t["story_id"], t["closed_at"]))
+            since = _episode_window(conn, t["story_id"], (prev or {}).get("at"),
+                                    t["story_created_at"])
+            head = {"kind": "dispatch", "ref": "ticket #%d" % t["id"],
+                    "title": t["story_title"] or t["title"],
+                    "ticket_title": t["title"], "role": t["role"],
+                    "project": t["project"], "story_id": t["story_id"],
+                    "story_status": t["story_status"], "settled_as": t["settled_as"],
+                    "at": t["closed_at"], "started_at": t["created_at"], "since": since,
+                    "work_order": t["work_order"], "findings": _findings(t["findings"]),
+                    "artifact_path": t["artifact_path"], "write_scope": t["write_scope"]}
+            runs = rows(conn, """SELECT id, agent_role, model, started_at, ended_at, status,
+                                        verdict, total_tokens, chargeable_tokens, cost_usd
+                                   FROM runs WHERE ticket_id = ? ORDER BY id""", (id,))
+            until = t["closed_at"] or ""
+            story_id = t["story_id"]
+        elif kind == "story":
+            st = one(conn, "SELECT * FROM stories WHERE id = ?", (id,))
+            if not st:
+                raise HTTPException(404, "no story %d" % id)
+            prev = one(conn, """SELECT MAX(closed_at) AS at FROM tickets
+                                 WHERE story_id = ? AND intent = 'implement'
+                                   AND status = 'done'""", (id,))
+            since = _episode_window(conn, id, (prev or {}).get("at"), st["created_at"])
+            head = {"kind": "story", "ref": "story #%d" % st["id"], "title": st["title"],
+                    "ticket_title": None, "role": None, "project": st["project"],
+                    "story_id": st["id"], "story_status": st["status"],
+                    "settled_as": st["settled_as"], "at": st["updated_at"],
+                    "started_at": st["created_at"], "since": since,
+                    "work_order": None, "findings": None, "artifact_path": None,
+                    "write_scope": None, "brief": st["description"],
+                    "acceptance_criteria": st["acceptance_criteria"],
+                    "done_items": _json_list(st["done_items"]),
+                    "open_items": _json_list(st["open_items"])}
+            runs = rows(conn, """SELECT r.id, r.agent_role, r.model, r.started_at, r.ended_at,
+                                        r.status, r.verdict, r.total_tokens,
+                                        r.chargeable_tokens, r.cost_usd
+                                   FROM runs r JOIN tickets t ON t.id = r.ticket_id
+                                  WHERE t.story_id = ? ORDER BY r.id""", (id,))
+            until = st["updated_at"] or ""
+            story_id = id
+        else:
+            raise HTTPException(400, "kind must be 'dispatch' or 'story'")
+
+        tickets = rows(conn, """SELECT id, title, intent, role, status, created_at,
+                                       closed_at, findings, decided_esc_id
+                                  FROM tickets
+                                 WHERE story_id = ? AND created_at > ? AND created_at <= ?
+                                 ORDER BY id""", (story_id, since, until or "9999"))
+        return {**head, "runs": runs, "tickets": tickets,
+                "timeline": _episode(conn, story_id, since, until)}
     finally:
         conn.close()
 

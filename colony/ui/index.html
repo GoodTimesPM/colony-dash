@@ -493,6 +493,7 @@
   --h-macros:  var(--coral);
   --h-pulse:   color-mix(in oklab, var(--violet) 55%, var(--ink-soft));
   --h-forge:   color-mix(in oklab, var(--amber) 50%, var(--violet));
+  --h-completed: color-mix(in oklab, var(--mint) 72%, var(--ink-soft));
   --h-flight:  color-mix(in oklab, var(--mint) 68%, var(--amber));
   --h-sprint:  var(--ink-soft);
 
@@ -742,6 +743,33 @@ body.halted .halt-banner { display: flex; }
   max-height: none; color: inherit; font-family: inherit; }
 .rec.long .detail.clip { max-height: 8.5em; }
 .tile .meta { font-family: var(--mono); font-size: var(--step--2); color: var(--ink-dim); }
+
+/* ── completed work ─────────────────────────────────────────────────────────
+   The one panel that is a record rather than a queue. It stacks instead of
+   tiling because it lives in a column, and it scrolls on its own so a colony
+   with two hundred deliveries behind it does not push the Files panel off the
+   bottom of the page. */
+.done-list {
+  display: flex; flex-direction: column; gap: 8px;
+  max-height: var(--done-max, 52vh); overflow-y: auto; padding-right: 3px;
+}
+.tile.done {
+  background: var(--panel-sunk); border-color: var(--rule);
+  cursor: pointer; gap: 5px;
+}
+.tile.done:hover, .tile.done:focus-visible {
+  border-color: var(--h-completed); background: var(--mint-ground); outline: none;
+}
+.tile.done .k { color: var(--h-completed); }
+.tile.done .r { font-size: var(--step-0); font-weight: 600; }
+.tile.done .sum { font-size: var(--step--1); color: var(--ink-soft); line-height: 1.35; }
+/* The counts. Grey by default; the one that is not grey is the blocker count,
+   because "this took four blockers to get through" is the fact you want off a
+   list you are skimming for a reason not to redo something. */
+.tile.done .tally { display: flex; flex-wrap: wrap; gap: 4px 9px; }
+.tile.done .tally span { font-family: var(--mono); font-size: var(--step--2); color: var(--ink-dim); }
+.tile.done .tally span.hot { color: var(--coral); }
+.tile.done .tally span.good { color: var(--mint); }
 .tile .acts { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: auto; padding-top: 4px; }
 /* The picker gets its own row rather than sharing one with the buttons. It is
    the answer to the tile's question; the buttons are what you do with it. */
@@ -885,6 +913,7 @@ section.panel {
 [data-panel="macros"]  { --section-hue: var(--h-macros); }
 [data-panel="pulse"]   { --section-hue: var(--h-pulse); }
 [data-panel="forge"]   { --section-hue: var(--h-forge); }
+[data-panel="completed"] { --section-hue: var(--h-completed); }
 [data-panel="flight"]  { --section-hue: var(--h-flight); }
 .panel .body { padding: 11px 13px 13px; display: flex; flex-direction: column; gap: 9px; }
 .empty { color: var(--ink-dim); font-size: var(--step--1); padding: 2px 0 4px; }
@@ -1775,6 +1804,7 @@ body.snapping .snapbar { display: flex; }
       <label><input type="checkbox" data-view="colony" checked> colony</label>
       <label><input type="checkbox" data-view="standby" checked> standby</label>
       <label><input type="checkbox" data-view="board" checked> board</label>
+      <label><input type="checkbox" data-view="completed" checked> completed</label>
       <label><input type="checkbox" data-view="files" checked> files</label>
       <label><input type="checkbox" data-view="spend" checked> spend</label>
       <label><input type="checkbox" data-view="macros" checked> macros</label>
@@ -1856,6 +1886,14 @@ body.snapping .snapbar { display: flex; }
       </h2>
       <div class="flow" id="flow"></div>
       <div class="body" id="stories" style="gap:2px"></div>
+    </section>
+    <section class="panel" data-panel="completed">
+      <h2>Completed <span class="count" id="completed-count"></span>
+        <button class="link" data-done="all" title="every finished thing, newest first">all</button>
+        <button class="link" data-done="dispatch" title="implement tickets that delivered a patch">dispatches</button>
+        <button class="link" data-done="story" title="stories you filed as done, shipped or shelved">stories</button>
+      </h2>
+      <div class="done-list" id="completed"></div>
     </section>
     <section class="panel" data-panel="files">
       <h2>Files <span class="count" id="proj-count"></span>
@@ -2160,6 +2198,7 @@ function render(s) {
   renderOrdis(s.ordis);
   renderColony(s.colony);
   renderBoard(s.board);
+  renderCompleted(s.completed || []);
   renderProjects(s.projects);
   renderFlight(s.flight || []);
   renderInbox(s.inbox);
@@ -2792,6 +2831,116 @@ function flightRow(f) {
   row.onmouseleave = () => lightFlight(f.key, false);
   if (f.story_id) row.onclick = () => openStory(f.story_id);
   return row;
+}
+
+// ── completed work ──────────────────────────────────────────────────────────
+//
+// "I want there to be a 'completed dispatches' or 'completed stories'. That way
+// i can keep track of progress and check on work that has been done so i dont
+// accidentally work on the same thing just cause i forgot we worked on
+// something."
+//
+// Two things end and both are here: a dispatch, which is an implement ticket
+// that delivered a patch, and a story, which is one Jordan filed. They share a
+// list because the question is chronological — what has this colony produced,
+// in what order — and they keep separate badges because the answer to "did we
+// already build this" is different from "did I already close this".
+//
+// Nothing on this panel writes. It is the only panel that is purely a record.
+const DONE_FILTER_KEY = "colony-done-filter";
+let DONE_FILTER = localStorage.getItem(DONE_FILTER_KEY) || "all";
+
+function renderCompleted(items) {
+  const box = $("completed");
+  box.replaceChildren();
+  for (const b of document.querySelectorAll("[data-done]")) {
+    b.setAttribute("aria-pressed", String(b.dataset.done === DONE_FILTER));
+  }
+  const shown = DONE_FILTER === "all" ? items : items.filter((i) => i.kind === DONE_FILTER);
+
+  // The count says how much work is behind you, not how much of it is on
+  // screen — a filter that changes the headline number makes the number
+  // useless for the thing it is for.
+  const dispatches = items.filter((i) => i.kind === "dispatch").length;
+  const stories = items.length - dispatches;
+  $("completed-count").textContent = items.length
+    ? dispatches + " delivered  ·  " + stories + " filed" : "";
+
+  if (!shown.length) {
+    box.append(el("div", "empty", items.length
+      ? "nothing under this filter"
+      : "nothing has finished yet — a dispatch lands here when its ticket closes"));
+    return;
+  }
+  for (const it of shown) box.append(completedTile(it));
+}
+
+for (const b of document.querySelectorAll("[data-done]")) {
+  b.onclick = () => {
+    DONE_FILTER = b.dataset.done;
+    localStorage.setItem(DONE_FILTER_KEY, DONE_FILTER);
+    if (STATE) renderCompleted(STATE.completed || []);
+  };
+}
+
+function completedTile(it) {
+  const card = el("div", "tile done");
+  card.tabIndex = 0;
+  card.dataset.kind = it.kind;
+
+  const k = el("div", "k");
+  k.append(el("span", null, it.kind === "dispatch"
+    ? "delivered  ·  " + it.ref
+    : "filed " + (it.settled_as || "") + "  ·  " + it.ref));
+  k.append(relNode("age", it.at));
+  card.append(k);
+
+  card.append(el("div", "r", it.title || "(untitled)"));
+
+  // The date it finished, said properly. This whole panel is sorted by it, so
+  // it is the one fact that cannot be a relative age alone: "3 days ago" does
+  // not tell you whether that was before or after the thing you are about to
+  // start.
+  card.append(el("div", "meta", "completed " + stamp(it.at) +
+    (it.since ? "   ·   since the last delivery on " + stamp(it.since) : "")));
+
+  if (it.summary) {
+    const sum = longText(it.summary, 400);
+    sum.classList.add("sum");
+    card.append(sum);
+  }
+
+  const tally = el("div", "tally");
+  const add = (text, cls) => { if (text) tally.append(el("span", cls || null, text)); };
+  if (it.kind === "dispatch") {
+    add(it.done_n + " criteria met", it.done_n ? "good" : null);
+    add(it.skipped_n ? it.skipped_n + " skipped" : "", "hot");
+    add(it.files_n ? it.files_n + " files" : "");
+    add(it.patch ? "patch" : "");
+  } else {
+    add(it.dispatches ? it.dispatches + " dispatch" + (it.dispatches === 1 ? "" : "es") : "no dispatch");
+    add(it.done_n ? it.done_n + " of " + (it.done_n + it.skipped_n) + " to-dos" : "");
+  }
+  add(it.blockers ? it.blockers + " blocker" + (it.blockers === 1 ? "" : "s") : "", "hot");
+  add(it.questions ? it.questions + " question" + (it.questions === 1 ? "" : "s") : "");
+  add(it.messages ? it.messages + " message" + (it.messages === 1 ? "" : "s") : "");
+  add(it.learnings ? it.learnings + " learned" : "");
+  add(it.runs ? it.runs + " run" + (it.runs === 1 ? "" : "s") : "");
+  add(it.tokens ? toks(it.tokens) + " tok" : "");
+  add(usd(it.usd));
+  card.append(tally);
+
+  const foot = [];
+  if (it.project) foot.push(it.project);
+  if (it.role) foot.push(it.role);
+  if (foot.length) card.append(el("div", "meta", foot.join("   ·   ")));
+
+  const open = () => openCompleted(it.kind + ":" + it.id);
+  card.onclick = open;
+  card.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); } };
+  card.title = "open the whole record — the work order, what it produced, and every "
+             + "message, question and decision since the last delivery";
+  return card;
 }
 
 // The link between the Inbox and this rail, in one function used from both
@@ -4268,7 +4417,7 @@ let GOING_BACK = false;
 
 function drawerViews() {
   return { story: openStory, persona: openPersona, pulse: openPulse,
-           project: openProject, agent: openAgent };
+           project: openProject, agent: openAgent, completed: openCompleted };
 }
 
 function renderTrail() {
@@ -4594,6 +4743,161 @@ async function openStory(id) {
     tl.append(row);
   }
   body.append(tl);
+}
+
+// ── completed drawer ────────────────────────────────────────────────────────
+//
+// Everything that took place between one deliverable and the next, in the order
+// it took place. The story drawer answers "where does this stand"; this answers
+// "what happened, and what came out of it", which is the question you have when
+// you are trying to remember whether a thing is already built.
+//
+// `arg` is "kind:id" because the drawer trail stores one argument per view.
+async function openCompleted(arg) {
+  const [kind, rawId] = String(arg).split(":");
+  const id = Number(rawId);
+  const body = openDrawer(kind === "dispatch" ? "ticket #" + id : "story #" + id, "",
+                          { nav: { kind: "completed", arg: arg, label: "completed " + id } });
+  const mine = HERE;
+  let d;
+  try { d = await getJSON("/api/completed/detail?kind=" + encodeURIComponent(kind) + "&id=" + id); }
+  catch { body.replaceChildren(el("div", "empty", "could not load this record")); return; }
+
+  $("d-eyebrow").textContent = (kind === "dispatch" ? "delivered" : "filed " + (d.settled_as || ""))
+                             + "  ·  " + d.ref;
+  $("d-title").textContent = d.title || "";
+  mine.label = d.title || d.ref;
+  renderTrail();
+  body.replaceChildren();
+
+  const facts = el("dl", "kv");
+  const add = (k, v) => { if (v) facts.append(el("dt", null, k), el("dd", null, v)); };
+  add("completed", stamp(d.at));
+  add("covers", (d.since ? stamp(d.since) : "the start of the story") + "  →  " + stamp(d.at));
+  add("project", d.project || "none");
+  add("agent", d.role);
+  add("ticket", d.ticket_title);
+  add("write scope", d.write_scope);
+  add("patch", d.artifact_path);
+  add("story now", d.story_status
+    ? (STATUS_LABEL[d.story_status] || d.story_status) + (d.settled_as ? "  ·  filed " + d.settled_as : "")
+    : "");
+  body.append(facts);
+
+  if (d.story_id) {
+    const go = el("button", "act");
+    go.style.width = "100%";
+    go.textContent = "open story #" + d.story_id;
+    go.onclick = () => openStory(d.story_id);
+    body.append(go);
+  }
+
+  // What it produced. `done` and `skipped` are the agent's own account of the
+  // acceptance criteria, and `skipped` is the half that matters: an unread
+  // skip list is how a story gets called finished twice.
+  const f = d.findings || {};
+  if (f.summary) body.append(sectionBlock("what it delivered", f.summary));
+  const list = (label, arr, mark) => {
+    if (!arr || !arr.length) return;
+    const box = el("div", "blk");
+    for (const item of arr) box.append(el("div", null, mark + "  " + item));
+    body.append(blk(label + "  ·  " + arr.length, box));
+  };
+  list("criteria met", f.done, "✓");
+  list("skipped", f.skipped, "✗");
+  list("files touched", f.files, "·");
+  list("risks", f.risks, "!");
+  list("learned", f.learned, "·");
+  if (d.brief) body.append(sectionBlock("brief", d.brief));
+  if (d.acceptance_criteria) body.append(sectionBlock("acceptance criteria", d.acceptance_criteria));
+  if (d.done_items && d.done_items.length) list("to-dos ticked", d.done_items, "✓");
+  if (d.open_items && d.open_items.length) list("to-dos still open", d.open_items, "☐");
+  if (d.work_order) body.append(blk("the work order it was given", longText(d.work_order, 700)));
+
+  if (d.runs.length) {
+    const box = el("div", "wrap-x");
+    const t = el("table", "runs");
+    const head = el("tr");
+    ["run", "started", "took", "role", "status", "chargeable", "total", "$"]
+      .forEach((h) => head.append(el("th", null, h)));
+    t.append(head);
+    for (const r of d.runs) {
+      const secs = r.ended_at && r.started_at
+        ? (parseTs(r.ended_at) - parseTs(r.started_at)) / 1000 : null;
+      const tr = el("tr");
+      tr.append(el("td", null, "#" + r.id), el("td", "dim", stamp(r.started_at)),
+                el("td", "dim", secs == null ? "—" : clock(secs)),
+                el("td", null, r.agent_role), el("td", null, r.status),
+                el("td", "num", toks(r.chargeable_tokens || r.total_tokens)),
+                el("td", "num dim", toks(r.total_tokens)), el("td", "num dim", usd(r.cost_usd)));
+      t.append(tr);
+    }
+    box.append(t);
+    body.append(blk("runs", box));
+  }
+
+  if (d.tickets.length) {
+    const rows = el("div", "blk");
+    for (const t of d.tickets) {
+      const r = el("div", "kv");
+      const decision = !!t.decided_esc_id;
+      const dd = el("dd", null, decision ? (t.findings || "decided") : t.status + "  ·  " + t.role);
+      dd.append(el("div", "stamp", stamp(t.created_at) +
+        (t.closed_at && t.closed_at !== t.created_at ? "  ·  closed " + stamp(t.closed_at) : "")));
+      r.append(el("dt", null, "#" + t.id + " " + (decision ? "decision" : t.intent)), dd);
+      rows.append(r);
+    }
+    body.append(blk("tickets cut in this window  ·  " + d.tickets.length, rows));
+  }
+
+  // The whole conversation, in order: what you said, what Ordis said, what the
+  // colony asked, what it decided, what it learned. Same rendering as the story
+  // timeline, because it is the same kind of thing and a second visual language
+  // for it would just be a second thing to learn.
+  const tl = el("div", "blk");
+  tl.append(el("div", "lb", "everything that happened  ·  " + d.timeline.length + " entries"));
+  if (!d.timeline.length) {
+    tl.append(el("div", "empty", "nothing was said between the last delivery and this one"));
+  }
+  for (const e of d.timeline) {
+    const row = el("div", "ev");
+    row.dataset.kind = e.ev_kind || e.kind;
+    const role = doneRole(e);
+    if (role) row.dataset.role = role;
+    const spine = el("div", "spine");
+    spine.append(el("div", "node"), el("div", "stem"));
+    const right = el("div");
+    right.append(el("div", "when", e.at + "  ·  " + doneVoice(e) +
+      (e.tokens ? "  ·  " + toks(e.tokens) + " tok" : "")));
+    right.append(el("div", "sum", e.body || ""));
+    if (e.detail) right.append(longText(e.detail));
+    if (e.kind === "question" && e.decision) {
+      right.append(el("div", "meta", "you " + e.decision + "d it" +
+        (e.closed_at ? " on " + stamp(e.closed_at) : "")));
+    }
+    row.append(spine, right);
+    tl.append(row);
+  }
+  body.append(tl);
+}
+
+// One label per entry, in the voice it was said in. The event kinds keep their
+// own word — "groomed", "staffed", "decided" — because those are the colony's
+// own vocabulary and renaming them here would make the timeline and the ledger
+// disagree about what happened.
+function doneVoice(e) {
+  if (e.kind === "po") return "you";
+  if (e.kind === "ordis") return "ordis";
+  if (e.kind === "learning") return "learned";
+  if (e.kind === "question") return "ordis asked" + (e.esc_kind ? "  ·  " + e.esc_kind : "");
+  return e.ev_kind || e.kind;
+}
+
+function doneRole(e) {
+  if (e.kind === "po" || e.kind === "ordis" || e.kind === "learning") return e.kind;
+  if (e.kind === "question") return "ask";
+  if (e.ev_kind === "blocked" || e.ev_kind === "escalated") return "ask";
+  return null;
 }
 
 // Which voice an event is in, if it is in one. Everything else — a Notion sync,
@@ -5334,6 +5638,7 @@ const TOKEN_GROUPS = [
       ["--h-colony",  "Colony",      "title and left edge", ["--panel", 3]],
       ["--h-standby", "Standby",     "title and left edge", ["--panel", 3]],
       ["--h-board",   "Board",       "title and left edge", ["--panel", 3]],
+      ["--h-completed", "Completed", "title and left edge", ["--panel", 3]],
       ["--h-files",   "Files",       "title and left edge", ["--panel", 3]],
       ["--h-spend",   "Spend",       "title and left edge", ["--panel", 3]],
       ["--h-macros",  "Macros",      "title and left edge", ["--panel", 3]],
@@ -5441,18 +5746,20 @@ function saveAppearance() {
 
 // ── tile layout ─────────────────────────────────────────────────────────────
 
-const MAIN_PANELS = ["ordis", "colony", "standby", "board", "files", "spend",
-                     "macros", "pulse", "forge"];
+const MAIN_PANELS = ["ordis", "colony", "standby", "board", "completed", "files",
+                     "spend", "macros", "pulse", "forge"];
 // The sprint strip is one row of figures with no heading of its own; capping it
 // would put a scrollbar on something already one line tall.
 const CAPPABLE = ["inbox", "flight"].concat(MAIN_PANELS);
 
 // Panels whose *contents* scroll rather than the panel itself, and the variable
 // their ceiling lives in. Their heading stays put without needing sticky.
-const SELF_SCROLL = { "inbox": "--inbox-max", "pulse": "--pulse-max" };
+const SELF_SCROLL = { "inbox": "--inbox-max", "pulse": "--pulse-max",
+                      "completed": "--done-max" };
 const PANEL_LABEL = {
   inbox: "PO Inbox", flight: "Ticket Queue", ordis: "Ordis", colony: "Colony",
-  standby: "Standby", board: "Board", files: "Files", spend: "Spend",
+  standby: "Standby", board: "Board", completed: "Completed", files: "Files",
+  spend: "Spend",
   macros: "Macros", pulse: "Pulse log", forge: "Forge",
 };
 const COL_LABEL = ["left", "middle", "right"];
@@ -6163,7 +6470,8 @@ $("open-manual").onclick = () => { $("filemenu").open = false; openManual(); };
 
 const VIEW_KEY = "colony-view";
 const PANEL_KEYS = ["sprint", "inbox", "flight", "ordis", "colony", "standby",
-                    "board", "files", "spend", "macros", "pulse", "forge"];
+                    "board", "completed", "files", "spend", "macros", "pulse",
+                    "forge"];
 let VIEW = {};
 try { VIEW = JSON.parse(localStorage.getItem(VIEW_KEY) || "{}") || {}; } catch (_) { VIEW = {}; }
 
