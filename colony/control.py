@@ -476,6 +476,24 @@ def decide(conn: sqlite3.Connection, esc_id: int, decision: str,
         # it. Closing that question without answering it would strand both, and
         # the story would sit in `po-review` with nothing left to review it.
         raise Refused("a patch cannot be dismissed — apply it or reject it")
+    if esc["kind"] == "run-request" and decision == "approve" and esc["ticket_id"]:
+        # The command a build agent hands over usually verifies the code that
+        # build just wrote, and that code is in a patch, not in the tree. Run it
+        # first and it tests the version of the project that existed before the
+        # work: `py test_local.py weekly` came back "0 passed, 0 failed", exit 0,
+        # against a tree with no `weekly` command in it. That is a green result
+        # for a test that never ran, recorded on the story as proof.
+        #
+        # So the patch goes first. The card is not closed and not dismissed; it
+        # stays in the Inbox and becomes answerable the moment the patch lands
+        # or is rejected.
+        waiting = conn.execute(
+            "SELECT id FROM escalations WHERE ticket_id = ? AND kind = 'write-approval' "
+            "AND resolved_at IS NULL", (esc["ticket_id"],)).fetchone()
+        if waiting:
+            raise Refused(
+                "the patch this command checks is still waiting — decide on the "
+                "patch first, then run it against the real tree")
 
     _record(conn, decision, "escalation", esc_id, note or esc["reason"][:400])
     kind = esc["kind"]
@@ -629,12 +647,21 @@ def _settle_run(conn: sqlite3.Connection, esc: sqlite3.Row, decision: str,
         return "not run"
 
     result = runner.execute(command, project)
-    text = runner.transcript(result)
+    expect = proposal.get("expect") or ""
+    text = runner.transcript(result, expect)
+    verdict, why = runner.judge(result)
     if story_id:
-        _event(conn, story_id, "finding",
-               ("ran `" + command + "` — exit "
-                + ("timed out" if result["timed_out"] else str(result["code"]))),
-               text)
+        # The headline says what the run is worth, not just what it returned.
+        # An exit code alone let "Notion query failed (ConnectionError)" go into
+        # the record as `exit 0`, and the next agent read that as the criterion
+        # being answered.
+        head = "ran `" + command + "` — "
+        head += ("timed out" if result["timed_out"]
+                 else "exit " + str(result["code"]))
+        if verdict != "clean":
+            head += " → " + why
+        _event(conn, story_id, "finding" if verdict == "clean" else "blocked",
+               head, text)
         # Back to the queue, not forward. The command answered something; what
         # that means for the story is a decision, and decisions are the PO's.
         conn.execute(
@@ -644,7 +671,10 @@ def _settle_run(conn: sqlite3.Connection, esc: sqlite3.Row, decision: str,
             f"{command} — exit " + str(result["code"]))
     if result["timed_out"]:
         return f"gave up after {runner.TIMEOUT_S}s"
-    return f"ran it — exit {result['code']}, {len(result['out'])} characters of output"
+    if verdict != "clean":
+        return f"ran it — {why}. Nothing is settled; the story is back in the queue."
+    return (f"ran it — exit {result['code']}, {len(result['out'])} characters of "
+            "output. Nothing in it contradicts what the agent expected.")
 
 
 def _settle_patch(conn: sqlite3.Connection, esc: sqlite3.Row, decision: str,
