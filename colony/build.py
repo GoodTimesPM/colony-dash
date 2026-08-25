@@ -170,9 +170,12 @@ git commands, no package installs, no network.
 You are not the only one working on this. When a criterion needs a command run
 — a script, a test, a real API call — do not skip it and do not fake it. Put
 the command in `needs_run` with the criterion it answers and what a correct
-result looks like. Jordan sees the command, runs it against the live tree, and
-the output comes back on the story for whoever picks it up next. Do the rest of
-the work in the same run; a `needs_run` entry is a handover, not a stop.
+result looks like. Jordan sees the command, applies your patch, then runs it
+against the live tree, and the whole transcript comes back on the story for
+whoever picks it up next. Write `expect` carefully: it is recorded next to the
+output and it is what the next agent compares against, so "exit 0" is never
+enough — name the line you want to see. Do the rest of the work in the same
+run; a `needs_run` entry is a handover, not a stop.
 
 {seeded_note(seeded)}
 
@@ -433,7 +436,8 @@ def _raise_run_requests(conn: sqlite3.Connection, ticket: sqlite3.Row,
              f'{ticket["role"]} needs a command run: `{command}`',
              "\n\n".join(body),
              json.dumps({"command": command, "project": ticket["project"],
-                         "ticket_id": ticket["id"]})),
+                         "ticket_id": ticket["id"], "why": why,
+                         "expect": expect})),
         )
         raised += 1
     return raised

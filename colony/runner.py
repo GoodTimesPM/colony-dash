@@ -124,20 +124,83 @@ def execute(command: str, project: str) -> dict:
     }
 
 
-def transcript(result: dict) -> str:
-    """The run as the story will remember it, and as the next agent will read it."""
+def transcript(result: dict, expect: str = "") -> str:
+    """The run as the story will remember it, and as the next agent will read it.
+
+    `expect` is the build agent's own sentence about what a correct result looks
+    like. It is written down next to the output rather than left on the card,
+    because the card is answered and gone by the time anyone reads the run back,
+    and a transcript that records only what happened leaves the next agent to
+    guess what was supposed to happen.
+    """
     head = f"$ {result['command']}\n  in {result['cwd']}"
     if result.get("timed_out"):
         return f"{head}\n\nGave up after {TIMEOUT_S}s. {result['err']}"
     head += f"\n  exit {result['code']}"
     parts = [head]
+    verdict, why = judge(result)
+    if verdict != "clean":
+        parts.append("READ THIS BEFORE TRUSTING IT:\n  " + why)
+    if (expect or "").strip():
+        parts.append("--- it expected ---\n" + expect.strip())
     if result.get("out", "").strip():
         parts.append("--- output ---\n" + result["out"].rstrip())
     if result.get("err", "").strip():
         parts.append("--- errors ---\n" + result["err"].rstrip())
-    if len(parts) == 1:
+    if not result.get("out", "").strip() and not result.get("err", "").strip():
         parts.append("(it printed nothing)")
     return "\n\n".join(parts)
+
+
+# Counts of zero are how a passing test suite reports itself. Blanking them
+# before the scan below is the difference between reading "0 failed" as a pass
+# and reading it as the word "failed".
+_ZERO_COUNT = re.compile(r"\b0 (failed|failures|errors?|warnings?|skipped)\b", re.I)
+
+# Exit 0 is a weak claim. `py -m apply.main auto` printed "Notion query failed
+# (ConnectionError)" and returned 0, and the colony wrote that down as a clean
+# run against a criterion that had asked for proof the sync worked. These
+# patterns do not decide whether the criterion was met — nothing here can —
+# they decide whether the run is allowed to look like it settled anything.
+SUSPECT = [
+    (re.compile(r"traceback \(most recent call last\)", re.I),
+     "it printed a traceback"),
+    (re.compile(r"\bno tests? (ran|were run|collected|found)\b", re.I),
+     "no test ran"),
+    (re.compile(r"\b0 (passed|tests?|rows?|files?|records?|items?)\b", re.I),
+     "it counted zero of the thing it was supposed to touch"),
+    (re.compile(r"\bfail(ed|ure|ures|s)?\b", re.I),
+     "the output says something failed"),
+    (re.compile(r"\b\w*(error|exception)s?\b", re.I),
+     "the output names an error"),
+    (re.compile(r"\bnot set\b|\bmissing\b", re.I),
+     "the output says something it needed was not there"),
+    (re.compile(r"\bcould not\b|\bunable to\b|\brefused\b|\bdenied\b", re.I),
+     "the output says it could not do something"),
+]
+
+
+def judge(result: dict) -> tuple[str, str]:
+    """`clean`, `suspect` or `failed`, and the sentence that says which.
+
+    `clean` means nothing in the output contradicts the request. It does not
+    mean the criterion is met: only a person, or the next build agent reading
+    the transcript against the expectation, can say that.
+    """
+    if result.get("timed_out"):
+        return "failed", f"it never finished — gave up after {TIMEOUT_S}s"
+    if result.get("code") is None:
+        return "failed", "the shell would not start it"
+    if result["code"] != 0:
+        return "failed", f"it exited {result['code']}"
+    text = _ZERO_COUNT.sub(" ", (result.get("out") or "")
+                           + "\n" + (result.get("err") or ""))
+    if not text.strip():
+        return "suspect", "it exited 0 and printed nothing at all"
+    for pattern, why in SUSPECT:
+        if pattern.search(text):
+            return "suspect", f"it exited 0, but {why}"
+    return "clean", ""
 
 
 def looks_shell_free(command: str) -> bool:

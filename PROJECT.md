@@ -368,6 +368,57 @@ names the state and the next move.
       again from the code rather than patching it a line at a time.
 - [ ] Update the published artifact — it still shows the pre-M1 design.
 
+## Finished 2026-08-25 — a run that comes back green is not a run that proved anything
+
+Ticket #68 skipped the same two criteria ticket #62 skipped, and the reason it
+gave was correct: a build agent has no shell, so it cannot run
+`py -m apply.main auto` against live Notion. That is what `needs_run` is for,
+and the agent used it properly — two commands, each with the criterion it
+answers and a careful description of what a correct result looks like. Both
+cards were approved. Both commands ran. Both were recorded as `exit 0`. Neither
+one proved a thing.
+
+```
+$ py -m apply.main auto        exit 0    Notion query failed (ConnectionError)
+$ py test_local.py weekly      exit 0    0 passed, 0 failed
+```
+
+Two separate faults, and the second is the worse one.
+
+**Exit codes were the only evidence.** The agent wrote a precise `expect`
+sentence for each command — the exact output line that would mean the sync
+worked — and the colony put it on the card, showed it to Jordan once, and threw
+it away. What went into the story was the exit code. A program that catches its
+own network error and returns 0 is completely ordinary, and the record said the
+criterion had been answered.
+
+`runner.judge` now reads the output. It returns `clean`, `suspect` or `failed`,
+and `suspect` is the one that matters: exit 0 with a traceback in it, or a zero
+count of the thing the command was supposed to touch, or the words *failed*,
+*error*, *not set*, *could not*. Counts of zero are blanked first, so a suite
+that prints "12 passed, 0 failed" stays clean. A `suspect` run is written to the
+story as a `blocked` event, not a `finding`, and the transcript carries the
+agent's `expect` text directly above the output so the next agent compares them
+instead of guessing. `clean` still does not mean the criterion is met. It means
+nothing in the output contradicts the request.
+
+**A run-request was answerable before its own patch existed.**
+`py test_local.py weekly` tests the `weekly` command that ticket #68 wrote. That
+command was in an unapplied patch. Running it against the live tree tested a
+version of the project that predates the work, found nothing, printed
+"0 passed, 0 failed", and exited 0. A test that never ran, recorded as green.
+
+`decide()` now refuses to approve a `run-request` while its ticket still has an
+open `write-approval`. The card is not closed and not dismissed — it stays in
+the Inbox and becomes answerable the moment the patch lands or is rejected. The
+patch goes first, always, because a command that verifies the patch has nothing
+to verify until then.
+
+Both events on story #1 were relabelled to match what actually happened, and a
+note on the story says why. The two criteria are still open, which is the
+correct state: the OG-tracker sync has not been seen working against a live row,
+and the `ConnectionError` behind that is the next thing to chase.
+
 ## Finished 2026-08-25 — a panel for work that is already done
 
 "I want there to be a "completed dispatches" or "completed stories". That way i
