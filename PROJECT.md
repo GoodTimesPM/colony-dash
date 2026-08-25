@@ -368,6 +368,32 @@ names the state and the next move.
       again from the code rather than patching it a line at a time.
 - [ ] Update the published artifact — it still shows the pre-M1 design.
 
+## Finished 2026-08-24 — the colony writes the way Jordan reads
+
+Jordan enabled the `i-have-adhd` writing-style skill for his own sessions and
+asked for the colony to use it too. The agents had always been told what to
+decide and never told how to write it down, so the shape of a recommendation
+was whatever the model reached for: an opening line announcing what it was
+about to say, a closing line offering further help, and the one sentence that
+mattered in between.
+
+`colony/voice.py` holds `STYLE`, a block of about 1,400 characters that states
+the rules against the fields these prompts actually ask for. The first line
+carries the answer. No preamble and no closer. Name the file, the line, the
+number. More than one step means a numbered list of at most five. A failure is
+stated flatly with its cause and its fix. Estimates are in real units. End on
+one thing he can do in under two minutes.
+
+It goes into all five prompts that ask a colonist for prose — grooming, the
+build work order, the hiring decision, an Ordis reply, and a skill draft — and
+in each one it sits immediately above the JSON contract, so the last thing the
+agent reads before the field list is how to fill the fields in. That costs
+about 350 tokens per prompt. It is worth it: a report Jordan does not read
+wastes the whole run, and a build run costs four figures.
+
+Nothing here can stop a model writing badly. It can only say what good looks
+like, in the words Jordan uses on himself.
+
 ## Finished 2026-08-24 — the checkout an agent gets, and a way to hand work back
 
 Four things, all from the same run. Story #1's build agent skipped three of six

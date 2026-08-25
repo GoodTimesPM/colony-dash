@@ -41,7 +41,7 @@ import statistics
 from pathlib import Path
 from typing import Any
 
-from . import agent, db
+from . import agent, db, voice
 
 # Where a promoted skill lands. The project root rather than colony-dash,
 # because a skill is for the whole colony *and* for Ordis — a Claude Code
@@ -307,6 +307,8 @@ The forge proposed this candidate from the signal "{skill['detector']}":
 Evidence from the runs that produced it:
 
 {_evidence_brief(conn, skill)}
+
+{voice.STYLE}
 
 Write the skill. Reply with JSON only:
 
