@@ -368,6 +368,50 @@ names the state and the next move.
       again from the code rather than patching it a line at a time.
 - [ ] Update the published artifact — it still shows the pre-M1 design.
 
+## Finished 2026-08-24 — the lane a story fell into, and Ordis reading its own pulse
+
+Two blockers stood on story #1 at once, and neither was what it said it was.
+
+The first was a false alarm the loop generated about itself. Ordis, answering a
+PO reply, read `.colony/pulse.lock` and the tail of `.colony/pulse.log` and
+reported pid 21968 as a stuck process holding the lock. That pid was the 22:07
+pulse — the run Ordis was executing inside. A lock file with a live pid in it
+and a log entry with a header and no result are exactly what a healthy pulse
+looks like from the inside, halfway through. `reply_prompt` now states its own
+pid and says plainly that the newest pulse entry and the lock are itself, and
+that it must never report the current beat as hung or ask for it to be killed.
+
+The second was real and had been swallowing decisions since M5. When a PO reply
+settles a question, the story comes out of `needs-info` and used to go straight
+to `backlog`. But `GROOMABLE_WHERE` only reads a `backlog` story while its
+acceptance criteria are empty, and a story that had already been groomed still
+had them. So it landed in a lane nothing reads: not groomable, not dispatched,
+no ticket, no card. It sat there until Jordan asked why nothing happened.
+
+There are three lanes now, and the one a story takes turns on whether its
+criteria were ever approved:
+
+| story on unblock | lane | why |
+| --- | --- | --- |
+| no criteria | `backlog` | never groomed; grooming finds it there |
+| criteria, never approved | `needs-criteria`, criteria cleared | drafted without the answer he just gave |
+| criteria he approved | `ready` | his approval stands; the question only interrupted it |
+
+The third row is the one that matters. Clearing criteria Jordan approved would
+make him approve the same list a second time, so the story goes back to the lane
+the question interrupted and waits for Dispatch, which is his call and stays his
+call.
+
+One more thing came out of the same trace. `decisions_since` used
+`resolved_at > since`, where `since` is the previous pulse's `pulse_at` — and
+`pulse_at` is stamped during the tick, before the wake runs. Every decision the
+wake itself resolved landed on that exact second and was excluded from the next
+window forever. It is `>=` now. The 20:53:52 decision was invisible to the 21:07
+beat for precisely this reason.
+
+Story #1 was repaired by hand to match: escalation #31 resolved, the story back
+in `ready` with its approved criteria, and a timeline note saying why.
+
 ## Finished 2026-08-24 — the colony writes the way Jordan reads
 
 Jordan enabled the `i-have-adhd` writing-style skill for his own sessions and
