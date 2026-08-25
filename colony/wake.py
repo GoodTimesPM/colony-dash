@@ -447,6 +447,8 @@ def groom_story(conn: sqlite3.Connection, story: sqlite3.Row, terms: dict,
 # is a short read and a short paragraph; if a message needs more than this it
 # needs to be a story, and saying so is a legitimate answer.
 
+ARROW = "\u2192"
+
 REPLY_LIMIT = int(os.environ.get("COLONY_REPLY_LIMIT", "3"))
 REPLY_TIMEOUT_S = int(os.environ.get("COLONY_REPLY_TIMEOUT", "300"))
 
@@ -514,6 +516,17 @@ def reply_prompt(msg: sqlite3.Row, esc: sqlite3.Row | None, story: sqlite3.Row |
         "live, running, working, fixed, verified or no longer failing. You have",
         "no way to see any of that, and an agent downstream will read the line as",
         "a finding and build on it.",
+        "",
+        f"You are running INSIDE pulse pid {os.getpid()}, right now. So:",
+        f"  - `.colony/pulse.lock` holds pid {os.getpid()}. That is you. A lock",
+        "    file is not evidence of a stuck process; it is evidence that a pulse",
+        "    is running, and the pulse that is running is the one reading you this.",
+        "  - The last block in `.colony/pulse.log` is a header with no result",
+        "    under it. That is also you. The result line is written when the beat",
+        "    finishes, which cannot have happened yet.",
+        "Never report the newest pulse as stuck, crashed, hung or silently failed,",
+        "and never ask Jordan to kill it. If you want to say something about the",
+        "heartbeat, read the entries BEFORE the last one.",
         "",
         "When he tells you he has done something, check it and name the file you",
         "checked. A `.env` file is outside your read scope and always will be. A",
@@ -713,12 +726,65 @@ def answer_po(conn: sqlite3.Connection, terms: dict, projects: list[str]) -> lis
                   settled + ("\n\nOrdis read: " + ", ".join(checked) if checked else ""),
                   ticket_id, 0)
             if story["status"] == "needs-info":
-                conn.execute(
-                    """UPDATE stories SET status = 'backlog', blocked_reason = NULL,
-                              updated_at = datetime('now','localtime')
-                        WHERE id = ? AND status = 'needs-info'""",
-                    (story["id"],),
-                )
+                # Which lane it goes back to depends on whether it has already
+                # been groomed. `backlog` is only groomable while the criteria
+                # are empty (GROOMABLE_WHERE), so a story that was groomed,
+                # blocked, and then unblocked landed in `backlog` WITH criteria
+                # — not groomable, not dispatched, read by nothing. It sat there
+                # until Jordan noticed, which is the failure this loop exists to
+                # prevent.
+                #
+                # There are three lanes, and which one is right turns on whether
+                # the criteria were ever approved. Approved criteria go back to
+                # `ready`, because the answer he just gave does not un-approve
+                # them. Unapproved criteria are cleared, because they were
+                # drafted without that answer. No criteria at all means the
+                # story has never been groomed, and `backlog` is where grooming
+                # finds it.
+                has_criteria = bool((story["acceptance_criteria"] or "").strip())
+                approved = conn.execute(
+                    "SELECT 1 FROM escalations WHERE story_id = ? AND kind = 'decision' "
+                    "AND po_decision = 'approve' LIMIT 1", (story["id"],)).fetchone()
+                if has_criteria and approved:
+                    # He approved these criteria himself, and then a question
+                    # parked the story. The answer does not un-approve them, so
+                    # the story goes back to the lane the question interrupted:
+                    # `ready`, where the build picks it up. Clearing them here
+                    # would make him approve the same list a second time.
+                    conn.execute(
+                        """UPDATE stories SET status = 'ready', blocked_reason = NULL,
+                                  updated_at = datetime('now','localtime')
+                            WHERE id = ? AND status = 'needs-info'""",
+                        (story["id"],),
+                    )
+                    lane = "unblocked " + ARROW + " back to ready, dispatchable"
+                elif has_criteria:
+                    # Groomed but never approved. The criteria were drafted
+                    # without the answer he just gave, so they are cleared and
+                    # the next wake re-reads the whole brief — the same
+                    # treatment a brief that grew after delivery gets.
+                    conn.execute(
+                        """UPDATE stories
+                              SET status = 'needs-criteria', acceptance_criteria = NULL,
+                                  blocked_reason = NULL,
+                                  updated_at = datetime('now','localtime')
+                            WHERE id = ? AND status = 'needs-info'""",
+                        (story["id"],),
+                    )
+                    _said(conn, story["id"], "note",
+                          "The draft criteria on this story were written before "
+                          "you answered, so they are cleared and the next wake "
+                          "re-reads the whole brief. Nothing already built was "
+                          "touched.", ticket_id, 0)
+                    lane = "unblocked " + ARROW + " criteria redrafted from scratch"
+                else:
+                    conn.execute(
+                        """UPDATE stories SET status = 'backlog', blocked_reason = NULL,
+                                  updated_at = datetime('now','localtime')
+                            WHERE id = ? AND status = 'needs-info'""",
+                        (story["id"],),
+                    )
+                    lane = "unblocked " + ARROW + " back in the groom queue"
                 # The runs that raised the answered question describe a version
                 # of the story that is gone; without this the story re-enters
                 # the queue already at its attempt ceiling and never groomed.
@@ -726,7 +792,7 @@ def answer_po(conn: sqlite3.Connection, terms: dict, projects: list[str]) -> lis
                 # Every card that said it could not start, not just the one he
                 # happened to reply to.
                 control.clear_needs_info(conn, story["id"])
-                acted.append("unblocked → back in the groom queue")
+                acted.append(lane)
             else:
                 acted.append("recorded on the story")
 

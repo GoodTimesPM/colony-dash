@@ -761,7 +761,7 @@ def decisions_since(conn: sqlite3.Connection, since: str) -> int:
     """
     return conn.execute(
         "SELECT COUNT(*) n FROM escalations "
-        "WHERE po_decision IS NOT NULL AND resolved_at IS NOT NULL AND resolved_at > ?",
+        "WHERE po_decision IS NOT NULL AND resolved_at IS NOT NULL AND resolved_at >= ?",
         (since,),
     ).fetchone()["n"]
 
