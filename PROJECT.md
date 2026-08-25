@@ -368,6 +368,24 @@ names the state and the next move.
       again from the code rather than patching it a line at a time.
 - [ ] Update the published artifact — it still shows the pre-M1 design.
 
+## Finished 2026-08-25 — the completed panel reads its own fields
+
+Opening a completed dispatch showed two rows of `[object Object]` under SKIPPED
+and 294 rows of a single letter each under RISKS. The panel rendered every
+findings field with one helper that walks an array and prints each element, and
+only three of those fields are arrays of strings. `skipped` is a list of
+`{criterion, why}` objects, so each one stringified to `[object Object]`.
+`risks` and `learned` are single strings, and a `for..of` loop over a string
+hands back its characters, so a 294-character risk note became 294 rows.
+
+The helper now refuses anything that is not an array. `skipped` is flattened to
+`criterion — why` first, matching how the approval card already renders it,
+and `risks` and `learned` go through `sectionBlock` as the prose they are.
+`needs_run` was not rendered at all and now is, as `command — why`: the
+commands an agent handed over rather than ran are half the explanation for a
+skipped criterion, and the card that carried them is closed by the time anyone
+opens this panel.
+
 ## Finished 2026-08-25 — a run that comes back green is not a run that proved anything
 
 Ticket #68 skipped the same two criteria ticket #62 skipped, and the reason it
