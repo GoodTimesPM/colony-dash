@@ -314,6 +314,10 @@ def apply_patch(ticket_id: int) -> dict:
     the patch had applied, and the PO was sent back to a tree with conflict
     markers in it that nothing had told him about.
 
+    Between the two sits a plain worktree apply, for the common case where the
+    only thing wrong is that the PO has staged work of his own on a file the
+    patch touches. See the comment on it below.
+
     So a conflict is now reported as a conflict, by name, and the caller keeps
     the escalation open because finishing the merge is the PO's job.
     """
@@ -325,11 +329,31 @@ def apply_patch(ticket_id: int) -> dict:
         raise WorktreeError("the patch is empty — the run changed nothing")
 
     files = text.count("\ndiff --git ") + text.startswith("diff --git ")
-    result = {"applied": True, "patch": str(patch), "files": files, "merged": False}
+    result = {"applied": True, "patch": str(patch), "files": files,
+              "merged": False, "staged": True}
 
     try:
         _git("apply", "--index", "--check", str(patch))
         _git("apply", "--index", str(patch))
+        return result
+    except WorktreeError:
+        pass
+
+    # Both index-aware passes refuse with "does not match index" as soon as one
+    # file the patch touches has staged work sitting on top of different
+    # worktree content — `MM` in `git status`. That is Jordan's ordinary state
+    # in assisted-apply, and it says nothing about whether the patch fits: the
+    # same patch that git called unappliable passed `git apply --check` against
+    # the worktree on the first try.
+    #
+    # So try the worktree on its own before reaching for the merge. This is
+    # still all-or-nothing and still exact — every context line has to match
+    # what is on disk — it just leaves the result unstaged, which is where an
+    # applied patch was going to sit anyway.
+    try:
+        _git("apply", "--check", str(patch))
+        _git("apply", str(patch))
+        result["staged"] = False
         return result
     except WorktreeError:
         pass

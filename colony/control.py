@@ -729,10 +729,20 @@ def _settle_patch(conn: sqlite3.Connection, esc: sqlite3.Row, decision: str,
         conn.execute(
             "UPDATE stories SET status = 'accepted', updated_at = datetime('now','localtime') "
             "WHERE id = ?", (story_id,))
+        how = ""
+        if not applied.get("staged", True):
+            # Worth saying out loud. It means a file the patch touched already
+            # had staged work of his own on it, so `git diff --cached` is not
+            # the whole picture of what just landed.
+            how = ("\n\nThis one went in unstaged: something the patch touches "
+                   "was already staged with different content in your working "
+                   "tree, so git would not let the patch near the index. "
+                   "`git diff` shows what landed.")
         _event(conn, story_id, "accepted",
                f"PO approved the patch — {applied['files']} file(s) applied, uncommitted",
-               "Review and commit it yourself; the colony does not commit.")
-    return f"{applied['files']} file(s) applied to your working tree, uncommitted"
+               "Review and commit it yourself; the colony does not commit." + how)
+    tail = "" if applied.get("staged", True) else " and unstaged (you had staged work on it)"
+    return f"{applied['files']} file(s) applied to your working tree, uncommitted" + tail
 
 
 def clear_spent_groom_tickets(conn: sqlite3.Connection) -> int:
