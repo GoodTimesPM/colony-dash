@@ -368,6 +368,76 @@ names the state and the next move.
       again from the code rather than patching it a line at a time.
 - [ ] Update the published artifact — it still shows the pre-M1 design.
 
+## Finished 2026-08-26 — the build that handed work back into silence
+
+"15 Part Job Search" was dispatched twice within three minutes, tickets #80 and
+#82, and both came back blocked with the same finding: every buildable criterion
+was already shipped, and the one remaining criterion needs a command the agent
+has no shell to run. Both agents wrote that command into `needs_run`, which is
+the mechanism built for exactly this handover. Neither request reached the PO.
+
+**`_raise_run_requests` was only called on the path that produced a patch.**
+`run_one` returns early when the diff is empty, and that early return skipped
+the handover, put the story back in `ready`, and left the ticket in the Ticket
+Queue reading `BLOCKED IMPLEMENT weekly-funnel-report-builder` — a state, an
+intent and a name, and not one word of why. `ready` then means "dispatch me",
+so the Inbox invited another dispatch, which produced another empty build and
+another silent handover. That is the loop, and it is visible in the ledger as
+two identical blocked tickets sitting next to a story the board called READY.
+
+The empty-build path now does what the patch path does. It stores the answer
+JSON as the ticket's findings so the skipped criteria and the requested commands
+survive on the record, it raises the run-request cards, it records the agent's
+`learned` note, and it hands the story to `_park_no_change`.
+
+**`_park_no_change` sends the story to `needs-info`, never back to `ready`.**
+Dispatching the same story to the same agent over the same tree produces the
+same empty build; `ready` is an invitation to do exactly that. `needs-info`
+carries the reason in `blocked_reason`, which the story panel and the Inbox both
+read, and it is the lane `pulse.ensure_blocked_visible` guarantees an open card
+for on every tick. When commands were handed over, those run-request cards are
+the open cards and no second card is raised. When nothing was handed over, a
+`needs-info` card goes up listing what the build skipped and why.
+
+### Ignored files the code actually reads
+
+Ticket #80's agent reported that `data/notion_sync_state.json` "isn't in this
+worktree", and it was right. `worktree.seed` copied tracked changes and
+untracked files, and `git ls-files --others --exclude-standard` excludes
+anything gitignored — which that file is, deliberately, because it is a
+rebuildable cache. It is also the file that decides what `apply.main auto` will
+sync, so an agent that cannot see it cannot say anything true about the sync.
+
+`worktree._ignored_in` adds a third pass. Ignored files inside the scope are
+grouped by their first path segment and a group is copied only if it holds
+`MAX_IGNORED_PER_GROUP` (12) files or fewer. That is the line between state and
+output, and it is drawn by count rather than by name so it needs no list to
+maintain: `data/` holds two files and comes in, `packets/` holds 1,582 and does
+not. Skipped groups are named in the work order rather than passed over in
+silence. Credential files are excluded here at every size — they keep their own
+gate in `sees_secrets`, and a second door into the same room would make the
+first one a decoration. Nothing from this pass can reach a patch: `git add -A`
+honours .gitignore, so none of it enters the base tree.
+
+Measured on the live tree: `job-search` yields three files copied and three
+directories named as skipped; `personal-desktop-projects` yields two files;
+`colony-dash` yields none.
+
+### Saying why on the page
+
+Three places said a thing was wrong without saying what.
+
+A blocked ticket sat in the Ticket Queue indefinitely. One that has closed is
+finished and now appears in Completed instead, where the tile reads `no changes`
+rather than `delivered` — calling an empty build a delivery is what let the same
+empty build be ordered twice. One still open stays in the queue and now shows
+the agent's own summary underneath it.
+
+A story's `blocked_reason` was the last row of the facts list in the story
+drawer, below the Notion sync timestamp. It is a banner at the top of the drawer
+now, before the facts, because it is the answer to the question that made the
+drawer worth opening.
+
 ## Finished 2026-08-26 — a failed run that left the story sitting in DELIVERED
 
 Three faults on one card, found together.

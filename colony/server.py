@@ -457,9 +457,11 @@ def _completed(conn: sqlite3.Connection, limit: int = 60) -> list[dict[str, Any]
                t.created_at, t.closed_at,
                s.title AS story_title, s.project, s.status AS story_status,
                s.settled_as, s.created_at AS story_created_at,
+               t.status,
                (SELECT MAX(p.closed_at) FROM tickets p
                  WHERE p.story_id = t.story_id AND p.intent = 'implement'
-                   AND p.status = 'done' AND p.closed_at < t.closed_at)  AS prev_at,
+                   AND p.status IN ('done','blocked')
+                   AND p.closed_at < t.closed_at)                        AS prev_at,
                (SELECT COUNT(*) FROM runs r WHERE r.ticket_id = t.id)     AS runs,
                (SELECT COALESCE(SUM(COALESCE(r.chargeable_tokens, r.total_tokens)), 0)
                   FROM runs r WHERE r.ticket_id = t.id)                   AS tokens,
@@ -467,7 +469,12 @@ def _completed(conn: sqlite3.Connection, limit: int = 60) -> list[dict[str, Any]
                   FROM runs r WHERE r.ticket_id = t.id)                   AS usd
           FROM tickets t
           LEFT JOIN stories s ON s.id = t.story_id
-         WHERE t.intent = 'implement' AND t.status = 'done'
+         -- A dispatch that wrote nothing still happened, still cost tokens and
+         -- still has an answer worth reading before the same work is ordered a
+         -- second time. It closed; it goes in the record. `outcome` below is
+         -- what tells the two apart on the tile.
+         WHERE t.intent = 'implement' AND t.closed_at IS NOT NULL
+           AND t.status IN ('done','blocked')
          ORDER BY t.closed_at DESC LIMIT ?
     """, (limit,)):
         found = _findings(t.pop("findings", None)) or {}
@@ -475,6 +482,7 @@ def _completed(conn: sqlite3.Connection, limit: int = 60) -> list[dict[str, Any]
                                 t.pop("story_created_at", None))
         out.append({
             "kind": "dispatch", "id": t["id"], "ref": "ticket #%d" % t["id"],
+            "outcome": "empty" if t["status"] == "blocked" else "delivered",
             "at": t["closed_at"], "since": since, "started_at": t["created_at"],
             "title": t["story_title"] or t["title"],
             "story_id": t["story_id"], "story_status": t["story_status"],
@@ -677,7 +685,7 @@ def _flight(conn: sqlite3.Connection) -> list[dict[str, Any]]:
         """
         SELECT t.id, t.story_id, t.title, t.intent, t.role, t.status, t.severity,
                t.requires_po, t.est_tokens, t.write_scope, t.created_at,
-               t.po_message_id,
+               t.po_message_id, t.closed_at, substr(t.findings, 1, 2000) AS findings,
                -- The reply itself, not the work order. A reply ticket's work
                -- order is a placeholder until the wake claims it and a 6,000
                -- character prompt afterwards; what makes the tile readable in
@@ -696,7 +704,8 @@ def _flight(conn: sqlite3.Connection) -> list[dict[str, Any]]:
                                        ORDER BY r2.started_at DESC LIMIT 1)
           LEFT JOIN agents a ON a.role = t.role
           LEFT JOIN roster ro ON ro.slug = a.roster_slug
-         WHERE t.status IN ('open','staffed','running','blocked')
+         WHERE t.status IN ('open','staffed','running')
+            OR (t.status = 'blocked' AND t.closed_at IS NULL)
          ORDER BY CASE t.status WHEN 'running' THEN 0 WHEN 'blocked' THEN 1
                                 WHEN 'staffed' THEN 2 ELSE 3 END, t.id DESC
         """,
@@ -714,6 +723,13 @@ def _flight(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     )
     out: list[dict[str, Any]] = []
     for t in tickets:
+        # A blocked ticket used to sit here forever saying only "blocked", which
+        # is a state and not a reason. Two identical ones sat in this rail for a
+        # day with nothing on the page explaining either. A blocked ticket that
+        # has closed is finished and belongs in Completed instead — the query
+        # above no longer selects it — and one still open says why here.
+        found = _findings(t.pop("findings", None)) or {}
+        t["note"] = (found.get("summary") or "").strip() if found else ""
         out.append({"key": f"t{t['id']}", "kind": "ticket", **t})
     for p in pushes:
         try:

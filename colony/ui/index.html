@@ -856,6 +856,36 @@ button.act.solid { background: var(--coral); border-color: var(--coral); color: 
 .fl .m .who { margin-left: auto; letter-spacing: 0; text-transform: none; }
 .fl .err { font-family: var(--mono); font-size: var(--step--2); color: var(--coral); }
 
+/* Why a blocked ticket is blocked, on the ticket itself. "BLOCKED IMPLEMENT
+   weekly-funnel-report-builder" names the state, the intent and the person and
+   answers none of the question actually being asked, which is what happened to
+   it. */
+.fl[data-state="blocked"] { background: var(--coral-ground); }
+.fl .note {
+  margin-top: 4px; color: var(--ink-soft); font-size: .84em; line-height: 1.35;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* The one sentence saying why a story is not moving, at the top of the story,
+   before the facts. It was a row in the definition list underneath, which is
+   where you look once you already know something is wrong. */
+.blocker {
+  border: 1px solid var(--coral); border-left-width: 3px;
+  background: var(--coral-ground); border-radius: 4px;
+  padding: 9px 11px; margin-bottom: 12px;
+}
+.blocker .h {
+  font-family: var(--mono); font-size: var(--step--2); letter-spacing: .08em;
+  text-transform: uppercase; color: var(--coral); margin-bottom: 4px;
+}
+.blocker .b { color: var(--ink); line-height: 1.45; white-space: pre-wrap; }
+
+/* A dispatch that closed without writing anything. Same tile, different word:
+   "delivered" on an empty build is the lie that let the same empty build be
+   ordered twice. */
+.tile.done[data-outcome="empty"] { border-left: 3px solid var(--amber); }
+
 /* The link between the two panels. One class, applied from either side, so the
    tile lights the row and the row lights the tile without two mechanisms. */
 .fl.lit    { border-color: var(--h-flight); background: var(--panel-sunk); }
@@ -2822,7 +2852,12 @@ function flightRow(f) {
              el("span", "who", f.role || (reply ? "waiting for Ordis" : "unstaffed")));
     row.append(m);
     if (reply && f.po_message) row.append(el("div", "said", "“" + f.po_message + "”"));
-    row.title = "ticket #" + f.id + " · " + (f.story_title || "") +
+    // A blocked ticket says what it found. Without this the rail carried two
+    // identical rows reading BLOCKED IMPLEMENT weekly-funnel-report-builder for
+    // a day, which is three facts and no information.
+    if (f.status === "blocked" && f.note) row.append(el("div", "note", f.note));
+    row.title = (f.status === "blocked" && f.note ? f.note + "\n\n" : "") +
+                "ticket #" + f.id + " · " + (f.story_title || "") +
                 (f.run_id ? " · run #" + f.run_id + " started " + ago(f.run_started_at)
                           : " · created " + ago(f.created_at));
   }
@@ -2887,10 +2922,11 @@ function completedTile(it) {
   const card = el("div", "tile done");
   card.tabIndex = 0;
   card.dataset.kind = it.kind;
+  if (it.outcome) card.dataset.outcome = it.outcome;
 
   const k = el("div", "k");
   k.append(el("span", null, it.kind === "dispatch"
-    ? "delivered  ·  " + it.ref
+    ? (it.outcome === "empty" ? "no changes" : "delivered") + "  ·  " + it.ref
     : "filed " + (it.settled_as || "") + "  ·  " + it.ref));
   k.append(relNode("age", it.at));
   card.append(k);
@@ -4516,13 +4552,22 @@ async function openStory(id) {
   renderTrail();
   body.replaceChildren();
 
+  // Before anything else, if this story is not moving, why. It used to be the
+  // last row of the list below, which is where you look after you have already
+  // worked out that something is wrong.
+  if (s.blocked_reason) {
+    const box = el("div", "blocker");
+    box.append(el("div", "h", "not moving · " + (STATUS_LABEL[s.status] || s.status)),
+               el("div", "b", s.blocked_reason));
+    body.append(box);
+  }
+
   const facts = el("dl", "kv");
   const add = (k, v) => { facts.append(el("dt", null, k), el("dd", null, v)); };
   add("project", s.project ? `${s.project} (${s.project_source})` : "none");
   add("priority", ["", "high", "medium", "low"][s.priority] || s.priority);
   add("notion", s.notion_status || "—");
   add("synced", s.notion_synced_at || "—");
-  if (s.blocked_reason) add("blocked", s.blocked_reason);
   body.append(facts);
 
   // Say something about this story without waiting to be asked about it.

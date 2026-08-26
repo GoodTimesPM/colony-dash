@@ -125,6 +125,18 @@ def seeded_note(seeded: dict | None) -> str:
             "them. If a criterion turns on whether a key is configured, say that "
             "you could not see the file. An absent `.env` means the setting is "
             "not visible to you, not that it is unset.")
+    if seeded.get("ignored"):
+        lines.append(
+            f"{seeded['ignored']} git-ignored file(s) were copied in too — runtime "
+            f"state such as a sync cache or a log, which git does not track but the "
+            f"code reads. They are current. Edits you make to them are discarded "
+            f"and never reach a patch, the same as a credential file.")
+    if seeded.get("ignored_skipped"):
+        lines.append(
+            "These ignored directories were left out for being generated output: "
+            + ", ".join(seeded["ignored_skipped"])
+            + ". If a criterion turns on something in one of them, say that you "
+            "could not see it.")
     if seeded.get("skipped"):
         lines.append(f"{len(seeded['skipped'])} untracked file(s) were too large to "
                      f"copy and are absent.")
@@ -336,16 +348,34 @@ def run_one(conn: sqlite3.Connection, ticket: sqlite3.Row) -> dict:
     summary = (answer.get("summary") or clip(result.text, 200) or "build finished").strip()
 
     if not patch.strip():
+        # A build that wrote nothing is not the same as a build that did
+        # nothing, and this branch used to treat them as one. It skipped
+        # `_raise_run_requests`, which only ever ran on the path that produced a
+        # patch, so an agent whose only remaining work was a command it has no
+        # shell for had its handover dropped. The story went back to `ready`,
+        # the Inbox said "ready to start", the PO dispatched it again, and the
+        # same agent wrote the same handover into the same silence. Tickets #80
+        # and #82 are the identical pair that came of it.
+        #
+        # The findings are stored as the answer JSON now, not the raw text, so
+        # the skipped criteria and the commands it asked for survive on the
+        # ticket and can be read back from the completed panel.
         conn.execute(
             "UPDATE tickets SET status = 'blocked', findings = ?, "
             "closed_at = datetime('now','localtime') WHERE id = ?",
-            (result.error or result.text or "no changes", tid),
+            (json.dumps(answer, indent=2) if answer
+             else (result.error or result.text or "no changes"), tid),
         )
-        conn.execute("UPDATE stories SET status = 'ready' WHERE id = ?", (sid,))
         _event(conn, sid, "note", f"build changed nothing: {summary}",
                result.text or None, tid, result.chargeable_tokens)
+        if answer.get("learned"):
+            _event(conn, sid, "learning", clip(str(answer["learned"]), 400),
+                   str(answer["learned"]), tid, 0)
+        handed = _raise_run_requests(conn, ticket, answer)
+        _park_no_change(conn, ticket, answer, handed)
         worktree.remove(tid)
-        outcome["verdict"] = "no changes"
+        outcome["verdict"] = (f"handed off {handed} command(s)" if handed
+                              else "no changes")
         return outcome
 
     path = worktree.save_patch(tid, patch)
@@ -388,6 +418,65 @@ def run_one(conn: sqlite3.Connection, ticket: sqlite3.Row) -> dict:
 
     outcome["verdict"] = f"patch ready ({files} file{'s' if files != 1 else ''})"
     return outcome
+
+
+def _park_no_change(conn: sqlite3.Connection, ticket: sqlite3.Row,
+                    answer: dict, handed: int) -> None:
+    """Where a story goes when the build wrote no files.
+
+    Not back to `ready`. `ready` means "dispatch me", and dispatching the same
+    story to the same agent over the same tree produces the same empty build —
+    that loop is what put two identical blocked tickets in the Ticket Queue with
+    nothing anywhere on the page saying why.
+
+    It waits in `needs-info` instead. That is the lane the board reads as "the
+    colony is stopped and needs the PO", it carries the reason in
+    `blocked_reason` where the story panel and the Inbox both show it, and it is
+    the lane `pulse.ensure_blocked_visible` guarantees an open card for on every
+    tick. When commands were handed over, those run-request cards are the open
+    cards and the invariant is already satisfied; a second card saying the same
+    thing in weaker words is noise.
+    """
+    sid = ticket["sid"]
+    if handed:
+        why = (f"The build found nothing left for it to write. {handed} command(s) "
+               f"it has no shell to run are waiting on your yes or no in the "
+               f"Inbox, and the story moves again as soon as one has been run.")
+    else:
+        why = ("The build ran and changed no files. "
+               + (clip(str(answer.get("summary") or ""), 300)
+                  or "The agent gave no reason.")
+               + " Dispatching it again as it stands produces the same empty "
+                 "build, so it is parked until the criteria or the tree change.")
+    conn.execute(
+        "UPDATE stories SET status = 'needs-info', blocked_reason = ?, "
+        "updated_at = datetime('now','localtime') "
+        "WHERE id = ? AND status <> 'archived'", (why, sid))
+    if handed:
+        return
+
+    story = conn.execute("SELECT title, notion_hash FROM stories WHERE id = ?",
+                         (sid,)).fetchone()
+    if not story:
+        return
+    open_card = conn.execute(
+        "SELECT id FROM escalations WHERE story_id = ? AND kind = 'needs-info' "
+        "AND resolved_at IS NULL", (sid,)).fetchone()
+    if open_card:
+        return
+    body = [why]
+    for sk in (answer.get("skipped") or []):
+        if isinstance(sk, dict):
+            body.append(f"Skipped: {sk.get('criterion')}\n— {sk.get('why')}")
+    body.append("Change what it is being asked for, or drop the criterion it "
+                "could not meet, and dispatch again.")
+    conn.execute(
+        """INSERT INTO escalations (story_id, ticket_id, kind, reason,
+                                    recommendation, raised_hash)
+           VALUES (?,?,'needs-info',?,?,?)""",
+        (sid, ticket["id"],
+         f'"{story["title"]}" was built and nothing changed.',
+         control.card_text("\n\n".join(body)), story["notion_hash"]))
 
 
 def _raise_run_requests(conn: sqlite3.Connection, ticket: sqlite3.Row,
