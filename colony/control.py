@@ -647,6 +647,11 @@ def _settle_run(conn: sqlite3.Connection, esc: sqlite3.Row, decision: str,
         return "not run"
 
     result = runner.execute(command, project)
+    # What ran, not what was asked for. `execute` drops a leading `cd` into the
+    # folder it was going to use anyway, and a story that records the version
+    # with the `cd` still on it sends the next reader looking for a path error
+    # that was never there.
+    command = result["command"]
     expect = proposal.get("expect") or ""
     text = runner.transcript(result, expect)
     verdict, why = runner.judge(result)
@@ -664,17 +669,76 @@ def _settle_run(conn: sqlite3.Connection, esc: sqlite3.Row, decision: str,
                head, text)
         # Back to the queue, not forward. The command answered something; what
         # that means for the story is a decision, and decisions are the PO's.
-        conn.execute(
-            "UPDATE stories SET status = 'ready', updated_at = datetime('now','localtime') "
-            "WHERE id = ? AND status NOT IN ('archived','accepted')", (story_id,))
+        #
+        # A run that did not come back clean is the harder case, and the old
+        # guard got it wrong: it skipped `accepted` stories, so "15 Part Job
+        # Search" was told its run had failed and sat in DELIVERED anyway, with
+        # the card's own reply claiming it had gone back to the queue. A story
+        # whose verification failed is not delivered. It goes to `needs-info`
+        # from any lane but `archived`, carrying the reason, which also hands it
+        # to `pulse.ensure_blocked_visible` — that invariant runs every tick and
+        # re-raises the card for any blocked story that has lost one, so this
+        # cannot go quiet.
+        if verdict == "clean":
+            conn.execute(
+                "UPDATE stories SET status = 'ready', "
+                "updated_at = datetime('now','localtime') "
+                "WHERE id = ? AND status NOT IN ('archived','accepted')", (story_id,))
+        else:
+            conn.execute(
+                "UPDATE stories SET status = 'needs-info', blocked_reason = ?, "
+                "updated_at = datetime('now','localtime') "
+                "WHERE id = ? AND status <> 'archived'",
+                (f"`{command}` was run to settle a criterion and {why}. "
+                 "Read the run on the story, then either fix what it found and "
+                 "dispatch again, or say the criterion no longer needs it.",
+                 story_id))
+            _raise_failed_run(conn, story_id, command, why)
     _record(conn, "run", "escalation", esc["id"],
             f"{command} — exit " + str(result["code"]))
     if result["timed_out"]:
         return f"gave up after {runner.TIMEOUT_S}s"
     if verdict != "clean":
-        return f"ran it — {why}. Nothing is settled; the story is back in the queue."
+        # Say the lane it is actually in. The previous wording named a lane the
+        # SQL above had declined to move it to.
+        return (f"ran it — {why}. Nothing is settled; the story is parked in "
+                "NEEDS INFO with the run on it and a card in your Inbox.")
     return (f"ran it — exit {result['code']}, {len(result['out'])} characters of "
             "output. Nothing in it contradicts what the agent expected.")
+
+
+def _raise_failed_run(conn: sqlite3.Connection, story_id: int,
+                      command: str, why: str) -> None:
+    """Put a failed verification in front of the PO now, not eventually.
+
+    Jordan's rule, after watching a run fail into silence: an error like this is
+    escalated immediately. So the card goes up in the same transaction that
+    parks the story, and it is a `needs-info` card on purpose — that is the
+    kind `pulse.ensure_blocked_visible` guarantees for a blocked story, so if
+    anything closes this one without the story moving, the next tick puts it
+    back.
+    """
+    story = conn.execute("SELECT title, notion_hash FROM stories WHERE id = ?",
+                         (story_id,)).fetchone()
+    if not story:
+        return
+    open_card = conn.execute(
+        "SELECT id FROM escalations WHERE story_id = ? AND kind = 'needs-info' "
+        "AND resolved_at IS NULL", (story_id,)).fetchone()
+    if open_card:
+        return
+    conn.execute(
+        """INSERT INTO escalations (story_id, kind, reason, recommendation, raised_hash)
+           VALUES (?,'needs-info',?,?,?)""",
+        (story_id,
+         f'"{story["title"]}" is stuck: the command it was verified with failed.',
+         card_text(
+             f"$ {command}\n\n{why.capitalize()}.\n\n"
+             "The whole transcript is on the story, under the run that produced "
+             "it. Nothing was accepted on the strength of that run. Fix what it "
+             "found and dispatch again, or answer here that the criterion no "
+             "longer needs the command."),
+         story["notion_hash"]))
 
 
 def _settle_patch(conn: sqlite3.Connection, esc: sqlite3.Row, decision: str,

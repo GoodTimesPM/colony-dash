@@ -167,6 +167,10 @@ WRITE SCOPE — you may create and edit files ONLY under:
 Everywhere else in this checkout is READ-ONLY to you. You have no shell: no
 git commands, no package installs, no network.
 
+Your command runs inside the project folder already. Do not begin it with
+`cd` — the folder is the write scope, and a command that starts by leaving it
+is refused.
+
 You are not the only one working on this. When a criterion needs a command run
 — a script, a test, a real API call — do not skip it and do not fake it. Put
 the command in `needs_run` with the criterion it answers and what a correct
@@ -415,7 +419,11 @@ def _raise_run_requests(conn: sqlite3.Connection, ticket: sqlite3.Row,
         expect = str(item.get("expect") or "").strip()
         try:
             command = runner.check(command)
-            runner.check_folder(ticket["project"])
+            # Cleaned here rather than at run time so the card shows the line
+            # that will actually be run, and so a `cd` out of the project folder
+            # is refused before it is ever put in front of the PO.
+            command = runner._drop_leading_cd(
+                command, runner.check_folder(ticket["project"]))
         except runner.RunRefused as exc:
             _event(conn, ticket["sid"], "note",
                    f"{ticket['role']} asked to run a command the colony will not run",

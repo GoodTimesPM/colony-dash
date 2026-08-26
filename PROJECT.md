@@ -368,6 +368,54 @@ names the state and the next move.
       again from the code rather than patching it a line at a time.
 - [ ] Update the published artifact — it still shows the pre-M1 design.
 
+## Finished 2026-08-26 — a failed run that left the story sitting in DELIVERED
+
+Three faults on one card, found together.
+
+**The command never ran.** The build agent wrote
+`cd "job-search/assisted-apply"; py -m apply.main auto`, which is how anyone
+would type it in a terminal. `runner.execute` already puts the shell in the
+project folder, so the `cd` resolved to
+`job-search/assisted-apply/job-search/assisted-apply`, and the run died with
+"The system cannot find the path specified" before reaching `apply.main`. The
+exit code was 1 and the failure was entirely the colony's.
+
+A leading `cd` into the folder the run is already scoped to is now dropped, in
+`runner._drop_leading_cd`. A leading `cd` anywhere else is refused, because the
+folder a command runs in is the write scope the PO approved. The cleaning
+happens when the card is raised, not when it is run, so the card shows the line
+that will actually be executed, and the story records that line too.
+
+**The story stayed in DELIVERED while the card said otherwise.** `_settle_run`
+sent the story back to `ready` with `AND status NOT IN ('archived','accepted')`.
+Story #1 was `accepted`, so the update matched nothing, and the reply on the
+card still read "the story is back in the queue". A story whose verification
+failed is not delivered. A run that is not `clean` now parks the story in
+`needs-info` from any lane but `archived`, with the verdict written into
+`blocked_reason`.
+
+**Nothing escalated.** The failed run produced a `blocked` event and no card, so
+the board went quiet with a broken story showing as delivered. `_settle_run`
+now raises the `needs-info` card in the same transaction. That kind is
+deliberate: `pulse.ensure_blocked_visible` guarantees a card for any blocked
+story that has lost one, every tick, so a failure here cannot go silent again.
+
+`runner.judge` also learned to read `0 newly-applied row(s) in the Job Radar
+Tracker` as counting zero of the thing it was asked to touch. The old pattern
+wanted the noun immediately after the zero and did not allow `row(s)`.
+
+### What is actually wrong with 15 Part Job Search
+
+Run properly, `py -m apply.main auto` exits 0 and prints
+`0 newly-applied row(s) in the Job Radar Tracker`. It queries the Job Radar
+Tracker for rows with `Date Applied` filled and subtracts the page ids in
+`data/notion_sync_state.json`, which already holds 32 of them. Every row that
+qualifies has been consumed, so the criterion — "verified against a real Job
+Radar Tracker row" — cannot be met by that command alone. It needs a fresh
+application, or an id cleared out of the state file to replay one, or a
+criterion that does not require a live row. Story #1 is parked in `needs-info`
+with that question on the card.
+
 ## Finished 2026-08-25 — a patch that fits, refused for a reason of git's own
 
 Applying ticket #75 failed with `job-search/assisted-apply/PROJECT.md: does not
