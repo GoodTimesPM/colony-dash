@@ -368,6 +368,30 @@ names the state and the next move.
       again from the code rather than patching it a line at a time.
 - [ ] Update the published artifact — it still shows the pre-M1 design.
 
+## Finished 2026-08-25 — a patch that fits, refused for a reason of git's own
+
+Applying ticket #75 failed with `job-search/assisted-apply/PROJECT.md: does not
+match index`. The patch was fine. `git apply --check` accepted it against the
+working tree on the first try.
+
+Both passes `apply_patch` had were index-aware. `--index` writes the index, and
+`--3way` reads it to find the blobs it merges from, so both refuse when a file
+the patch touches is `MM` in `git status` — staged with one content, on disk
+with another. PROJECT.md was exactly that: a staged edit from earlier work plus
+an unstaged tick of the `NOTION_OG_TRACKER_DB` checkbox. That combination says
+nothing about whether the patch applies, and it is Jordan's ordinary state in
+assisted-apply, so every patch touching that project was going to be refused.
+
+There is now a plain `git apply` between the two. It is as strict as the first
+pass — all-or-nothing, every context line matched against what is on disk —
+and it simply does not involve the index. The result lands unstaged, which is
+where an applied patch was going anyway, and both the story event and the
+card's reply say so, because `git diff --cached` is not the whole picture when
+the PO already had work staged on the same file.
+
+The three-way merge stays last, where it belongs: it is the only pass that can
+write conflict markers, so it should be the one nothing else could replace.
+
 ## Finished 2026-08-25 — the completed panel reads its own fields
 
 Opening a completed dispatch showed two rows of `[object Object]` under SKIPPED
