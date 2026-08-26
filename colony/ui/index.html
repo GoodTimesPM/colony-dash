@@ -1453,6 +1453,15 @@ button.pulse[disabled] { cursor: default; }
   font-family: var(--mono); font-size: var(--step--2); color: var(--ink-dim);
   letter-spacing: .04em;
 }
+/* Model and effort sit on the bar rather than in a settings panel because the
+   right answer changes per message: "why is this panel empty" and "rewrite the
+   scheduler" are not the same purchase, and the price between them is most of
+   an order of magnitude. A control you have to go looking for is a control
+   nobody moves. */
+.console .bar select.pick { padding: 3px 6px; font-size: var(--step--2); flex: 0 0 auto; }
+.console .bar .sep { flex: 1 1 12px; }
+.console .prompt .cmds { display: flex; align-items: center; gap: 7px; }
+.console .prompt select.pick { padding: 3px 6px; font-size: var(--step--2); max-width: 220px; }
 /* Said plainly, once, at the top. This chat can run `rm -rf`; a person opening
    it should not have to infer that from the fact that it works. */
 .console .warn {
@@ -4639,10 +4648,51 @@ async function openConsole() {
   const bar = el("div", "bar");
   const cwd = el("div", "cwd");
   const meta = el("div", "meta");
+
+  // Both dropdowns are built from what the server says the CLI accepts, not
+  // from a list typed in here. A hard-coded menu is a menu that lies the first
+  // time a model alias moves.
+  const model = el("select", "pick");
+  model.title = "which model answers the next message";
+  for (const m of data.models) {
+    const o = el("option", null, m.id);
+    o.value = m.id; o.title = m.why;
+    model.append(o);
+  }
+  const effort = el("select", "pick");
+  effort.title = "how hard it thinks before it acts";
+  for (const e of data.efforts) {
+    const o = el("option", null, e.id);
+    o.value = e.id; o.title = e.why;
+    effort.append(o);
+  }
+
+  // Compact is a real turn, not a local button: it sends `/compact` into the
+  // same session, so the summarising happens where the context actually lives.
+  // That is also why it costs tokens and shows up in the tape like anything
+  // else -- it is work, and work on this page is always billed out loud.
+  const compact = el("button", "act", "compact");
+  compact.title = "summarise this conversation so far and keep going in less context";
   const clear = el("button", "act", "clear");
   clear.title = "start a new conversation \u2014 he forgets everything above this line";
-  bar.append(cwd, meta, clear);
+  bar.append(cwd, model, effort, el("div", "sep"), meta, compact, clear);
   wrap.append(bar);
+
+  model.onchange = () => setOpts({ model: model.value });
+  effort.onchange = () => setOpts({ effort: effort.value });
+
+  async function setOpts(patch) {
+    try {
+      const res = await fetch("/api/console/options", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Colony": "1" },
+        body: JSON.stringify(patch),
+      });
+      const out = await res.json().catch(() => ({}));
+      if (!res.ok) { toast(out.detail || "could not change that", "bad"); return; }
+      paint(out);
+    } catch (_) { toast("the console did not answer", "bad"); }
+  }
 
   wrap.append(el("div", "warn",
     "This is not a colony ticket. It runs with a real shell at the path above, "
@@ -4657,9 +4707,36 @@ async function openConsole() {
   const box = el("textarea", "console-box");
   box.placeholder = "what do you want changed? enter sends, shift+enter for a new line";
   const row = el("div", "row");
+
+  // The command list is read off disk by the server -- the verified built-ins
+  // plus whatever skills are actually installed -- so it cannot drift from
+  // what the CLI would accept. Picking one pastes it at the cursor and hands
+  // focus back; it never sends. Typing "/comp" and guessing the rest is the
+  // thing this replaces.
+  const cmds = el("select", "pick");
+  cmds.title = "paste a slash command at the cursor";
+  const head = el("option", null, "/ command…");
+  head.value = "";
+  cmds.append(head);
+  for (const c of data.commands) {
+    const o = el("option", null, c.name);
+    o.value = c.name; o.title = c.why || c.name;
+    cmds.append(o);
+  }
+  cmds.onchange = () => {
+    const pick = cmds.value;
+    cmds.value = "";
+    if (!pick) return;
+    const a = box.selectionStart, b = box.selectionEnd;
+    const text = pick + " ";
+    box.value = box.value.slice(0, a) + text + box.value.slice(b);
+    box.selectionStart = box.selectionEnd = a + text.length;
+    box.focus();
+  };
+
   const hint = el("div", "hint");
   const send = el("button", "act go", "send");
-  row.append(hint, send);
+  row.append(cmds, hint, send);
   prompt.append(box, row);
   wrap.append(prompt);
 
@@ -4697,7 +4774,14 @@ async function openConsole() {
     cwd.title = "the shell runs here";
     meta.textContent = toks(st.tokens) + " this chat \u00b7 $" + st.cost_usd.toFixed(2);
     const busy = st.busy;
+    if (st.model) model.value = st.model;
+    if (st.effort) effort.value = st.effort;
     send.disabled = busy;
+    // Nothing to compact until there is a session to compact, and the CLI says
+    // so in as many words ("Not enough messages to compact") rather than
+    // failing -- but a button that spends tokens to be told that is a bad
+    // button, so it stays off until the conversation exists.
+    compact.disabled = busy || !st.resuming;
     clear.disabled = busy || !st.turns.length;
     box.disabled = false;
     send.textContent = busy ? "working\u2026" : "send";
@@ -4721,10 +4805,14 @@ async function openConsole() {
     try { paint(await getJSON("/api/console")); } catch (_) {}
   }, CONSOLE_POLL_MS);
 
-  async function fire() {
-    const text = box.value.trim();
+  // `override` is how the compact button gets in: it is an ordinary message
+  // with a fixed body, so it queues behind a running turn and gets refused the
+  // same way, instead of being a second path into the same lock.
+  async function fire(override) {
+    const text = (typeof override === "string" ? override : box.value).trim();
     if (!text) return;
     send.disabled = true;
+    compact.disabled = true;
     try {
       const res = await fetch("/api/console/send", {
         method: "POST",
@@ -4733,7 +4821,7 @@ async function openConsole() {
       });
       const out = await res.json().catch(() => ({}));
       if (!res.ok) { toast(out.detail || ("refused (" + res.status + ")"), "bad"); send.disabled = false; return; }
-      box.value = "";
+      if (typeof override !== "string") box.value = "";
       paint(await getJSON("/api/console"));
     } catch (err) {
       toast("the console did not answer \u2014 is the server still up?", "bad");
@@ -4741,7 +4829,8 @@ async function openConsole() {
     }
   }
 
-  send.onclick = fire;
+  send.onclick = () => fire();
+  compact.onclick = () => fire("/compact");
   box.onkeydown = (e) => {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); fire(); }
   };
