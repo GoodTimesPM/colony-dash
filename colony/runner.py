@@ -89,6 +89,42 @@ def check_folder(project: str) -> Path:
     return path
 
 
+# `cd job-search/assisted-apply; py -m apply.main auto` — written by an agent
+# that had no way to know the colony was going to put it in that folder already.
+# The cd then resolves against the project folder, finds no
+# assisted-apply/job-search/assisted-apply, and the whole run dies with "The
+# system cannot find the path specified" before the real command is reached.
+_LEADING_CD = re.compile(
+    r"""^\s*cd\s+(?P<path>"[^"]+"|'[^']+'|[^\s;&|]+)\s*(?:;|&&)\s*""")
+
+
+def _drop_leading_cd(command: str, cwd: Path) -> str:
+    """Strip a leading `cd` that only asks for the folder we are already in.
+
+    A cd somewhere else is a different thing and is refused: the folder a
+    command runs in is the write scope Jordan approved, and a command that
+    starts by leaving it has not been approved for wherever it lands.
+    """
+    while True:
+        found = _LEADING_CD.match(command)
+        if not found:
+            return command
+        raw = found.group("path").strip("\"'").replace("\\", "/")
+        here = Path(str(cwd)).resolve(strict=False)
+        # Relative to the folder we are in, and relative to the projects root,
+        # because an agent writing `cd job-search/assisted-apply` means the
+        # second one and has no idea it is already there.
+        landings = {(cwd / raw).resolve(strict=False),
+                    (ROOT / raw.lstrip("/")).resolve(strict=False)}
+        if here not in landings:
+            raise RunRefused(
+                f"the command starts by changing directory to {raw!r}, which is "
+                "not the folder this run is scoped to")
+        command = command[found.end():].strip()
+        if not command:
+            raise RunRefused("that command is a `cd` and nothing else")
+
+
 def execute(command: str, project: str) -> dict:
     """Run one command in one project folder and bring back everything it said.
 
@@ -98,6 +134,7 @@ def execute(command: str, project: str) -> dict:
     """
     command = check(command)
     cwd = check_folder(project)
+    command = _drop_leading_cd(command, cwd)
 
     try:
         # shell=True: the commands on these cards are written the way Jordan
@@ -167,7 +204,14 @@ SUSPECT = [
      "it printed a traceback"),
     (re.compile(r"\bno tests? (ran|were run|collected|found)\b", re.I),
      "no test ran"),
-    (re.compile(r"\b0 (passed|tests?|rows?|files?|records?|items?)\b", re.I),
+    # `0 newly-applied row(s) in the Job Radar Tracker` — the real output of
+    # `py -m apply.main auto`, and the reason the noun is allowed to sit a few
+    # words away from the zero and to be written `row(s)`. A command run to
+    # prove a sync touched a row, reporting that it touched none, is the exact
+    # thing this verdict exists to catch.
+    (re.compile(r"\b0 (?:[a-z][\w'-]* ){0,3}"
+                r"(?:pass(?:ed|es)?|tests?|rows?|files?|records?|items?|entries"
+                r"|entry|matches|results?|jobs?|applications?)(?:\(s\))?\b", re.I),
      "it counted zero of the thing it was supposed to touch"),
     (re.compile(r"\bfail(ed|ure|ures|s)?\b", re.I),
      "the output says something failed"),
