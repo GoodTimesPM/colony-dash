@@ -49,6 +49,20 @@ MAX_SEED_TOTAL_BYTES = 64 * 1024 * 1024
 # contains the worktree we are filling.
 SEED_SKIP_DIRS = {".git", ".colony", "__pycache__", "node_modules", ".venv", "venv"}
 
+# Git-ignored files are not all build output. Some of them are the state the
+# code reads at runtime: `data/notion_sync_state.json` is the dedupe cache
+# `apply.main auto` consults before it syncs anything, and a build agent that
+# cannot see it cannot say one true thing about what the sync has already
+# consumed. Ticket #80's agent reported the file "isn't in this worktree" and
+# stopped there, which is why this pass exists.
+#
+# Generated directories are still left out, and they are told apart by count
+# rather than by name: `packets/` holds over two thousand ignored files and is
+# plainly output, `data/` holds two and is plainly state. A group above the
+# threshold is skipped whole and named in the report so the agent is told what
+# it is missing rather than left to guess.
+MAX_IGNORED_PER_GROUP = 12
+
 
 class WorktreeError(RuntimeError):
     """git refused. The caller turns this into a blocked ticket, never a crash."""
@@ -132,6 +146,42 @@ def _untracked_in(scope: list[str]) -> list[str]:
     return [p for p in raw.split("\0") if p]
 
 
+def _ignored_in(scope: list[str]) -> tuple[list[str], list[str]]:
+    """Git-ignored files in scope that are runtime state, not build output.
+
+    Returns the files worth copying and a description of each group that was
+    skipped for being too numerous to be anything but generated output.
+
+    Credential files are excluded here at every size. They have their own gate
+    — `sees_secrets` on the contract — and a second door into the same room
+    would make that gate a decoration.
+    """
+    if not scope:
+        return [], []
+    raw = _git("ls-files", "--others", "--ignored", "--exclude-standard", "-z",
+               "--", *scope)
+    groups: dict[tuple[str, str], list[str]] = {}
+    for rel in (p for p in raw.split("\0") if p):
+        if SEED_SKIP_DIRS & set(rel.split("/")):
+            continue
+        if rel.rsplit("/", 1)[-1] in SECRET_NAMES:
+            continue
+        folder = next((f for f in scope if rel == f or rel.startswith(f + "/")), "")
+        rest = rel[len(folder):].lstrip("/")
+        head = rest.split("/")[0] if "/" in rest else ""
+        groups.setdefault((folder, head), []).append(rel)
+
+    keep: list[str] = []
+    dropped: list[str] = []
+    for (folder, head), found in sorted(groups.items()):
+        if len(found) <= MAX_IGNORED_PER_GROUP:
+            keep.extend(found)
+            continue
+        where = "/".join(p for p in (folder, head) if p) or folder
+        dropped.append(f"{where}/ ({len(found)} ignored files)")
+    return sorted(keep), dropped
+
+
 def _secret_files(scope: list[str]) -> list[str]:
     """Credential files worth handing to a contract that is allowed them.
 
@@ -179,7 +229,8 @@ def seed(ticket_id: int, scope: list[str], secrets: bool = False) -> dict:
     """
     path = path_for(ticket_id)
     scope = [f.strip("/") for f in (scope or []) if f.strip("/")]
-    report = {"tracked": 0, "untracked": 0, "secrets": [], "skipped": []}
+    report = {"tracked": 0, "untracked": 0, "ignored": 0, "secrets": [],
+              "skipped": [], "ignored_skipped": []}
 
     total = 0
     for rel in _dirty_tracked():
@@ -200,6 +251,23 @@ def seed(ticket_id: int, scope: list[str], secrets: bool = False) -> dict:
             continue
         total += _copy_into(rel, path)
         report["untracked"] += 1
+
+    # Ignored state last of the three content passes, and still before the tree
+    # is written. `git add -A` honours .gitignore, so none of this reaches the
+    # base tree and none of it can turn up in a patch — the agent reads these
+    # files and cannot ship them, which is exactly the arrangement `.env` has.
+    keep, dropped = _ignored_in(scope)
+    report["ignored_skipped"] = dropped
+    for rel in keep:
+        try:
+            size = (ROOT / rel).stat().st_size
+        except OSError:
+            continue
+        if size > MAX_SEED_FILE_BYTES or total + size > MAX_SEED_TOTAL_BYTES:
+            report["skipped"].append(rel)
+            continue
+        total += _copy_into(rel, path)
+        report["ignored"] += 1
 
     _git("add", "-A", cwd=path)
     BASE_DIR.mkdir(parents=True, exist_ok=True)
