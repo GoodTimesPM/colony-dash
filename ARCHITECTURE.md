@@ -675,6 +675,21 @@ Clearing the chat starts a new `epoch` rather than deleting rows. The tokens wer
 spent either way, and a conversation that can erase its own cost is a conversation
 that can lie about it.
 
+Model and effort are per-conversation settings on the bar (`console_state.model`,
+`console_state.effort`, migration 025), not constants in the module. The price
+difference between `haiku`/`low` and `opus`/`max` on the same question is close to
+an order of magnitude, and which one is right changes per message rather than per
+install. *Compact* is not a local control either: it sends `/compact` as an
+ordinary turn, so it queues behind a running turn, gets refused the same way, and
+appears in the tape with what it cost.
+
+The floor for a turn is roughly 30–35k tokens and it is not CLAUDE.md — that file
+is 2.2 KB, about 570 tokens, under two percent of it. The rest is Claude Code's
+own system prompt and the schemas for its built-in tools. It is not worth trimming:
+that prefix is cached, so a turn reads it for about $0.007, and every attempt to
+shrink it (`--tools` with a reduced set, `--strict-mcp-config`) writes a *new*
+cache prefix and costs four to thirty times more. Measured, not assumed.
+
 ---
 
 ## 9. The dashboard

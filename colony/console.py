@@ -44,7 +44,40 @@ from pathlib import Path
 from . import db, proc as proc_mod, voice
 
 CLAUDE_BIN = "claude"
-MODEL = "claude-sonnet-5"
+
+# What the dropdowns offer. The CLI takes an alias or a full name; the aliases
+# are used so this list does not go stale the week a point release ships.
+#
+# The default is sonnet on medium because most of what gets typed here is
+# "why is this panel empty" rather than "redesign the scheduler". Opus on max
+# is roughly an order of magnitude more expensive for the same question, which
+# is a fine trade when the question is hard and a waste when it is not -- so it
+# is a control on the bar rather than a constant in this file.
+MODELS = [
+    ("sonnet", "sonnet 5 - the default, fast and good enough for most of it"),
+    ("opus", "opus 5 - slower and dearer, for the changes that are actually hard"),
+    ("haiku", "haiku 4.5 - cheap, for a quick read or a one-line fix"),
+    ("fable", "fable 5"),
+]
+EFFORTS = [
+    ("low", "low - answer fast, do not deliberate"),
+    ("medium", "medium - the default"),
+    ("high", "high - think before acting"),
+    ("xhigh", "xhigh"),
+    ("max", "max - for a change that has to be right the first time"),
+]
+DEFAULT_MODEL = "sonnet"
+DEFAULT_EFFORT = "medium"
+
+# Slash commands that were checked to actually work through `claude -p`. Most
+# of the interactive ones do not (`/status` answers "isn't available in this
+# environment"), so this is a verified list rather than a copy of the help
+# screen. Skills are discovered from disk below and appended to it.
+BUILTIN_COMMANDS = [
+    ("/compact", "summarise the conversation so far and keep going in less context"),
+    ("/context", "what is in the context window right now, by category"),
+    ("/cost", "what this subscription window has been spent on"),
+]
 
 # Long, because this is a working shell and a real request ("run the test suite
 # and fix what fails") is minutes of work, not seconds. It is still a ceiling:
@@ -82,6 +115,96 @@ _lock = threading.Lock()
 _running = False
 
 
+# -- what you can type ---------------------------------------------------------
+
+_SKILL_DIRS = [
+    Path.home() / ".claude" / "skills",
+    Path.home() / ".claude" / "commands",
+]
+
+
+def _skill_summary(path: Path) -> str:
+    """The `description:` line out of a SKILL.md front-matter block."""
+    try:
+        head = path.read_text(encoding="utf-8", errors="replace")[:1200]
+    except OSError:
+        return ""
+    for line in head.splitlines():
+        if line.lower().startswith("description:"):
+            return line.split(":", 1)[1].strip().strip("'\"")[:140]
+    return ""
+
+
+def _installed_plugin_dirs() -> list[Path]:
+    """Where the *installed* plugins live, per the CLI's own manifest.
+
+    Not `~/.claude/plugins/marketplaces`. That directory is clones of every
+    marketplace Jordan has ever looked at, and globbing it offered a menu of
+    thirty skills of which one was installed. A dropdown that lists commands
+    that do not exist is worse than no dropdown.
+    """
+    manifest = Path.home() / ".claude" / "plugins" / "installed_plugins.json"
+    try:
+        data = json.loads(manifest.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    out: list[Path] = []
+    for installs in (data.get("plugins") or {}).values():
+        for install in installs or []:
+            where = install.get("installPath")
+            if where:
+                out.append(Path(where))
+    return out
+
+
+_cmd_cache: tuple[float, list[dict]] | None = None
+_CMD_TTL_S = 120
+
+
+def commands() -> list[dict]:
+    """Every slash command this console can actually send, read off disk.
+
+    Hard-coding a menu of skills would mean the dropdown lies the first time
+    Jordan installs one. So: the verified built-ins, then whatever is on disk
+    under the user's skills and commands folders, the project's `.claude`, and
+    the installed plugin marketplaces. Names only -- the dropdown pastes text
+    into the box, it does not run anything.
+
+    Cached for two minutes. The drawer polls this every 1.5 seconds and walking
+    the plugin marketplaces that often would be a directory scan per frame for
+    a list that changes when Jordan installs something, which is never during a
+    conversation.
+    """
+    global _cmd_cache
+    if _cmd_cache and time.monotonic() - _cmd_cache[0] < _CMD_TTL_S:
+        return _cmd_cache[1]
+
+    found: dict[str, str] = {name: why for name, why in BUILTIN_COMMANDS}
+
+    roots = list(_SKILL_DIRS) + [
+        db.PROJECTS_ROOT / ".claude" / "skills",
+        db.PROJECTS_ROOT / ".claude" / "commands",
+    ] + _installed_plugin_dirs()
+    for root in roots:
+        if not root.is_dir():
+            continue
+        # SKILL.md one or more levels down for skills and plugins; bare .md
+        # files for the older commands folder.
+        for hit in list(root.glob("**/SKILL.md"))[:200]:
+            name = "/" + hit.parent.name
+            found.setdefault(name, _skill_summary(hit))
+        # Bare `.md` files are commands only inside a `commands/` folder. A
+        # plugin's install root has a README.md in it, and `/README` is not a
+        # command.
+        if root.name == "commands":
+            for hit in list(root.glob("*.md"))[:200]:
+                found.setdefault("/" + hit.stem, "")
+
+    out = [{"name": n, "why": found[n]} for n in sorted(found)]
+    _cmd_cache = (time.monotonic(), out)
+    return out
+
+
 # -- reading -------------------------------------------------------------------
 
 def state(conn: sqlite3.Connection) -> dict:
@@ -104,7 +227,20 @@ def state(conn: sqlite3.Connection) -> dict:
         "tokens": int(spent["t"]), "cost_usd": float(spent["c"]),
         "lifetime_tokens": int(lifetime["t"]),
         "resuming": bool(row and row["session_id"]),
+        "model": _opt(row, "model") or DEFAULT_MODEL,
+        "effort": _opt(row, "effort") or DEFAULT_EFFORT,
+        "models": [{"id": i, "why": w} for i, w in MODELS],
+        "efforts": [{"id": i, "why": w} for i, w in EFFORTS],
+        "commands": commands(),
     }
+
+
+def _opt(row, key: str):
+    """Read a column that may predate the row. 025 adds two of them."""
+    try:
+        return row[key] if row else None
+    except (IndexError, KeyError):
+        return None
 
 
 # -- writing -------------------------------------------------------------------
@@ -132,6 +268,8 @@ def send(conn: sqlite3.Connection, text: str) -> dict:
     epoch = int(row["epoch"])
     session_id = row["session_id"]
     cwd = row["cwd"] or str(db.PROJECTS_ROOT)
+    model = _opt(row, "model") or DEFAULT_MODEL
+    effort = _opt(row, "effort") or DEFAULT_EFFORT
 
     with _lock:
         if _running:
@@ -167,11 +305,30 @@ def send(conn: sqlite3.Connection, text: str) -> dict:
 
     threading.Thread(
         target=_answer,
-        args=(turn_id, text, session_id, resume, cwd),
+        args=(turn_id, text, session_id, resume, cwd, model, effort),
         name=f"console-turn-{turn_id}",
         daemon=True,
     ).start()
     return {"turn_id": turn_id, "epoch": epoch}
+
+
+def set_options(conn: sqlite3.Connection, model: str | None,
+                effort: str | None) -> dict:
+    """Change the model or the effort level for the turns after this one.
+
+    Deliberately not refused mid-flight. The turn already running was launched
+    with the old pair and keeps it; changing the dropdown while you wait means
+    "the next one, please", which is what a person sitting there would mean.
+    """
+    if model is not None:
+        if model not in {i for i, _ in MODELS}:
+            raise ValueError(f"{model!r} is not one of the models on offer")
+        conn.execute("UPDATE console_state SET model = ? WHERE id = 1", (model,))
+    if effort is not None:
+        if effort not in {i for i, _ in EFFORTS}:
+            raise ValueError(f"{effort!r} is not an effort level")
+        conn.execute("UPDATE console_state SET effort = ? WHERE id = 1", (effort,))
+    return state(conn)
 
 
 def clear(conn: sqlite3.Connection) -> dict:
@@ -209,7 +366,8 @@ def set_cwd(conn: sqlite3.Connection, path: str | None) -> dict:
 
 # -- the shell -----------------------------------------------------------------
 
-def _answer(turn_id: int, prompt: str, session_id: str, resume: bool, cwd: str) -> None:
+def _answer(turn_id: int, prompt: str, session_id: str, resume: bool, cwd: str,
+            model: str = DEFAULT_MODEL, effort: str = DEFAULT_EFFORT) -> None:
     """Run one turn to completion and write the result. Never raises.
 
     Its own connection: this is a different thread, and a SQLite handle belongs
@@ -219,7 +377,7 @@ def _answer(turn_id: int, prompt: str, session_id: str, resume: bool, cwd: str) 
     started = time.monotonic()
     conn = db.connect()
     try:
-        result = _invoke(prompt, session_id, resume, cwd)
+        result = _invoke(prompt, session_id, resume, cwd, model, effort)
         conn.execute(
             "UPDATE console_turns SET body = ?, status = ?, session_id = ?, "
             "       tokens = ?, cost_usd = ?, elapsed_s = ?, error = ?, "
@@ -243,11 +401,13 @@ def _answer(turn_id: int, prompt: str, session_id: str, resume: bool, cwd: str) 
             _running = False
 
 
-def _invoke(prompt: str, session_id: str, resume: bool, cwd: str) -> dict:
+def _invoke(prompt: str, session_id: str, resume: bool, cwd: str,
+            model: str = DEFAULT_MODEL, effort: str = DEFAULT_EFFORT) -> dict:
     cmd = [
         CLAUDE_BIN, "-p",
         "--output-format", "json",
-        "--model", MODEL,
+        "--model", model,
+        "--effort", effort,
         "--dangerously-skip-permissions",
         "--append-system-prompt", SYSTEM + "\n" + voice.STYLE,
     ]

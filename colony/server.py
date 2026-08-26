@@ -2013,6 +2013,20 @@ def console_clear(body: dict = Body(default={}),
         conn.close()
 
 
+@app.post("/api/console/options")
+def console_options(body: dict = Body(...),
+                    x_colony: str | None = Header(None)) -> dict[str, Any]:
+    _guard(x_colony)
+    conn = _console_conn()
+    try:
+        return {"ok": True, **console_mod.set_options(
+            conn, body.get("model") or None, body.get("effort") or None)}
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    finally:
+        conn.close()
+
+
 @app.post("/api/console/cwd")
 def console_cwd(body: dict = Body(...),
                 x_colony: str | None = Header(None)) -> dict[str, Any]:

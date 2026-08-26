@@ -368,6 +368,50 @@ names the state and the next move.
       again from the code rather than patching it a line at a time.
 - [ ] Update the published artifact — it still shows the pre-M1 design.
 
+## Finished 2026-08-26 — the console gets its controls
+
+Four additions to the console built earlier the same day, all of them things a
+terminal has and the first version did not.
+
+**A model dropdown and an effort dropdown**, stored per conversation in
+`console_state` (migration 025) rather than hard-coded. Both lists are served from
+`console.py` and rendered from that response, so a menu cannot drift from what the
+CLI accepts. Changing either mid-flight is allowed on purpose: the turn already
+running keeps the pair it was launched with, and the change means "the next one,
+please", which is what a person sitting at the page would mean.
+
+**A compact button**, which sends `/compact` as an ordinary turn. Verified that
+slash commands do work through `claude -p --resume`; `/compact`, `/context`,
+`/cost` and installed skills all answer, while interactive-only ones such as
+`/status` reply "isn't available in this environment". Making it a normal message
+rather than a special route means it queues behind a running turn, is refused by
+the same lock, and lands in the tape with its cost attached.
+
+**A command dropdown** that pastes at the cursor and never sends. Its contents are
+read off disk: the three verified built-ins, the user's and the project's
+`.claude/skills` and `.claude/commands`, and the install paths named in
+`installed_plugins.json`. The first version globbed
+`~/.claude/plugins/marketplaces` instead and offered thirty commands of which one
+was installed — a dropdown listing commands that do not exist is worse than none.
+Cached for two minutes, because the drawer polls this endpoint every 1.5 seconds.
+
+### On the 35k tokens a turn costs
+
+Measured rather than guessed, and the obvious suspect is innocent. `CLAUDE.md` is
+2,272 bytes, roughly 570 tokens — under two percent of it. The rest is Claude
+Code's own system prompt and its built-in tool schemas, which is the floor for any
+`claude -p` invocation.
+
+It should not be trimmed. That prefix is cached across sessions, so a turn reads
+it for about $0.007. Cutting the tool set with `--tools Bash,Edit,Read,...` writes
+a *new* cache prefix: same 5-token answer, $0.2170 instead of $0.0069.
+`--strict-mcp-config` saves 480 tokens, which is noise. The cheap turn is the one
+that reuses the prefix everything else already uses.
+
+Also confirmed while checking: clearing the chat really does forget. A fresh
+`--session-id` asked for a codeword given to the previous session answered "I DO
+NOT KNOW."
+
 ## Finished 2026-08-26 — a terminal inside the program
 
 Colony Dash could build anything except itself. Every fix to the dashboard — and
