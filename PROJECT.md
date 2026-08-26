@@ -368,6 +368,56 @@ names the state and the next move.
       again from the code rather than patching it a line at a time.
 - [ ] Update the published artifact — it still shows the pre-M1 design.
 
+## Finished 2026-08-26 — a terminal inside the program
+
+Colony Dash could build anything except itself. Every fix to the dashboard — and
+the last several sessions were nothing but fixes — was made from a separate
+Claude Code terminal, because the colony's own agents are denied `Bash` by
+`agent.py` and write only into a worktree behind a PO approval. That denial is
+correct for a loop that fires unattended at 3am. It is the wrong answer when the
+PO is sitting in front of the page and wants the page changed.
+
+**The console is a second door, described in ARCHITECTURE.md §8.3.** It is in the
+Ordis panel because it is Ordis himself rather than another department, and it is
+the only control on the dashboard that does not wait for a pulse. Full tool access,
+`--dangerously-skip-permissions`, `cwd` at the projects root, no ticket and no
+worktree between it and the tree.
+
+The guards that remain are the ones that were never about an agent's permissions:
+the server is bound to `127.0.0.1`, `/api/console/*` requires the `X-Colony`
+header, and nothing scheduled may import the module — `pulse.py` and `wake.py`
+have no path into it, which is what keeps §8.1 true for the autonomous half of the
+system.
+
+### A conversation, not a series of prompts
+
+The first message of a chat claims a UUID with `--session-id`; every message after
+it passes `--resume`. That is the difference between talking to something and
+sending it unrelated postcards, and it is why the chat can be cleared at all:
+*clear* drops the UUID and bumps `console_state.epoch`, so the next message starts
+a session that has never heard of the last one.
+
+Clearing does not delete anything. The turns stay in `console_turns` under their
+old epoch, tokens and cost attached. A chat that can erase its own bill is a chat
+that can lie about what it cost, and this one already runs without a budget gate.
+
+### Why it polls instead of joining the snapshot
+
+A shell command can take twenty minutes, so `send` records the message, opens a
+`pending` row, starts a thread and returns. The page polls that row every 1.5s
+while the drawer is open. It is deliberately not on the SSE snapshot: the snapshot
+fans out to every panel on the page, and a chat that is only open sometimes should
+not be repainting the board while it waits for `npm install`.
+
+One turn at a time, held by a process lock *and* a `pending` row — the lock
+catches two requests in the same millisecond, the row catches a stale turn left by
+a crash. Two shells writing one tree is the failure the rest of the architecture
+exists to prevent, and it is the only one the console could still cause by itself.
+
+Verified end to end against the live CLI: a first turn answered, a `--resume` turn
+remembered it, and `git rev-parse --short HEAD` came back `9fa2b72` from inside the
+chat — which is the whole point, since no colony agent can run that at all.
+
 ## Finished 2026-08-26 — the build that handed work back into silence
 
 "15 Part Job Search" was dispatched twice within three minutes, tickets #80 and

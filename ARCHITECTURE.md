@@ -633,6 +633,48 @@ The system is defined as much by what it can't do alone as what it can:
 
 Everything between those gates is autonomous.
 
+### 8.3 The console — the one door that is not the colony
+
+Every limit above is about an *autonomous* loop. A pulse that fires at 3am with no
+one watching must not be able to run a shell, and `agent.py` denies `Bash` at the
+top of the file for exactly that reason: it is what makes "the colony cannot push"
+a capability rather than a promise.
+
+None of that reasoning applies to the PO sitting in front of the dashboard typing.
+And the cost of pretending it did was concrete: every change to Colony Dash itself
+had to be made from a separate terminal, so the program that is supposed to run
+itself was the one program it could not touch.
+
+The console (`console.py`, `/api/console/*`, the Ordis panel's *open the console*
+button) is a second door, and it is deliberately unlike the first:
+
+| | The colony | The console |
+| --- | --- | --- |
+| **Who opens it** | the pulse, on a schedule | a person, by typing |
+| **Tools** | an allowlist; `Bash` always denied | everything, `--dangerously-skip-permissions` |
+| **Where it writes** | a throwaway worktree, one project, after approval | the live tree, wherever it is pointed |
+| **Gates** | groom, write, promote | none |
+| **Record** | tickets, runs, escalations | `console_turns`, with tokens and cost per turn |
+
+What still holds, because it was never about the agent's permissions:
+
+- The server binds to `127.0.0.1` and `/api/console/*` requires the `X-Colony`
+  header, like every other write route. Nothing off this machine can reach it.
+- **No scheduled code path may import `console`.** `pulse.py` and `wake.py` do not,
+  and a change that makes them do it turns the whole of §8.1 into decoration.
+- Credentials still never get echoed or committed, and `git push`, `--amend`,
+  force-push and branch deletion still ask first. Those are rules about Jordan's
+  data and history, not about what the process is technically able to do — they
+  are stated in the console's system prompt, and they are the only thing in this
+  column that is a promise rather than a wall.
+- One turn at a time, held by both a process lock and a `pending` row. Two shells
+  writing one tree is the failure the rest of this section exists to prevent, and
+  it is the one failure the console could still cause on its own.
+
+Clearing the chat starts a new `epoch` rather than deleting rows. The tokens were
+spent either way, and a conversation that can erase its own cost is a conversation
+that can lie about it.
+
 ---
 
 ## 9. The dashboard

@@ -41,9 +41,9 @@ from typing import Any
 from fastapi import Body, FastAPI, Header, HTTPException, Query
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 
-from . import (attachments as attach, control, db, forge, notion as notion_mod,
-               outbox as outbox_mod, projects as projects_mod, roster as roster_mod,
-               usage as usage_mod)
+from . import (attachments as attach, console as console_mod, control, db, forge,
+               notion as notion_mod, outbox as outbox_mod, projects as projects_mod,
+               roster as roster_mod, usage as usage_mod)
 
 UI_DIR = Path(__file__).resolve().parent / "ui"
 
@@ -1956,6 +1956,72 @@ def act_rescan(x_colony: str | None = Header(None)) -> dict[str, Any]:
         return {"ok": True, **result}
     except FileNotFoundError as exc:
         raise HTTPException(409, str(exc))
+    finally:
+        conn.close()
+
+
+# -- the console ---------------------------------------------------------------
+# The one part of this server that is not a window onto the colony. These four
+# routes are Jordan's own terminal, and `console.py` explains at length why they
+# are allowed to do what every other route on this server is built to prevent.
+#
+# They do not go through `_act`. `_act` opens a transaction and holds it until
+# the control function returns; `console.send` starts a thread that immediately
+# wants the same write lock, so the two would sit waiting on each other for the
+# five seconds of `busy_timeout` before one of them lost. The ledger connection
+# is autocommit, so each statement here lands on its own.
+
+
+def _console_conn() -> sqlite3.Connection:
+    return _rw()
+
+
+@app.get("/api/console")
+def api_console() -> dict[str, Any]:
+    conn = _conn()
+    try:
+        return console_mod.state(conn)
+    finally:
+        conn.close()
+
+
+@app.post("/api/console/send")
+def console_send(body: dict = Body(...),
+                 x_colony: str | None = Header(None)) -> dict[str, Any]:
+    _guard(x_colony)
+    conn = _console_conn()
+    try:
+        return {"ok": True, **console_mod.send(conn, str(body.get("text") or ""))}
+    except console_mod.Busy as exc:
+        raise HTTPException(409, str(exc))
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    finally:
+        conn.close()
+
+
+@app.post("/api/console/clear")
+def console_clear(body: dict = Body(default={}),
+                  x_colony: str | None = Header(None)) -> dict[str, Any]:
+    _guard(x_colony)
+    conn = _console_conn()
+    try:
+        return {"ok": True, **console_mod.clear(conn)}
+    except console_mod.Busy as exc:
+        raise HTTPException(409, str(exc))
+    finally:
+        conn.close()
+
+
+@app.post("/api/console/cwd")
+def console_cwd(body: dict = Body(...),
+                x_colony: str | None = Header(None)) -> dict[str, Any]:
+    _guard(x_colony)
+    conn = _console_conn()
+    try:
+        return {"ok": True, **console_mod.set_cwd(conn, body.get("path") or None)}
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
     finally:
         conn.close()
 

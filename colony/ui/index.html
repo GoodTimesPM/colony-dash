@@ -1431,6 +1431,70 @@ button.pulse[disabled] { cursor: default; }
    story timeline where nobody reading the conversation would find it. */
 .msg.learned .bubble { background: var(--mint-ground); border-color: var(--mint); }
 .msg.learned .who { color: var(--mint); }
+/* The console. Every other conversation on this page is a card the pulse will
+   read in an hour; this one is a shell that answers now, so it is drawn like a
+   terminal and not like an Inbox item. Full-height transcript, prompt pinned to
+   the bottom, monospace throughout.
+
+   The violet rail down the left of the whole thing is the tell: violet is Ordis
+   everywhere on this page, and this is the only place he is talking rather than
+   being reported on. */
+.console { display: flex; flex-direction: column; gap: 10px; height: 100%; }
+.console .bar {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  border: 1px solid var(--violet); border-left-width: 3px;
+  background: var(--panel-sunk); border-radius: 8px; padding: 8px 11px;
+}
+.console .bar .cwd {
+  font-family: var(--mono); font-size: var(--step--1); color: var(--ink);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1 1 240px;
+}
+.console .bar .meta {
+  font-family: var(--mono); font-size: var(--step--2); color: var(--ink-dim);
+  letter-spacing: .04em;
+}
+/* Said plainly, once, at the top. This chat can run `rm -rf`; a person opening
+   it should not have to infer that from the fact that it works. */
+.console .warn {
+  font-size: var(--step--1); color: var(--ink-soft); line-height: 1.4;
+  border-left: 2px solid var(--amber); padding-left: 10px;
+}
+.console .tape {
+  flex: 1 1 auto; min-height: 320px; max-height: 58vh; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 10px;
+  border: 1px solid var(--rule); border-radius: 8px; padding: 12px 13px;
+  background: var(--panel-sunk);
+}
+.console .turn { display: flex; flex-direction: column; gap: 3px; }
+.console .turn .who {
+  font-family: var(--mono); font-size: var(--step--2); letter-spacing: .1em;
+  text-transform: uppercase; color: var(--ink-dim);
+}
+.console .turn .txt {
+  font-family: var(--mono); font-size: var(--step--1); line-height: 1.55;
+  white-space: pre-wrap; word-break: break-word; color: var(--ink);
+}
+.console .turn[data-role="po"] .who { color: var(--amber); }
+.console .turn[data-role="po"] .txt { border-left: 2px solid var(--amber); padding-left: 10px; }
+.console .turn[data-role="ordis"] .who { color: var(--violet); }
+.console .turn[data-role="ordis"] .txt { border-left: 2px solid var(--violet); padding-left: 10px; }
+.console .turn[data-status="pending"] .txt { color: var(--ink-dim); border-left-style: dashed; }
+.console .turn[data-status="failed"] .who { color: var(--coral); }
+.console .turn[data-status="failed"] .txt { border-left-color: var(--coral); color: var(--coral); }
+.console .prompt { display: flex; flex-direction: column; gap: 7px; }
+.console .prompt .row { display: flex; gap: 8px; align-items: center; }
+.console .prompt .hint {
+  font-family: var(--mono); font-size: var(--step--2); color: var(--ink-dim); flex: 1;
+}
+textarea.console-box {
+  width: 100%; min-height: 96px; resize: vertical;
+  background: var(--panel-sunk); color: var(--ink);
+  border: 1px solid var(--violet); border-radius: 8px; padding: 10px 12px;
+  font-family: var(--mono); font-size: var(--step--1); line-height: 1.55;
+}
+textarea.console-box:focus-visible { outline: 2px solid var(--violet); outline-offset: -1px; }
+textarea.console-box[disabled] { opacity: .55; }
+
 textarea.compose-box {
   width: 100%; min-height: 210px; resize: vertical;
   background: var(--panel-sunk); color: var(--ink);
@@ -2373,6 +2437,14 @@ function renderOrdis(o) {
     b.onclick = () => openPulse(last.id);
     box.append(b);
   }
+
+  // The console lives here rather than in its own panel because it is Ordis
+  // himself, not another department. It is also the one control on the page
+  // that does not wait for a pulse, which is the whole reason it exists.
+  const term = el("button", "act go", "open the console");
+  term.title = "talk to Ordis directly, with a real shell, right now";
+  term.onclick = () => openConsole();
+  box.append(term);
 }
 
 function renderColony(c) {
@@ -4453,7 +4525,8 @@ let GOING_BACK = false;
 
 function drawerViews() {
   return { story: openStory, persona: openPersona, pulse: openPulse,
-           project: openProject, agent: openAgent, completed: openCompleted };
+           project: openProject, agent: openAgent, completed: openCompleted,
+           console: openConsole };
 }
 
 function renderTrail() {
@@ -4535,7 +4608,163 @@ function jsonList(raw) {
   try { const v = JSON.parse(raw); return Array.isArray(v) ? v : []; } catch (_) { return []; }
 }
 
-// ── story drawer ────────────────────────────────────────────────────────────
+// ── console ─---------------------------------------------------------------
+//
+// A shell, in a drawer, in the Ordis panel. Everything else on this page is a
+// message left for a loop that reads it on the hour; this is a terminal that
+// answers while you watch, with full tool access and no worktree between it and
+// the tree. `console.py` carries the argument for why that is deliberate.
+//
+// The transcript is polled rather than pushed. It is not on the SSE snapshot on
+// purpose: the snapshot fans out to every panel on the page and a chat that is
+// only open sometimes should not be repainting the board while it waits for a
+// shell command.
+
+const CONSOLE_POLL_MS = 1500;
+
+async function openConsole() {
+  const body = openDrawer("ordis \u00b7 console",
+                          "talking directly, with a shell",
+                          { wide: true, nav: { kind: "console", arg: undefined,
+                                               label: "console" } });
+
+  let data;
+  try { data = await getJSON("/api/console"); }
+  catch { body.replaceChildren(el("div", "empty", "the console did not answer")); return; }
+
+  body.replaceChildren();
+  const wrap = el("div", "console");
+  body.append(wrap);
+
+  const bar = el("div", "bar");
+  const cwd = el("div", "cwd");
+  const meta = el("div", "meta");
+  const clear = el("button", "act", "clear");
+  clear.title = "start a new conversation \u2014 he forgets everything above this line";
+  bar.append(cwd, meta, clear);
+  wrap.append(bar);
+
+  wrap.append(el("div", "warn",
+    "This is not a colony ticket. It runs with a real shell at the path above, "
+    + "it can edit and run anything on this machine, and nothing here waits for "
+    + "a pulse or a patch approval. It will not push, amend or force-push "
+    + "without asking."));
+
+  const tape = el("div", "tape");
+  wrap.append(tape);
+
+  const prompt = el("div", "prompt");
+  const box = el("textarea", "console-box");
+  box.placeholder = "what do you want changed? enter sends, shift+enter for a new line";
+  const row = el("div", "row");
+  const hint = el("div", "hint");
+  const send = el("button", "act go", "send");
+  row.append(hint, send);
+  prompt.append(box, row);
+  wrap.append(prompt);
+
+  // Redrawing the whole transcript on every poll would eat a half-typed
+  // message, so the textarea is built once above and only the tape is
+  // replaced. Same reason the scroll position is only forced when you were
+  // already at the bottom: a poll should not yank you off the line you were
+  // reading.
+  function paint(st) {
+    const stuck = tape.scrollHeight - tape.scrollTop - tape.clientHeight < 60;
+    tape.replaceChildren();
+    if (!st.turns.length) {
+      tape.append(el("div", "empty",
+        "nothing yet. this is a fresh session \u2014 he has no memory of the last one."));
+    }
+    for (const t of st.turns) {
+      const turn = el("div", "turn");
+      turn.dataset.role = t.role;
+      turn.dataset.status = t.status;
+      let who = t.role === "po" ? "you" : "ordis";
+      who += " \u00b7 " + hhmm(t.at);
+      if (t.status === "done" && t.role === "ordis") {
+        if (t.elapsed_s) who += " \u00b7 " + Math.round(t.elapsed_s) + "s";
+        if (t.tokens) who += " \u00b7 " + toks(t.tokens);
+      }
+      if (t.status === "failed") who += " \u00b7 failed";
+      turn.append(el("div", "who", who));
+      const text = t.status === "pending"
+        ? "working\u2026"
+        : (t.status === "failed" ? (t.error || "no reason recorded") : t.body);
+      turn.append(el("div", "txt", text));
+      tape.append(turn);
+    }
+    cwd.textContent = st.cwd;
+    cwd.title = "the shell runs here";
+    meta.textContent = toks(st.tokens) + " this chat \u00b7 $" + st.cost_usd.toFixed(2);
+    const busy = st.busy;
+    send.disabled = busy;
+    clear.disabled = busy || !st.turns.length;
+    box.disabled = false;
+    send.textContent = busy ? "working\u2026" : "send";
+    hint.textContent = busy
+      ? "he is running \u2014 shell commands can take minutes"
+      : (st.resuming ? "same session, he remembers everything above" : "new session");
+    if (stuck) tape.scrollTop = tape.scrollHeight;
+  }
+
+  paint(data);
+  box.focus();
+
+  // The poll stops itself when the drawer closes or the body is replaced by
+  // another view. There is no unmount hook on this page, so the node's own
+  // presence in the document is the liveness check.
+  const timer = setInterval(async () => {
+    if (!wrap.isConnected || !$("drawer").classList.contains("on")) {
+      clearInterval(timer);
+      return;
+    }
+    try { paint(await getJSON("/api/console")); } catch (_) {}
+  }, CONSOLE_POLL_MS);
+
+  async function fire() {
+    const text = box.value.trim();
+    if (!text) return;
+    send.disabled = true;
+    try {
+      const res = await fetch("/api/console/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Colony": "1" },
+        body: JSON.stringify({ text: text }),
+      });
+      const out = await res.json().catch(() => ({}));
+      if (!res.ok) { toast(out.detail || ("refused (" + res.status + ")"), "bad"); send.disabled = false; return; }
+      box.value = "";
+      paint(await getJSON("/api/console"));
+    } catch (err) {
+      toast("the console did not answer \u2014 is the server still up?", "bad");
+      send.disabled = false;
+    }
+  }
+
+  send.onclick = fire;
+  box.onkeydown = (e) => {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); fire(); }
+  };
+
+  clear.onclick = async () => {
+    const st = await getJSON("/api/console").catch(() => null);
+    if (st && st.turns.length && !confirm(
+        "clear the console? he keeps no memory of these " + st.turns.length
+        + " messages. the record of what they cost stays in the ledger.")) return;
+    const res = await fetch("/api/console/clear", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Colony": "1" },
+      body: "{}",
+    });
+    const out = await res.json().catch(() => ({}));
+    if (!res.ok) { toast(out.detail || "could not clear", "bad"); return; }
+    box.value = "";
+    paint(await getJSON("/api/console"));
+    box.focus();
+  };
+}
+
+// ── story drawer ─-------------------------------------------------------------
 
 async function openStory(id) {
   const body = openDrawer("story #" + id, "", { nav: { kind: "story", arg: id, label: "story #" + id } });
