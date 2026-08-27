@@ -618,6 +618,15 @@ because "may look at" and "may change" are different permissions:
 | **Write** | **Only the one project folder named by the active ticket**, and only in a worktree, and only after PO approval. |
 | **Never, at any tier** | `.env` and any credential file; `.git/` internals; anything outside `D:\ALL STUFF\PROJECTS`; `git push`, `git commit --amend`, force-push, branch deletion. |
 
+That root was a literal `Path("D:/ALL STUFF/PROJECTS")` in `db.py` until 2026-08-27, which
+worked on exactly one machine. It now defaults to the folder *containing* this checkout —
+which resolves to the identical path here — and can be moved with `COLONY_PROJECTS_ROOT` in
+the environment or in `.env`. The one key is read by `db._env_value`, which reads a single
+line and mutates nothing, deliberately not by `mirror.load_env`: that loader pulls the whole
+file into `os.environ`, and `db` is imported by the console, which hands its environment to
+a `claude` subprocess. Loading `NOTION_TOKEN` there would put the token in front of the one
+agent that is explicitly not allowed to read `.env`.
+
 Priority weighting goes to **`job-search/` and the Job Radar pipeline** — that's the current
 focus, so it gets first claim on the sprint budget. Everything else is worked when there's
 headroom. That's a weight, not a wall: the colony still reads and can be handed a ticket

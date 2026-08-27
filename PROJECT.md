@@ -368,6 +368,66 @@ names the state and the next move.
       again from the code rather than patching it a line at a time.
 - [ ] Update the published artifact — it still shows the pre-M1 design.
 
+## Finished 2026-08-27 — the repo becomes something a stranger can clone
+
+Groundwork for putting this on GitHub as a portfolio piece. The audit that preceded it
+found the code in better shape than the repository: zero `TODO`/`FIXME`/`HACK` across
+11,898 lines of Python, `.env` never committed at any point in the 53-commit history, no
+token-shaped string in any tracked file, and a dependency surface of four packages. What
+was missing was everything that turns a directory of source into a project someone else can
+run.
+
+### The hardcoded root
+
+`db.py:25` read `PROJECTS_ROOT = Path("D:/ALL STUFF/PROJECTS")`. Every other module derives
+its root from that one line — `control.ROOT_POSIX`, `projects.ROOT`, `runner.ROOT`,
+`worktree.ROOT`, `pulse.PROJECTS_ROOT`, `forge.SKILLS_DIR` — so it was a single point of
+change, and a single point of failure for anyone else.
+
+It now resolves to `PROJECT_DIR.parent`, the folder containing the checkout, overridable
+with `COLONY_PROJECTS_ROOT` from the environment or `.env`. On this machine the derived
+value is byte-identical to the literal it replaced, verified before the edit landed, so the
+running colony sees no change at all.
+
+The `.env` read is a new `db._env_value`, not the existing `mirror.load_env`. That
+distinction is load-bearing and is recorded in ARCHITECTURE §8.1: `load_env` pulls the
+entire file into `os.environ`, and `db` is imported by `console.py`, which hands its
+environment to a `claude` subprocess. Using it here would have placed `NOTION_TOKEN` in
+front of the one agent explicitly forbidden from reading `.env` — a security regression
+disguised as code reuse. `_env_value` reads one key and mutates nothing.
+
+### The files that were missing
+
+- **`README.md`** — the pitch, a mermaid flow of the pulse, the ledger rationale, and the
+  safety model at length. The section on `--dangerously-skip-permissions` in `console.py`
+  is deliberate: unexplained, that flag reads to a reviewer as a footgun; explained as the
+  human-only second door with no import path from `pulse.py` or `wake.py`, it reads as the
+  design decision it is. The distinction is worth a reader's first two minutes.
+- **`requirements.txt`** — fastapi, uvicorn, pywebview, pillow pinned to the versions this
+  has run against; both MySQL drivers commented out, since nothing imports one unless
+  `colony mirror` is called.
+- **`.env.example`** — every key optional, with the Notion "add the integration under
+  Connections" step spelled out because forgetting it is the usual cause of an empty intake
+  with a valid token. The `COLONY_*` tuning knobs are listed as *shell-only* and marked as
+  such: `build.py` and `wake.py` read them at import time, before any `.env` is loaded, so
+  putting them in that file would silently do nothing.
+
+### Verified
+
+Every module imports. `py -m colony status` runs against the live ledger unchanged.
+`COLONY_PROJECTS_ROOT` propagates to all six derived roots. And the real test: a copy of
+`git archive HEAD` with no `.env` at all, in a temp directory, ran `py -m colony init`
+clean — 25 migrations applied, two structural agents seeded, sprint opened, 270 personas
+scanned, and a projects root derived from its own location.
+
+### Still open before pushing
+
+No test suite. Fifteen tests would cover it: migrations apply in order, the console lock
+admits one turn, the write-scope guard refuses a path outside the root. `ui/index.html` is
+343 KB in one file and should be split into html/css/js. And the push itself needs
+`git subtree split -P colony-dash` to carry the 53 commits into a standalone repo — the
+history is evidence of how the thing was built and is worth more than a fresh `init`.
+
 ## Finished 2026-08-26 — the console gets its controls
 
 Four additions to the console built earlier the same day, all of them things a

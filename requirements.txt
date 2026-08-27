@@ -1,0 +1,29 @@
+# Colony Dash — runtime dependencies.
+#
+# Almost everything here is the standard library: sqlite3 for the ledger,
+# subprocess for the agents, threading for the pulse. What follows is the short
+# list of things that are not.
+#
+#     py -m pip install -r requirements.txt
+#
+# Pinned to the versions this has actually been run against, on Python 3.12.
+
+# The dashboard's local HTTP server. `colony dash` will not start without these.
+fastapi==0.141.1
+uvicorn==0.52.3
+
+# The desktop window. Without it `colony dash` still serves, and says so —
+# it drops to headless and prints the 127.0.0.1 URL for a browser.
+# Windows uses the system WebView2 runtime, which ships with Edge.
+pywebview==6.2.1
+
+# The tray/window icon, generated once by `colony shortcut`. Absent, the
+# shortcut is built without a custom icon rather than failing.
+pillow==12.1.1
+
+# --- optional ---------------------------------------------------------------
+# The MySQL reporting mirror (`colony mirror`) only. Nothing imports it unless
+# you run that command, and SQLite stays the system of record either way.
+# Either driver works; uncomment one if you want the mirror.
+# PyMySQL==1.2.0
+# mysql-connector-python
