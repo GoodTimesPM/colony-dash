@@ -420,13 +420,61 @@ Every module imports. `py -m colony status` runs against the live ledger unchang
 clean — 25 migrations applied, two structural agents seeded, sprint opened, 270 personas
 scanned, and a projects root derived from its own location.
 
+### Three more copies of the same literal
+
+The `db.py` fix above felt like the whole job, because every module derives its root from
+that one line. A grep for the *value* rather than the constant found it spelled out again
+in three more places: `seed.READ_SCOPE`, `control.DEFAULT_READ_SCOPE`, and the console's
+system prompt. All three now derive from `db.PROJECTS_ROOT`, and all three produce a
+byte-identical string on this machine.
+
+These were the more dangerous of the four. A wrong `PROJECTS_ROOT` fails loudly; a wrong
+*read scope* does not fail at all. A stranger running `colony init` would have seeded and
+hired agents pointed at a drive letter that does not exist on their machine, and every one
+of them would have come back having searched and found nothing — correctly, quietly,
+forever.
+
+### A test suite, in the standard library
+
+41 tests under `tests/`, run with `py -m unittest discover -s tests`. No pytest: the
+dependency surface here is four packages, and a suite that needs an install before it runs
+is a suite nobody runs on a fresh clone.
+
+What they cover is deliberately not "the code" — it is the set of claims ARCHITECTURE.md
+makes that are otherwise only promises. Migrations apply in filename order, are idempotent,
+and refuse to run when an already-applied file has been edited. `connect` really sets WAL
+and foreign keys, and a read-only handle really refuses a write. `ALWAYS_DENIED` beats a
+contract that asks for `Bash`, and the write tools unlock only with `allow_writes`. The
+write scope refuses `..`, dot folders, absolute paths, and folders that do not exist. The
+console admits exactly one turn, and a pending row left behind by a crashed process still
+blocks the next send. And `db._env_value` adds nothing to `os.environ` — the leak that
+function exists to avoid, asserted rather than reasoned about.
+
+Nothing in the suite spawns `claude` or touches the real ledger. `agent.invoke` is checked
+by capturing the argv it would have run; the console lock is checked with `_answer`
+replaced by a stub that blocks until the test releases it.
+
+### The dashboard becomes three files
+
+`ui/index.html` was 6,957 lines: 1,830 of CSS, 4,880 of JavaScript, and 250 of actual
+markup between them. It is now `index.html`, `app.css` and `app.js` in the same folder,
+served by two new routes with `Cache-Control: no-store` — which is what the page already
+had by being re-read from disk on every request, and the right answer for a dashboard being
+edited while it is open.
+
+Still no build step, on purpose. This page is served from `127.0.0.1` to one person; a
+toolchain would be more moving parts than the thing it builds.
+
+Verified by reassembling the three files and diffing the result against the committed
+original: byte-identical. That is a better check than reading the diff, because the risk
+was never "did the code move" but "did it move exactly".
+
 ### Still open before pushing
 
-No test suite. Fifteen tests would cover it: migrations apply in order, the console lock
-admits one turn, the write-scope guard refuses a path outside the root. `ui/index.html` is
-343 KB in one file and should be split into html/css/js. And the push itself needs
-`git subtree split -P colony-dash` to carry the 53 commits into a standalone repo — the
-history is evidence of how the thing was built and is worth more than a fresh `init`.
+The push itself. `git subtree split -P colony-dash` to carry the history into a standalone
+repo — how the thing was built is evidence, and worth more than a fresh `init`. Screenshots
+need dropping into `docs/` and the block near the top of the README uncommenting; a
+dashboard project with no picture of the dashboard undersells itself.
 
 ## Finished 2026-08-26 — the console gets its controls
 

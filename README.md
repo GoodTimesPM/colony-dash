@@ -186,6 +186,21 @@ environment.
 `halt` writes both a `.colony/HALT` file and a ledger row, on purpose: the one
 control that must never fail open is the stop switch.
 
+### Tests
+
+```bash
+py -m unittest discover -s tests -v
+```
+
+Standard-library `unittest`, no install step — a suite that needs a dependency
+before it runs is a suite nobody clones and runs. 41 tests, about two seconds,
+and they cover the three things that are claims rather than code: migrations
+apply in order and refuse to be edited afterwards, the tool denylist survives a
+contract that asks for `Bash`, and the write scope refuses everything outside
+one named project folder. The console's one-turn-at-a-time lock is in there too,
+intercepted rather than spawned — nothing in the suite launches `claude`, and
+nothing touches the real ledger.
+
 ### Platform
 
 Developed and run on Windows 11. The core — ledger, pulse, agents, worktrees,
@@ -215,7 +230,8 @@ colony/
   forge.py        mining finished work for repeatable procedure
   mirror.py       one-way SQLite -> MySQL, for reporting
   migrations/     append-only schema history
-  ui/index.html   the dashboard
+  ui/             index.html, app.css, app.js — no build step
+tests/            stdlib unittest, no install step
 ```
 
 ## Further reading
@@ -235,6 +251,7 @@ archaeology; skip it otherwise.
 ## Status
 
 Personal project, actively used, one operator. It is not a product: there is no
-multi-tenancy, no auth beyond binding to loopback, and no test suite yet. What
-it is instead is a real answer to the question at the top — a loop that has been
-left running against live repos without eating one.
+multi-tenancy and no auth beyond binding to loopback, and the test suite covers
+the safety model rather than the whole surface. What it is instead is a real
+answer to the question at the top — a loop that has been left running against
+live repos without eating one.

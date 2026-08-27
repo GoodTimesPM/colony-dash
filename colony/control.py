@@ -1413,7 +1413,9 @@ def unread_messages(conn: sqlite3.Connection, limit: int = 4) -> list[sqlite3.Ro
 
 # ── staffing ──────────────────────────────────────────────────────────────────
 
-DEFAULT_READ_SCOPE = ["D:/ALL STUFF/PROJECTS/**"]
+# Same shape as `seed.READ_SCOPE`, and derived the same way: read the whole
+# projects directory, write nothing without a per-ticket scope on top.
+DEFAULT_READ_SCOPE = [f"{db.PROJECTS_ROOT.as_posix()}/**"]
 READ_ONLY_TOOLS = ["Read", "Grep", "Glob"]
 WRITE_TOOLS = ["Read", "Grep", "Glob", "Edit", "Write"]
 

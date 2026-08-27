@@ -627,6 +627,13 @@ file into `os.environ`, and `db` is imported by the console, which hands its env
 a `claude` subprocess. Loading `NOTION_TOKEN` there would put the token in front of the one
 agent that is explicitly not allowed to read `.env`.
 
+Three other copies of that literal outlived the first fix and were found the day after:
+`seed.READ_SCOPE`, `control.DEFAULT_READ_SCOPE` and the console's system prompt each spelled
+the path out again. All three now derive it from `db.PROJECTS_ROOT`. The failure mode they
+had was quieter than a crash and worse for it — a checkout on another machine would seed and
+hire agents whose read scope pointed at a drive letter that does not exist there, so every
+agent would come back having found nothing, correctly, forever.
+
 Priority weighting goes to **`job-search/` and the Job Radar pipeline** — that's the current
 focus, so it gets first claim on the sprint budget. Everything else is worked when there's
 headroom. That's a weight, not a wall: the colony still reads and can be handed a ticket
@@ -1894,3 +1901,65 @@ change was not its doing — and "not the colony" is the sentence that answers
 "I genuinely didn't touch those things". What it deliberately does not do is
 guess *what* wrote them; a dashboard that invented an author would be worse than
 one that admits the machine has other programs on it.
+
+
+### 10.17 What packaging it for strangers taught us
+
+Preparing this repo to be read by someone who has never seen it turned up three
+bugs, and none of them was in the logic. They were all in the assumption that
+there is only one machine.
+
+**A literal path is a bug that only fires on someone else's computer.** `db.py`
+held `Path("D:/ALL STUFF/PROJECTS")`, and fixing that one line felt like the
+whole job because every other module derives its root from it. It was not: a
+grep the next day found the same string spelled out again in `seed.READ_SCOPE`,
+in `control.DEFAULT_READ_SCOPE`, and inside the console's system prompt. The
+first one was load-bearing and obvious. The other three were the dangerous kind,
+because a wrong read scope does not crash — it produces an agent that searches a
+directory that is not there, finds nothing, and reports that honestly. The
+lesson is that "I fixed the hardcoded path" is a claim that has to be checked
+with a grep for the *value*, not for the constant.
+
+**A test suite that needs an install is a test suite nobody runs.** The whole
+dependency surface of this project is four packages, and adding a fifth so that
+the tests can run would have been the largest thing in `requirements.txt` by
+consequence. Standard-library `unittest` costs a slightly less pleasant
+assertion vocabulary and buys `py -m unittest discover -s tests` working on a
+fresh clone with nothing installed but the runtime.
+
+What the 41 tests cover is deliberately not "the code". It is the set of
+statements this document makes that are otherwise only promises:
+
+* migrations apply in filename order, are idempotent, and refuse to run if an
+  already-applied file has been edited — the sha256 guard in §3.1
+* `connect` really does set WAL and foreign keys, and a read-only handle really
+  does refuse a write — §3.3
+* `ALWAYS_DENIED` wins over a contract that asks for `Bash`, and the write tools
+  unlock only with `allow_writes` — §8.1
+* a write scope refuses `..`, dot folders, absolute paths and folders that do
+  not exist, and a read-only agent has no scope to widen — §8.1
+* the console admits exactly one turn, and a pending row left by a crashed
+  process still blocks the next send — §8.3
+* `db._env_value` adds nothing to `os.environ`, which is the leak the whole
+  function exists to avoid
+
+Two of those needed the `claude` CLI intercepted rather than run: `agent.invoke`
+is checked by capturing the argv it would have executed, and the console's lock
+is checked with `_answer` replaced by a stub that blocks. A safety test that
+spawns the thing it is testing is a safety test that costs money and fails on a
+machine without an API key.
+
+**The dashboard was one 6,957-line file.** It had grown that way honestly —
+there is no build step here on purpose, since a toolchain would be more moving
+parts than the page it builds — but a single file holding the markup, 1,830
+lines of CSS and 4,880 lines of JavaScript is one no editor will syntax-check
+and no diff will read. It is now `index.html`, `app.css` and `app.js` in the
+same folder, served by two new routes with `Cache-Control: no-store`, which is
+what the page already effectively had by being re-read from disk on every
+request. Caching `app.js` on a dashboard that is edited while it is open buys
+nothing and costs an afternoon.
+
+The split was verified by reassembling the three files and diffing the result
+against the committed original: byte-identical. That check is worth more than
+reading the diff, because the failure being guarded against is not "did I move
+the code" but "did I move it exactly".

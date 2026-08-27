@@ -11,9 +11,14 @@ import hashlib
 import json
 import sqlite3
 
-from . import usage
+from . import db, usage
 
-READ_SCOPE = ["D:/ALL STUFF/PROJECTS/**"]
+# Every structural agent reads the whole projects directory and writes nothing.
+# Derived from `db.PROJECTS_ROOT` rather than written out, so a checkout on
+# another machine seeds agents pointed at that machine's projects. It was a
+# literal until 2026-08-27, which seeded a scope pointing at a drive letter that
+# only exists here.
+READ_SCOPE = [f"{db.PROJECTS_ROOT.as_posix()}/**"]
 
 STRUCTURAL_AGENTS = [
     {
