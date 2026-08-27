@@ -7,6 +7,7 @@ down when the pulse fires at 3am — see ARCHITECTURE.md §3.3.
 from __future__ import annotations
 
 import hashlib
+import os
 import sqlite3
 from pathlib import Path
 
@@ -20,9 +21,43 @@ LEDGER_PATH = RUNTIME_DIR / "ledger.db"
 ATTACHMENTS_DIR = RUNTIME_DIR / "attachments"
 MIGRATIONS_DIR = PACKAGE_DIR / "migrations"
 
+
+def _env_value(key: str) -> str | None:
+    """One value out of the environment, falling back to one line of `.env`.
+
+    Deliberately not `mirror.load_env`, which loads the *whole* file into
+    `os.environ`. This module is imported by everything, and everything includes
+    the console, which hands its environment to a `claude` subprocess — loading
+    `NOTION_TOKEN` here would put the token in front of an agent that is not
+    allowed to read `.env`. So: read one key, mutate nothing.
+    """
+    live = os.environ.get(key)
+    if live:
+        return live
+    env_file = PROJECT_DIR / ".env"
+    try:
+        lines = env_file.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return None
+    for line in lines:
+        line = line.strip()
+        if line.startswith("#") or "=" not in line:
+            continue
+        name, _, value = line.partition("=")
+        if name.strip() == key:
+            return value.strip().strip("\"'") or None
+    return None
+
+
 # Read scope for every agent, structural or hired. Write scope is always narrower
 # and always set per ticket. ARCHITECTURE.md §8.1.
-PROJECTS_ROOT = Path("D:/ALL STUFF/PROJECTS")
+#
+# The default is the folder that *contains* this checkout, which is the shape the
+# colony was built for: a directory of sibling projects with `colony-dash` as one
+# of them. Set `COLONY_PROJECTS_ROOT` (environment or `.env`) to point it
+# anywhere else. It was a literal path until 2026-08-27, which worked on exactly
+# one machine.
+PROJECTS_ROOT = Path(_env_value("COLONY_PROJECTS_ROOT") or PROJECT_DIR.parent)
 
 
 def connect(path: Path | str = LEDGER_PATH, *, read_only: bool = False) -> sqlite3.Connection:
