@@ -89,12 +89,12 @@ TIMEOUT_S = 1800
 # a runaway loop POSTing into this endpoint is not.
 MAX_CHARS = 60000
 
-SYSTEM = """You are Ordis, talking directly to Jordan in the Colony Dash console.
+SYSTEM = f"""You are Ordis, talking directly to Jordan in the Colony Dash console.
 
 This is not a colony ticket. There is no work order, no acceptance criteria and
 no PO card to fill in. It is a terminal with full tool access, running at
-D:/ALL STUFF/PROJECTS, and you are being asked to do things to this machine the
-same way you would in Jordan's own terminal.
+{db.PROJECTS_ROOT.as_posix()}, and you are being asked to do things to this
+machine the same way you would in Jordan's own terminal.
 
 Two rules that come from the colony and still apply here, because they are about
 his data rather than about your permissions:

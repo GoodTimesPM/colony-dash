@@ -39,7 +39,8 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import Body, FastAPI, Header, HTTPException, Query
-from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
+from fastapi.responses import (FileResponse, HTMLResponse, Response,
+                               StreamingResponse)
 
 from . import (attachments as attach, console as console_mod, control, db, forge,
                notion as notion_mod, outbox as outbox_mod, projects as projects_mod,
@@ -1048,6 +1049,32 @@ def _act(fn, *args, **kwargs) -> dict[str, Any]:
 @app.get("/", response_class=HTMLResponse)
 def index() -> HTMLResponse:
     return HTMLResponse((UI_DIR / "index.html").read_text(encoding="utf-8"))
+
+
+# The stylesheet and the script used to live inside index.html, which made it a
+# 6,957-line file that no editor would syntax-check and no diff would read.
+# They are two more files off the same folder now.
+#
+# `no-store` on both, matching what the page already got by being re-read from
+# disk on every request. This is a dashboard being edited while it is open;
+# a cached `app.js` means a change that does not appear until a hard refresh,
+# which is a debugging session spent on nothing.
+def _asset(name: str, media_type: str) -> Response:
+    return Response(
+        (UI_DIR / name).read_text(encoding="utf-8"),
+        media_type=media_type,
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@app.get("/app.css")
+def app_css() -> Response:
+    return _asset("app.css", "text/css; charset=utf-8")
+
+
+@app.get("/app.js")
+def app_js() -> Response:
+    return _asset("app.js", "text/javascript; charset=utf-8")
 
 
 @app.get("/api/state")
