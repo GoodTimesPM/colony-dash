@@ -419,7 +419,25 @@ PULSE 2026-08-17 14:00  ·  wake  ·  window 13:00–14:00
 
 ---
 
-## 5. Notion is the intake
+## 5. Intake
+
+Work reaches the ledger through two doors, and they are not the same door with
+two skins.
+
+**Notion** is the one with a workflow around it. It is somebody's board, it has
+a Status column other people read, it is reachable from a machine that is not
+this one, and it is synced on every tick. Everything in this section is about
+that door, because it is the one with a contract to honour.
+
+**The dashboard's `＋ story` button** is the other. It writes a row straight into
+`stories` with a NULL `notion_page_id` and no round trip to anywhere. That
+column has been nullable since migration 001 — the comment on it reads "NULL for
+loop-authored stories" — so this needed no schema change and no flag; it needed
+a form. The sync loop iterates the rows Notion returns and has no reaper for
+ledger rows Notion has never heard of, which is why a locally-filed story is
+invisible to intake rather than at risk from it. See §10.18.
+
+Neither door is required. A colony with no `NOTION_TOKEN` set has a full board.
 
 **The board:** [Project Ideas/To-Do](https://app.notion.com/p/1d23280aadd341cbbd1467c771ee6d88)
 · database `1d23280a-add3-41cb-bd14-67c771ee6d88` · data source
@@ -674,8 +692,10 @@ button) is a second door, and it is deliberately unlike the first:
 
 What still holds, because it was never about the agent's permissions:
 
-- The server binds to `127.0.0.1` and `/api/console/*` requires the `X-Colony`
-  header, like every other write route. Nothing off this machine can reach it.
+- The server binds to `127.0.0.1` unless `--host` says otherwise, and
+  `/api/console/*` requires the `X-Colony` header, like every other write route.
+  Off-machine, the header is not enough by itself and the token gate arms
+  automatically — see §10.18.
 - **No scheduled code path may import `console`.** `pulse.py` and `wake.py` do not,
   and a change that makes them do it turns the whole of §8.1 into decoration.
 - Credentials still never get echoed or committed, and `git push`, `--amend`,
@@ -1146,6 +1166,9 @@ in the window. A log that repeats an unchanging fact is a log nobody reads.
 `X-Colony: 1`. A cross-origin form can POST to localhost; it cannot set a custom header
 without a preflight the browser will refuse to send. One header, one `_guard`, done — and
 the server is bound to 127.0.0.1 regardless.
+
+*(Later: that last clause is exactly the assumption `--host` breaks. The header is
+still the whole CSRF story; it was never the access story. §10.18.)*
 
 **Refusals are written to be read.** `control.Refused` maps to 409 with its message intact,
 and every message names the state and the next move: *"story is needs-info, not ready.
@@ -1963,3 +1986,121 @@ The split was verified by reassembling the three files and diffing the result
 against the committed original: byte-identical. That check is worth more than
 reading the diff, because the failure being guarded against is not "did I move
 the code" but "did I move it exactly".
+
+### 10.18 The phone, and the two doors work already opened
+
+Three things were wanted here: file a story without going through Notion, read
+the dashboard on a phone, and reach it from off the machine. They sound like one
+feature and they are three, with almost nothing shared between them.
+
+**The first one was already legal, just unreachable.** `stories.notion_page_id`
+has been `TEXT UNIQUE` and nullable since migration 001, carrying the comment
+"NULL for loop-authored stories". The only `INSERT INTO stories` in the entire
+codebase is in the Notion intake path, and the sync loop walks the rows Notion
+hands back rather than reconciling the table against them — there is no reaper.
+So a row Notion has never heard of is not a row at risk; it is a row intake
+never looks at. What was missing was a function, a route and a form, not a
+column and not a flag.
+
+The one thing that did need widening was `po_actions.action`, which is a CHECK
+constraint, which SQLite cannot alter in place. Migration 026 is the same
+full-table rebuild as 006, 008, 018, 020, 021 and 023: create the new table,
+copy the rows, drop the old, rename, rebuild the index. Verified against a copy
+of the live ledger rather than a fresh one, because the interesting question was
+whether 140 real rows and their foreign keys survived the rebuild, and a fresh
+database has neither.
+
+**A named folder on a locally-filed story is `confirmed`, not `inferred`.** That
+is the same distinction §8.2 draws for `confirm_project`: only a confirmed
+project can become a write scope, and the PO typing a folder into the form is
+the same act. But `create_story` is stricter than `confirm_project` in one way —
+it *refuses* a folder that does not exist. In the inbox, a typo costs one more
+question. Here it would silently become the confirmed write scope at the moment
+of creation, with nothing downstream left to catch it. A story filed with no
+folder raises exactly one `needs-info` escalation, which is the existing
+machinery for "we know what you want and not where".
+
+**The service worker caches nothing.** It exists because a browser will not
+offer to install a page without one, and it responds to exactly one thing: a
+failed navigation, with an offline notice. Not `/api/state`, which cached is
+yesterday's board rendered with today's confidence. Not `app.js`, which cached
+is precisely the bug the `no-store` headers on those routes were added to
+prevent. It is served from `/sw.js` at the root rather than from `/ui/`, because
+a worker may only control pages at or below its own path.
+
+**Responsive was mostly about undoing scrolling.** `.tiles`, `.done-list` and
+`.flight .rail` each cap their height and scroll internally, which is right on a
+1500px window and a trap on a phone: a swipe that starts inside a scrolling box
+moves the box instead of the page, and the page underneath looks frozen. Under
+720px all three go `max-height: none; overflow: visible` and the page does the
+scrolling. Three smaller ones cost more time than they should have: `100dvh`
+rather than `100vh`, because `100vh` on a phone means the viewport with the
+address bar hidden; `font-size: max(16px, var(--step--1))` on inputs, because
+iOS zooms the page when a focused field's type is under 16px and does not zoom
+back out, and the floor has to be absolute rather than a step because the type
+scale is a user setting; and `viewport-fit=cover` paired with
+`env(safe-area-inset-*)`, which together are the difference between a standalone
+launch that looks like an app and one that looks like a page with grey bands.
+
+**The `X-Colony` header was never an access control.** This is the part worth
+writing down, because the docstring that said "a header is enough" was true for
+a reason that stops being true the moment `--host` is passed. The header is CSRF
+protection: it proves the call came from the dashboard's own page. The *access*
+control was the loopback bind. Two halves of one sentence, and only one of them
+survives binding to a network address.
+
+So `access.py` arms itself off the bind rather than off a setting. `check(host)`
+returns False on loopback, returns True when a token is configured, and *raises*
+otherwise — it never returns a permissive answer, so there is no path through
+`serve()` that reaches `uvicorn.run` with an open, tokenless server. That is the
+one property in `tests/test_access.py` worth having.
+
+The gate answers a navigation with the login page and everything else with a
+401. The discriminator is the `Accept` header rather than a list of paths,
+because a browser asks for `text/html` on a navigation and on nothing else, and
+a list of asset paths is a list that needs maintaining. Handing the login page's
+HTML to `fetch` surfaces as a JSON parse error, and handing it to a
+`<script src>` surfaces as a syntax error on line one of a file that is fine —
+both of them several layers from the cause.
+
+The cookie is `HttpOnly`, `SameSite=Lax`, ninety days, and deliberately **not**
+`Secure`: a tailnet address is plain http, and a cookie the browser refuses to
+store is a login screen that never goes away. `?k=<token>` exists so the first
+visit can be a link or a QR code; the middleware swaps it for the cookie and the
+page strips it from the address bar with `history.replaceState`, because a token
+in a URL is a token in the browser history and in every screenshot of it.
+
+One dependency was avoided on purpose. `await request.form()` pulls in
+`python-multipart` — a fifth runtime package in a project whose install story is
+four. The login form is one field; `urllib.parse.parse_qs` on the raw body is
+six lines and no new import.
+
+### 10.19 Why accounts are a different program, not a later feature
+
+The obvious next step after "reach it from a phone" is "give it accounts", and
+it is worth being precise about why that is not the next step.
+
+**Desktop/phone parity is not what accounts buy.** It came free with §10.18.
+There is one server, one ledger and one filesystem; the phone is a second view
+of the same state, not a second copy of it. There is no sync step because there
+is nothing to sync. Accounts would not improve that — they would introduce the
+problem they are usually brought in to solve.
+
+**Per-user API keys do not remove the blocker.** The intuition is that each user
+brings their own key and bills themselves, which is true and which solves the
+cheap half. The expensive half is that this colony's actual job is spawning the
+`claude` CLI against real files in real git worktrees on a real disk. Hosting
+that for a second person means hosting their filesystem, their git remotes,
+their `claude` authentication and their worktrees, with one tenant's build agent
+one path-traversal bug away from another tenant's repository. The write-scope
+rules in §8.2 are written against one operator's directory tree; they are not a
+sandbox, and calling them one because there is now a login would be the worst
+possible reading of them.
+
+What that describes is a hosted build service that happens to share a schema
+with this. The ledger design would survive the port — it is already the system
+of record, already resumable, already free of per-machine state except for the
+projects root. Nothing else would. So the honest boundary is: this program is
+single-operator by construction, `access.py` is remote access rather than
+authentication, and the multi-tenant version is a separate build that starts
+from this database design and none of this execution model.

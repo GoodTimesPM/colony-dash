@@ -1238,6 +1238,105 @@ def create_project(conn: sqlite3.Connection, name: str, *, why: str = "") -> dic
     return {"ok": True, "project": rel, "path": str(path), "created": not existed}
 
 
+# ── filing work without Notion ────────────────────────────────────────────────
+#
+# Intake was a one-way door: `pulse.sync_notion` was the only thing anywhere in
+# the codebase that inserted into `stories`, so the only way to give the colony
+# work was to own a Notion board, be logged into it, and then wait up to an hour
+# for the next pulse to notice. That is a lot of machinery between "I thought of
+# something" and "the colony knows about it", and all of it lives on somebody
+# else's server.
+#
+# This does not retire Notion. The two paths coexist by construction — a story
+# filed here has a NULL `notion_page_id`, intake only ever touches rows it can
+# match to a page it just read, and neither one deletes what the other made. The
+# point is that Notion becomes a source rather than *the* source.
+
+MAX_TITLE = 200
+MAX_BRIEF = 20_000
+
+# A phone submits a form twice more often than a desktop does: the tap lands, the
+# keyboard closes, the layout jumps, the second tap lands on the same button. A
+# minute is long enough to cover that and short enough that deliberately filing
+# the same title twice still works.
+DUPLICATE_WINDOW_S = 60
+
+
+def create_story(conn: sqlite3.Connection, *, title: str, description: str = "",
+                 project: str = "", priority: int = 3) -> dict[str, Any]:
+    """File a story straight into the ledger. The in-house half of intake.
+
+    Named project folders are treated as **confirmed**, not inferred, and that is
+    the one substantive difference from a row arriving out of Notion. An inferred
+    folder is the colony's guess and can never authorise a write (§8.2); a folder
+    the PO typed into this form is the PO saying so, which is the same act
+    `confirm_project` records. A story filed with no folder gets the identical
+    needs-info escalation intake would have raised, because it is the identical
+    question.
+
+    Lands in `backlog`. Grooming, criteria and staffing are unchanged — this
+    writes the row and then gets out of the way.
+    """
+    title = " ".join((title or "").split())[:MAX_TITLE]
+    if not title:
+        raise Refused("a story needs a title")
+
+    description = (description or "").strip()[:MAX_BRIEF]
+
+    try:
+        priority = int(priority)
+    except (TypeError, ValueError):
+        priority = 3
+    if priority not in (1, 2, 3):
+        raise Refused("priority is 1 (high), 2 (medium) or 3 (low)")
+
+    project = (project or "").strip().replace("\\", "/").strip("/")
+    if project and project not in set(_project_dirs()):
+        # Deliberately not silently accepted the way `confirm_project` accepts a
+        # folder that does not exist yet. There, the PO is answering a question
+        # about a story that already exists and a typo costs one more question.
+        # Here the typo would become the story's confirmed write scope at the
+        # moment of creation, with nothing left to catch it.
+        raise Refused(f"no folder named {project!r} under the projects root — "
+                      "create the project first, or leave it blank and answer in the Inbox")
+
+    dupe = conn.execute(
+        """SELECT id FROM stories
+            WHERE title = ? AND dropped_at IS NULL
+              AND created_at >= datetime('now','localtime',?)""",
+        (title, f"-{DUPLICATE_WINDOW_S} seconds"),
+    ).fetchone()
+    if dupe:
+        raise Refused(f"just filed that one — story #{dupe['id']}")
+
+    cur = conn.execute(
+        """INSERT INTO stories (notion_page_id, title, description, project,
+                                project_source, priority, status)
+           VALUES (NULL, ?, ?, ?, ?, ?, 'backlog')""",
+        (title, description or None, project or None,
+         "confirmed" if project else "inferred", priority),
+    )
+    story_id = cur.lastrowid
+
+    _record(conn, "story", "story", story_id, title)
+    _event(conn, story_id, "created", "filed by the PO in the dashboard",
+           description or None)
+
+    if not project:
+        conn.execute(
+            """INSERT INTO escalations (story_id, kind, reason, recommendation)
+               VALUES (?, 'needs-info', ?, ?)""",
+            (story_id,
+             f'"{title}" — filed here with no project folder named.',
+             f"Name the folder under {db.PROJECTS_ROOT.as_posix()}, or say it is "
+             "a new project."),
+        )
+
+    return {"ok": True, "story_id": story_id, "project": project or None,
+            "message": f"filed story #{story_id}"
+                       + (f" · {project}" if project else " · needs a folder")}
+
+
 # ── talking back ──────────────────────────────────────────────────────────────
 
 

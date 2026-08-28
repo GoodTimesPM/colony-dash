@@ -1828,3 +1828,151 @@ body.snapping .snapbar { display: flex; }
 .man-list li { margin-bottom: 9px; line-height: 1.6; }
 .man-note { border-left: 2px solid var(--amber); padding-left: 11px;
             color: var(--ink-dim); }
+
+/* ── the phone ────────────────────────────────────────────────────────────────
+
+   The page already collapsed to one column at 1240px, which is the whole of
+   what "responsive" meant here: three columns became one and everything else
+   kept desktop proportions. That is fine on a narrow window and wrong on a
+   390px screen, where the failures are not layout failures at all — they are a
+   header that wraps into four lines of chrome before any content, controls
+   sized for a mouse, and panels that scroll inside a page that also scrolls.
+
+   Three rules run through everything below.
+
+   **Nested scrolling is a trap on a touch screen.** The Inbox, the Completed
+   list and the Ticket Queue each cap their own height and scroll internally, so
+   the page's shape does not depend on how behind you are. On a phone that
+   produces a small box inside a tall page, and a swipe that starts inside the
+   box moves the box instead of the page — you cannot reach the board without
+   finding a gap between panels to push on. On narrow screens they stop
+   scrolling and simply get as tall as they are.
+
+   **A tap target is not a hover target.** Every `.link` on this page is 11px
+   type with 4px of padding, which is comfortable to click and roughly a
+   coin-flip to tap. They grow, and the ones packed into a panel title wrap
+   instead of overflowing.
+
+   **The notch is not padding.** `viewport-fit=cover` in the HTML puts the page
+   under the status bar and the home indicator, which is what makes a standalone
+   launch look like an app rather than a web page with grey bands. Putting the
+   content back out from under them is this stylesheet's job, via
+   `env(safe-area-inset-*)`, which is 0 everywhere else and so costs nothing on
+   a desktop. */
+
+/* Not scoped to a media query: `100vh` on a phone means the viewport with the
+   browser's address bar *hidden*, so a fixed full-height element is taller than
+   what you can see and its bottom edge sits under the chrome. `100dvh` follows
+   the bar as it collapses. The fallback line has to come first. */
+.drawer { height: 100%; height: 100dvh; }
+
+/* The one form the phone was built for. `.picker` was only ever styled inside a
+   tile, and the new-story drawer is the first place it appears outside one. */
+.form .picker { display: flex; gap: 6px; align-items: center; width: 100%; min-width: 0; }
+.form .picker select.pick, .form .picker input.field { flex: 1 1 auto; width: 100%; min-width: 0; }
+.form textarea.field { width: 100%; resize: vertical; line-height: 1.5; }
+.form > .dim { grid-column: 1 / -1; font-size: var(--step--2); line-height: 1.5; }
+
+@media (max-width: 720px) {
+
+  /* Safe areas, once, on the elements that actually touch the edges. */
+  header.bar { padding-left: max(14px, env(safe-area-inset-left));
+               padding-right: max(14px, env(safe-area-inset-right)); }
+  .sprint, .strip-row, main {
+    padding-left: max(12px, env(safe-area-inset-left));
+    padding-right: max(12px, env(safe-area-inset-right));
+  }
+  main { padding-bottom: calc(28px + env(safe-area-inset-bottom)); }
+
+  /* The header stops being one line. `order` puts the connection dot and the
+     title together and pushes the four menus onto a row of their own, so the
+     one thing worth glancing at — is this thing live — is never the item that
+     got wrapped off. */
+  header.bar { flex-wrap: wrap; align-items: center; gap: 8px 10px;
+               padding-top: calc(10px + env(safe-area-inset-top)); }
+  header.bar h1 { order: 0; }
+  header.bar .conn { order: 1; margin-left: auto; }
+  header.bar .goal { order: 3; flex: 1 0 100%; white-space: normal;
+                     font-size: var(--step--1); line-height: 1.4; }
+  header.bar .pick, header.bar .viewmenu, header.bar #open-appearance { order: 2; }
+  /* Anchored to the right edge of the header rather than of the summary, which
+     on a 390px screen is the difference between a menu on screen and a menu
+     half off it. */
+  .viewmenu .menu { right: 0; min-width: min(230px, calc(100vw - 28px)); }
+
+  /* Two figures side by side become two lines. The gauge spans both. */
+  .sprint { grid-template-columns: minmax(0, 1fr); gap: 10px; padding-top: 12px; }
+  .sprint .meta { gap: 6px 16px; }
+  #week-meta { justify-self: start !important; }
+
+  /* One tile per row, and no internal scrollers — see the note above. */
+  .tiles { grid-template-columns: minmax(0, 1fr); max-height: none; overflow: visible; }
+  .done-list { max-height: none; overflow: visible; }
+  .flight .rail { max-height: none; overflow: visible; }
+  /* Padding for a grid that no longer has columns. `.note` is the exception —
+     it is the empty-Inbox message wearing a slot's clothes, and hiding it would
+     leave a panel that says nothing when there is nothing to say. */
+  .tiles .tile.slot:not(.note) { display: none; }
+
+  /* Titles carry up to four buttons. Wrapping is the only honest answer at this
+     width; the count keeps its `margin-left:auto` and so still ends the row. */
+  .panel > h2, .strip h2 { flex-wrap: wrap; row-gap: 2px; }
+  .panel > h2 .count { margin-left: auto; }
+
+  /* Fingers. 40px is the short side of Apple's 44pt target once the type inside
+     it is counted, and these are inline controls in a dense page rather than
+     primary buttons on a form. */
+  .link { padding: 8px 10px; }
+  button.act { padding: 9px 14px; }
+  .form { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+  .form label { padding-top: 6px; }
+  select.pick, input.field, textarea.field {
+    padding: 8px 9px;
+    /* iOS zooms the whole page when a focused field's type is under 16px, and
+       it does not zoom back out. This is the fix, and it has to be an absolute
+       size rather than a step: the type scale is a user setting and this is a
+       platform floor. */
+    font-size: max(16px, var(--step--1));
+  }
+
+  /* Full width, and sliding from the bottom rather than the side. A right-edge
+     drawer on a phone is a full-screen panel that animates sideways for no
+     reason, and the swipe-from-left gesture it collides with is the browser's
+     back. */
+  .drawer, .drawer.wide { width: 100%; height: 92dvh; top: auto; bottom: 0;
+                          border-left: 0; border-top: 1px solid var(--rule);
+                          border-radius: 12px 12px 0 0; transform: translateY(100%); }
+  .drawer.on { transform: none; }
+  .drawer header { padding: 14px 15px 11px; }
+  .drawer .scroll { padding: 13px 15px calc(30px + env(safe-area-inset-bottom)); }
+
+  /* Anything with a fixed inner width gets to scroll sideways inside its own
+     box rather than widening the page. A body that scrolls horizontally on a
+     phone is the single most common way a desktop layout announces itself. */
+  .drawer pre, .tree, .chart, .man-sec pre { overflow-x: auto; }
+  .drawer pre { -webkit-overflow-scrolling: touch; }
+
+  #toasts { bottom: calc(18px + env(safe-area-inset-bottom)); }
+  .toast { max-width: calc(100vw - 28px); }
+
+  /* Drag-to-arrange is a mouse gesture, and on a touch screen the drag it
+     collides with is the scroll. The layout it arranges is a desktop layout
+     anyway — at this width there is one column and nothing to arrange. */
+  .snapbar { display: none !important; }
+}
+
+/* Below this the sprint figures and the theme picker start colliding with the
+   title. Only the things that actually break get touched. */
+@media (max-width: 400px) {
+  header.bar { gap: 6px 8px; }
+  header.bar h1 { letter-spacing: .1em; }
+  .sprint .big { font-size: var(--step-2); }
+  .panel .body { padding: 10px 11px 12px; }
+}
+
+/* A phone in landscape is a short, wide screen: the width breakpoints above do
+   not fire, and a drawer at 92dvh is the whole display. */
+@media (max-height: 520px) and (orientation: landscape) {
+  .drawer, .drawer.wide { height: 100dvh; border-radius: 0; }
+  .tiles { max-height: none; overflow: visible; }
+}

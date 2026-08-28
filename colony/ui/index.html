@@ -1,6 +1,23 @@
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<!--
+  `viewport-fit=cover` puts the page under the notch and the home indicator on a
+  phone; `env(safe-area-inset-*)` in app.css puts the content back out from
+  under them. Without the pair, a standalone launch has a dead grey band at the
+  top and a bar you cannot tap through at the bottom.
+-->
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Colony Dash</title>
+
+<!-- Home-screen install. `theme-color` is repainted from the live theme in
+     app.js, so the phone's status bar matches whichever palette is picked. -->
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#0B0F14" id="theme-color">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Colony">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<link rel="icon" href="/icon-192.png" type="image/png">
 
 <!--
   The colony, and the controls for it.
@@ -157,6 +174,7 @@
   <div class="col">
     <section class="panel" data-panel="board">
       <h2>Board <span class="count" id="board-count"></span>
+        <button class="link" id="board-new" title="file a story straight into the ledger, without Notion">&#65291; story</button>
         <button class="link" id="board-filed" style="display:none" title="done, shipped, shelved or not started — the colony asks nothing about these">filed</button>
         <button class="link" id="board-dropped" style="display:none" title="stories you have dropped">dropped</button>
       </h2>

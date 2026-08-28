@@ -34,17 +34,19 @@ import asyncio
 import hashlib
 import json
 import sqlite3
+import urllib.parse
 from datetime import datetime, timedelta
+from html import escape as html_escape
 from pathlib import Path
 from typing import Any
 
-from fastapi import Body, FastAPI, Header, HTTPException, Query
-from fastapi.responses import (FileResponse, HTMLResponse, Response,
-                               StreamingResponse)
+from fastapi import Body, FastAPI, Header, HTTPException, Query, Request
+from fastapi.responses import (FileResponse, HTMLResponse, RedirectResponse,
+                               Response, StreamingResponse)
 
-from . import (attachments as attach, console as console_mod, control, db, forge,
-               notion as notion_mod, outbox as outbox_mod, projects as projects_mod,
-               roster as roster_mod, usage as usage_mod)
+from . import (access, attachments as attach, console as console_mod, control, db,
+               forge, notion as notion_mod, outbox as outbox_mod,
+               projects as projects_mod, roster as roster_mod, usage as usage_mod)
 
 UI_DIR = Path(__file__).resolve().parent / "ui"
 
@@ -1077,6 +1079,46 @@ def app_js() -> Response:
     return _asset("app.js", "text/javascript; charset=utf-8")
 
 
+# ── the phone ────────────────────────────────────────────────────────────────
+#
+# The dashboard was already a web page; these four routes are what let a phone
+# treat it as an app rather than as a tab. The manifest gives it a name and an
+# icon on the home screen, the service worker is what makes the browser offer to
+# put it there at all, and the icons are the mark from the desktop window.
+#
+# `sw.js` is served from the root on purpose. A service worker may only control
+# pages at or below its own path, so one served from `/ui/sw.js` could not
+# control `/` — the single most common way this is got wrong.
+
+@app.get("/manifest.webmanifest")
+def manifest() -> Response:
+    return _asset("manifest.webmanifest", "application/manifest+json")
+
+
+@app.get("/sw.js")
+def service_worker() -> Response:
+    return _asset("sw.js", "text/javascript; charset=utf-8")
+
+
+# Icons are the one thing here worth caching: they are bytes that change when
+# the project is rebranded and not before, and re-fetching them on every launch
+# is the difference between a home-screen icon that appears and one that blinks.
+@app.get("/icon-{name}.png")
+def icon(name: str) -> Response:
+    if name not in {"192", "512", "maskable-512"}:
+        raise HTTPException(404, "no such icon")
+    return Response(
+        (UI_DIR / f"icon-{name}.png").read_bytes(),
+        media_type="image/png",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
+
+
+@app.get("/favicon.ico")
+def favicon() -> FileResponse:
+    return FileResponse(UI_DIR / "colony.ico", media_type="image/x-icon")
+
+
 @app.get("/api/state")
 def api_state() -> dict[str, Any]:
     return snapshot()
@@ -1542,6 +1584,19 @@ def act_confirm(body: dict = Body(...), x_colony: str | None = Header(None)) -> 
         if not body.get("story_id"):
             return made
     return _act(control.confirm_project, int(body["story_id"]), str(body["project"]))
+
+
+@app.post("/api/act/story")
+def act_story(body: dict = Body(...), x_colony: str | None = Header(None)) -> dict[str, Any]:
+    """File a story without going through Notion — see `control.create_story`."""
+    _guard(x_colony)
+    return _act(
+        control.create_story,
+        title=str(body.get("title") or ""),
+        description=str(body.get("description") or ""),
+        project=str(body.get("project") or ""),
+        priority=int(body.get("priority") or 3),
+    )
 
 
 @app.post("/api/act/reply")
@@ -2088,7 +2143,135 @@ async def events() -> StreamingResponse:
     )
 
 
+# ── the gate ─────────────────────────────────────────────────────────────────
+#
+# Off by default and off forever on a loopback bind: `serve()` only turns this
+# on when it is handed an address that is reachable from somewhere else, and
+# `access.check` refuses that bind outright unless a token is configured. On the
+# desktop, where this server has spent its whole life, nothing below runs.
+#
+# What it guards is everything. There is no useful public half of this page: the
+# board names projects, the drawers hold run transcripts, and `/api/state` is
+# the whole ledger in one response. The exceptions are the three files a phone
+# needs in order to show the login at all, plus the icons, which are a logo.
+
+PUBLIC_PATHS = {"/login", "/manifest.webmanifest", "/sw.js", "/favicon.ico",
+                "/icon-192.png", "/icon-512.png", "/icon-maskable-512.png"}
+
+# Set by `serve()`. A module-level flag rather than app state because the
+# middleware has to be able to answer "am I on?" before anything else runs.
+REQUIRE_TOKEN = False
+
+LOGIN_PAGE = """<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Colony Dash</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#0B0F14">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<style>
+  html { color-scheme: dark; }
+  body { margin: 0; min-height: 100dvh; display: grid; place-items: center;
+         background: #0B0F14; color: #DEE5EC; padding: 24px;
+         font: 15px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+  form { width: min(320px, 100%); display: flex; flex-direction: column; gap: 12px; }
+  h1 { margin: 0; font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+       font-size: 13px; letter-spacing: .16em; text-transform: uppercase; }
+  p { margin: 0; color: #6B7885; font-size: 13px; }
+  input, button { font: inherit; border-radius: 6px; padding: 11px 12px;
+                  border: 1px solid #2A3441; background: #121820; color: inherit; }
+  input { font-size: 16px; }          /* under 16px and iOS zooms the page in */
+  button { border-color: #0E8C74; color: #34D3AE; cursor: pointer; }
+  .bad { color: #E06C5B; font-size: 13px; margin: 0; }
+</style>
+<form method="post" action="/login">
+  <h1>Colony Dash</h1>
+  <p>This dashboard is being served off this machine. Paste the access token
+     from <code>.env</code>.</p>
+  __ERROR__
+  <input name="token" type="password" autocomplete="current-password"
+         autofocus placeholder="access token">
+  <input name="next" type="hidden" value="__NEXT__">
+  <button type="submit">unlock</button>
+</form>"""
+
+
+def _login_page(*, error: str = "", next_path: str = "/") -> HTMLResponse:
+    html = LOGIN_PAGE.replace(
+        "__ERROR__", f'<p class="bad">{error}</p>' if error else "")
+    # The only value that reaches the page is a path this server produced, but
+    # it is still quoted rather than trusted -- a value interpolated into markup
+    # is a value that gets escaped, every time, or the rule stops being a rule.
+    return HTMLResponse(html.replace("__NEXT__", html_escape(next_path or "/")))
+
+
+@app.middleware("http")
+async def gate(request: Request, call_next):
+    if not REQUIRE_TOKEN or request.url.path in PUBLIC_PATHS:
+        return await call_next(request)
+
+    supplied = (request.cookies.get(access.COOKIE)
+                # A query parameter so the first visit can be a link or a QR
+                # code. It is swapped for the cookie immediately and the URL is
+                # replaced client-side, because a token in an address bar is a
+                # token in the browser history.
+                or request.query_params.get("k"))
+    if access.matches(supplied):
+        response = await call_next(request)
+        if supplied != request.cookies.get(access.COOKIE):
+            _set_cookie(response, supplied)
+        return response
+
+    # Only a navigation answers with the login page itself. Everything else --
+    # an API call, a stylesheet, a script -- answers with a status the caller
+    # can act on. Handing the login page's HTML to `fetch` shows up as a JSON
+    # parse error three layers from the cause, and handing it to a
+    # `<script src>` shows up as a syntax error on line 1 of a file that is
+    # fine. A browser asks for `text/html` on a navigation and on nothing else,
+    # which is a better test than a list of paths that would need maintaining.
+    wants_page = ("text/html" in request.headers.get("accept", "")
+                  and not request.url.path.startswith("/api/"))
+    if wants_page:
+        return _login_page(next_path=request.url.path)
+    return Response('{"detail":"access token required"}', status_code=401,
+                    media_type="application/json")
+
+
+def _set_cookie(response: Response, value: str) -> None:
+    response.set_cookie(
+        access.COOKIE, value, max_age=access.COOKIE_MAX_AGE_S,
+        httponly=True, samesite="lax", path="/",
+    )
+
+
+@app.post("/login")
+async def login(request: Request) -> Response:
+    # Parsed by hand rather than with `await request.form()`, which pulls in
+    # `python-multipart`. One login form is not worth a fifth runtime
+    # dependency in a project whose whole install story is four packages.
+    raw = (await request.body()).decode("utf-8", "replace")
+    form = urllib.parse.parse_qs(raw, keep_blank_values=True)
+    supplied = (form.get("token") or [""])[0]
+    next_path = (form.get("next") or ["/"])[0]
+    if not next_path.startswith("/") or next_path.startswith("//"):
+        next_path = "/"          # never bounce off this server
+    if not access.matches(supplied):
+        return _login_page(error="that is not the token", next_path=next_path)
+
+    response = RedirectResponse(next_path, status_code=303)
+    _set_cookie(response, supplied)
+    return response
+
+
 def serve(host: str = "127.0.0.1", port: int = 8787) -> None:
+    """Run the dashboard. Non-loopback binds require an access token.
+
+    `access.check` raises rather than returning False for the unsafe case, so
+    there is no way to reach `uvicorn.run` with an open server.
+    """
+    global REQUIRE_TOKEN
+    REQUIRE_TOKEN = access.check(host)
+
     import uvicorn
 
     uvicorn.run(app, host=host, port=port, log_level="warning")

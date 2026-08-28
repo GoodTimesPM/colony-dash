@@ -26,6 +26,7 @@ morning?** Most of this codebase is the answer to that question.
 ```mermaid
 flowchart TD
     N[Notion board] -->|intake| P
+    F["＋ story — filed in the dashboard"] --> L
     P{{"pulse — hourly heartbeat"}} --> T[tick: read the ledger, write a row]
     T -->|nothing to do| L[(SQLite ledger)]
     T -->|something to do| W[wake: spend tokens]
@@ -56,6 +57,12 @@ table is itself the alarm.
 **Nothing reaches a real repo without a human.** Agents write into a throwaway
 git worktree. The diff goes to the PO inbox with a recommendation and a cost.
 The loop never merges its own work and never approves its own output.
+
+Work arrives through two doors. Notion is the one with a workflow around it —
+someone else's board, synced on every pulse. The dashboard's **＋ story** button
+is the one for the thought you had at 11pm, and it writes to the ledger
+directly. Neither is required; a colony with no Notion credentials configured
+still has a full board.
 
 ## The ledger is the system
 
@@ -118,8 +125,15 @@ So the console is a second door, deliberately unlike the first:
   rows, so the spend history survives the clear.
 
 The guards that stay are the ones that were never about the agent: the server
-binds `127.0.0.1`, and every `/api/console/*` call needs the `X-Colony` header
-like all other write routes. Nothing off the machine can knock on that door.
+binds `127.0.0.1` unless told otherwise, and every `/api/console/*` call needs
+the `X-Colony` header like all other write routes.
+
+Worth being exact about that header, because it is easy to read as more than it
+is. It is CSRF protection — it proves a call came from the dashboard's own page
+rather than from a link someone clicked. The *access* control was the loopback
+bind. So the moment `--host` points anywhere else, the header is no longer
+enough on its own, which is why serving off-machine is what arms the token gate
+(`access.py`) rather than something you can forget to turn on.
 
 ## Budget
 
@@ -166,6 +180,38 @@ projects/
 Point it somewhere else with `COLONY_PROJECTS_ROOT` in `.env` or the
 environment.
 
+### From a phone
+
+The dashboard is responsive and installable — add it to a home screen and it
+launches without browser chrome, in its own window, on its own icon. That is a
+manifest and a service worker, not a second application: the phone renders the
+same page against the same server against the same ledger, so there is no sync
+step and nothing to reconcile. The service worker deliberately caches nothing
+but an offline notice, because a cached board is yesterday's board displayed
+with today's confidence.
+
+Reaching it means serving on something other than loopback, which requires a
+token:
+
+```bash
+py -c "import secrets; print(secrets.token_urlsafe(32))"   # paste into .env
+py -m colony dash --host 100.x.y.z --serve                 # your tailnet address
+```
+
+Then open `http://100.x.y.z:8787/?k=<token>` on the phone once. The token is
+swapped for a 90-day cookie and stripped from the address bar, because a token
+in a URL is a token in the browser history.
+
+`--host` on a non-loopback address **refuses to start** without
+`COLONY_ACCESS_TOKEN` set. That is not a nag: the dashboard is the whole ledger,
+every run transcript, the project tree, and a button that spends money. Serve it
+on a tailnet (Tailscale, WireGuard) rather than `0.0.0.0` and a forwarded router
+port — the token is meant to be the second lock, not the only one.
+
+This is remote access, not accounts. One operator, one ledger, one machine's
+filesystem. See ARCHITECTURE.md §10.19 for why multi-tenancy is a different
+program rather than a later feature.
+
 ### The rest of the CLI
 
 | Command | What it does |
@@ -193,11 +239,13 @@ py -m unittest discover -s tests -v
 ```
 
 Standard-library `unittest`, no install step — a suite that needs a dependency
-before it runs is a suite nobody clones and runs. 41 tests, about two seconds,
-and they cover the three things that are claims rather than code: migrations
-apply in order and refuse to be edited afterwards, the tool denylist survives a
-contract that asks for `Bash`, and the write scope refuses everything outside
-one named project folder. The console's one-turn-at-a-time lock is in there too,
+before it runs is a suite nobody clones and runs. 72 tests, under three seconds,
+and they cover the things that are claims rather than code: migrations apply in
+order and refuse to be edited afterwards, the tool denylist survives a contract
+that asks for `Bash`, the write scope refuses everything outside one named
+project folder, a story filed in the dashboard cannot name a folder that does
+not exist, and the server cannot reach `uvicorn.run` on a network address with
+no token configured. The console's one-turn-at-a-time lock is in there too,
 intercepted rather than spawned — nothing in the suite launches `claude`, and
 nothing touches the real ledger.
 
@@ -223,7 +271,8 @@ colony/
   agent.py        the one place an agent is spawned, and the tool denylist
   worktree.py     disposable checkouts
   control.py      halt, allowance, approvals, scope — the PO's levers
-  server.py       FastAPI, bound to 127.0.0.1
+  server.py       FastAPI, loopback by default
+  access.py       the gate that arms when the bind stops being loopback
   console.py      the PO's terminal (see: the deliberate exception)
   notion.py       intake
   roster.py       the hiring pool, scanned from an agency-agents install
@@ -231,6 +280,7 @@ colony/
   mirror.py       one-way SQLite -> MySQL, for reporting
   migrations/     append-only schema history
   ui/             index.html, app.css, app.js — no build step
+                  manifest.webmanifest, sw.js, icons — installable on a phone
 tests/            stdlib unittest, no install step
 ```
 
@@ -251,7 +301,8 @@ archaeology; skip it otherwise.
 ## Status
 
 Personal project, actively used, one operator. It is not a product: there is no
-multi-tenancy and no auth beyond binding to loopback, and the test suite covers
-the safety model rather than the whole surface. What it is instead is a real
+multi-tenancy, auth is a single shared token over a private network, and the
+test suite covers the safety model rather than the whole surface. What it is
+instead is a real
 answer to the question at the top — a loop that has been left running against
 live repos without eating one.
