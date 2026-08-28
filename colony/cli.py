@@ -232,9 +232,19 @@ def cmd_dash(conn: sqlite3.Connection, args) -> int:
     # exists only because every command gets handed one. Close it first so the
     # window is never the reason a write is blocked.
     conn.close()
-    from . import desktop
+    from . import access, desktop
 
-    return desktop.launch(port=args.port, window=not args.serve)
+    host = args.host or desktop.HOST
+    try:
+        # Asked here as well as in `serve()` so the refusal lands in the
+        # terminal you typed into, rather than inside a server thread whose
+        # only output is `.colony/dash.log`.
+        access.check(host)
+    except access.Unconfigured as exc:
+        print(str(exc))
+        return 2
+
+    return desktop.launch(port=args.port, host=host, window=not args.serve)
 
 
 def cmd_halt(conn: sqlite3.Connection, args) -> int:
@@ -435,6 +445,10 @@ def build_parser() -> argparse.ArgumentParser:
     dash.add_argument("--port", type=int, default=8787)
     dash.add_argument("--serve", action="store_true",
                       help="serve only, no window — use a browser at 127.0.0.1")
+    dash.add_argument("--host", default=None,
+                      help="address to bind (default 127.0.0.1). Anything else "
+                           "reaches the network and requires COLONY_ACCESS_TOKEN "
+                           "in .env — prefer your tailnet address over 0.0.0.0")
     dash.set_defaults(func=cmd_dash)
 
     hlt = sub.add_parser("halt", help="stop all dispatch colony-wide")

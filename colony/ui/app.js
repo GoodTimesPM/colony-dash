@@ -1661,6 +1661,97 @@ function projectSelect(current, opts) {
   return sel;
 }
 
+// ── filing a story from here ────────────────────────────────────────────────
+//
+// The board could show work and move work but never *start* work: a story only
+// existed because a Notion page did. This is the other door, and it is
+// deliberately the same shape as the Inbox's project picker — including the
+// "＋ new project folder…" branch — because "which folder is this?" is the same
+// question whether you are answering it after the fact or up front.
+
+function openNewStory() {
+  // No `nav`: a back button that reopened this would be an empty form claiming
+  // to be the one you were typing in. Same rule the reply drawer follows.
+  const body = openDrawer("board", "new story");
+  const wrap = el("div", "form");
+
+  const title = el("input", "field");
+  title.placeholder = "what needs doing";
+  title.maxLength = 200;
+
+  const brief = el("textarea", "field");
+  brief.placeholder = "the brief — why it matters, what done looks like, anything the colony cannot see from the code";
+  brief.rows = 7;
+
+  const sel = projectSelect(null, { allowNew: true });
+  const field = el("input", "field");
+  field.placeholder = "new-folder-name";
+  field.style.display = "none";
+  sel.onchange = () => {
+    const isNew = sel.value === NEW_PROJECT;
+    field.style.display = isNew ? "" : "none";
+    sel.style.display = isNew ? "none" : "";
+    if (isNew) field.focus();
+  };
+  field.onkeydown = (ev) => { if (ev.key === "Escape") { sel.value = ""; sel.onchange(); } };
+  const picker = el("div", "picker");
+  picker.append(sel, field);
+
+  const prio = el("select", "pick");
+  for (const [v, label] of [[3, "low"], [2, "medium"], [1, "high"]]) {
+    const o = el("option", null, label); o.value = String(v);
+    if (v === 3) o.selected = true;
+    prio.append(o);
+  }
+
+  wrap.append(el("label", null, "title"), title);
+  wrap.append(el("label", null, "brief"), brief);
+  wrap.append(el("label", null, "project"), picker);
+  wrap.append(el("label", null, "priority"), prio);
+
+  const go = el("button", "act go wide", "file it");
+  go.onclick = async () => {
+    if (!title.value.trim()) { toast("give it a title", "bad"); return; }
+    const isNew = sel.value === NEW_PROJECT;
+    let project = isNew ? field.value.trim() : sel.value;
+    if (isNew && !project) { toast("name the new folder", "bad"); return; }
+
+    // Two calls rather than one, on purpose: `create_story` refuses a folder
+    // that does not exist, so the folder has to be real before the story names
+    // it. Making the story create folders as a side effect would mean a typo in
+    // this box silently becomes a new directory on disk.
+    go.disabled = true;
+    try {
+      if (isNew) {
+        const made = await act("confirm-project", { project, create: true });
+        if (!made) return;
+        // The picker's list was fetched once at load. A folder created a second
+        // ago is not in it, and the very next thing that happens is a story
+        // naming that folder.
+        await fetch("/api/projects").then((r) => r.json())
+          .then((p) => { ALL_PROJECTS = p.all || ALL_PROJECTS; }).catch(() => {});
+      }
+      const out = await act("story", {
+        title: title.value, description: brief.value,
+        project, priority: Number(prio.value) || 3,
+      });
+      if (out) {
+        toast(out.message || "filed", "good");
+        closeDrawer();
+      }
+    } finally {
+      go.disabled = false;
+    }
+  };
+  wrap.append(go);
+  wrap.append(el("div", "dim",
+    "Filed straight into the ledger — no Notion page behind it, and the sync "
+    + "will not touch it. Leave the folder blank and the Inbox will ask."));
+
+  body.replaceChildren(wrap);
+  title.focus();
+}
+
 function renderMacros(c) {
   const box = $("macros");
   box.replaceChildren();
@@ -3846,12 +3937,25 @@ if (saved && !$("theme").querySelector(`option[value="${CSS.escape(saved)}"]`)) 
   localStorage.removeItem("colony-theme");
   saved = "";
 }
+// A phone paints the status bar and the task-switcher card with `theme-color`,
+// and a fixed one means fifteen palettes all launching behind the same slab of
+// basalt. Read back off the computed style, so a hand-mixed ground is honoured
+// the same as a named theme.
+function paintThemeColor() {
+  const meta = $("theme-color");
+  if (!meta) return;
+  const bg = getComputedStyle(document.documentElement)
+    .getPropertyValue("--ground").trim();
+  if (bg) meta.setAttribute("content", bg);
+}
+
 if (saved) document.documentElement.dataset.theme = saved;
 $("theme").value = saved;
 $("theme").onchange = (e) => {
   const v = e.target.value;
   if (v) { document.documentElement.dataset.theme = v; localStorage.setItem("colony-theme", v); }
   else { delete document.documentElement.dataset.theme; localStorage.removeItem("colony-theme"); }
+  paintThemeColor();
   // Picking a theme drops any hand-mixed colours. They were sampled from the
   // palette you just left — an ember ground held over phosphor is not a third
   // theme, it is two halves of two — and a picker that appeared to do nothing
@@ -4046,6 +4150,7 @@ function applyVars() {
   const root = document.documentElement.style;
   for (const pair of TOKENS) root.removeProperty(pair[0]);
   for (const name of Object.keys(VARS)) root.setProperty(name, VARS[name]);
+  paintThemeColor();
 }
 
 function saveAppearance() {
@@ -4818,6 +4923,7 @@ $("view-reset").onclick = () => {
   if (STATE) render(STATE);
 };
 $("inbox-show-stale").onclick = () => setView("stale", !shows("stale"));
+$("board-new").onclick = openNewStory;
 $("board-dropped").onclick = () => setView("dropped", !shows("dropped"));
 $("board-filed").onclick = () => setView("filed", !shows("filed"));
 
@@ -4868,6 +4974,32 @@ $("tree-q").addEventListener("input", (e) => {
   renderTree();
 });
 fetch("/api/state").then((r) => r.json()).then(render).catch(() => setConn(false, "ledger unreachable"));
+
+paintThemeColor();
+
+// `?k=<token>` is how the first visit from a phone can be a link or a QR code
+// rather than a password typed on a touch keyboard. The server swaps it for an
+// HttpOnly cookie on that first request, so by the time this runs the parameter
+// has already done its whole job — and a token left in the address bar is a
+// token in the history, in a screenshot, and in whatever gets pasted next.
+if (new URLSearchParams(location.search).has("k")) {
+  const url = new URL(location.href);
+  url.searchParams.delete("k");
+  history.replaceState(null, "", url.pathname + url.search + url.hash);
+}
+
+// The service worker only exists so a phone will offer to install this to the
+// home screen; it caches nothing but an offline notice (see sw.js). Registered
+// last and failing silently, because a dashboard that will not load because a
+// worker did not register would be a far worse bug than no install prompt. It
+// registers inside the pywebview window too, where it is simply inert — the
+// only thing it ever serves is a page you reach by losing the network, and the
+// desktop shell is running on the machine the server is on.
+if ("serviceWorker" in navigator && location.protocol !== "file:") {
+  addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js").catch(() => {});
+  });
+}
 
 // ?nostream skips the live feed and leaves one static frame on screen. An
 // endless SSE response keeps a headless browser from ever settling, so this is

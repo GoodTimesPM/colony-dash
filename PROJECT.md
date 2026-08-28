@@ -22,6 +22,9 @@ Jordan's integration with Claude as a whole** — not a side tool.
 python -m colony init                 create + seed the ledger, scan the roster
 python -m colony dash                 open the dashboard window (pywebview)
 python -m colony dash --serve         serve only, no window — browse 127.0.0.1:8787
+python -m colony dash --host 100.x.y.z --serve
+                                      reach it from a phone; refuses to start on a
+                                      non-loopback address without COLONY_ACCESS_TOKEN
 python -m colony status               sprint, board, colony, inbox, pulse log
 python -m colony pulse                one heartbeat — free unless it wakes to groom
 python -m colony pulse --no-wake      tick only, guaranteed zero tokens
@@ -367,6 +370,93 @@ names the state and the next move.
       changes. When the workflow settles, delete `MANUAL` in `index.html` and write it
       again from the code rather than patching it a line at a time.
 - [ ] Update the published artifact — it still shows the pre-M1 design.
+- [ ] **Decide what happens to branch `mobile`.** Local intake, the PWA and the access
+      gate all live there and are tested but unmerged. Nothing on it changes behaviour on
+      a loopback bind: the gate is off unless `--host` is passed, and `＋ story` is an
+      addition rather than a change to any existing path. Merge when it has been used from
+      an actual phone for a few days.
+
+## Finished 2026-08-27 — the phone, and the door beside Notion
+
+Built on branch `mobile`, not on `master`, because the ask was explicitly a trial.
+Three things that sound like one feature and share almost nothing: file a story without
+Notion, read the board on a phone, reach the server from off the machine.
+
+**Notion is not retired and was not touched.** It is now one of two intake doors rather
+than the intake. The `＋ story` button on the board panel writes straight into `stories`
+with a NULL `notion_page_id`.
+
+**The schema already allowed it.** `notion_page_id` has been nullable since migration 001,
+with the column comment "NULL for loop-authored stories". The only `INSERT INTO stories`
+anywhere is the Notion path, and the sync loop iterates what Notion returns rather than
+reconciling against the table — there is no reaper. A locally-filed story is invisible to
+intake, not at risk from it. The only schema change needed was migration 026, widening the
+`po_actions.action` CHECK to admit `'story'`, which SQLite cannot do in place, so it is
+the same full-table rebuild as 006, 008, 018, 020, 021 and 023. Verified against a copy of
+the live ledger — 140 real `po_actions` rows and their foreign keys — rather than a fresh
+one, because a fresh database has neither.
+
+**A named folder on a filed story is `confirmed`, not `inferred`.** Same distinction §8.2
+draws for `confirm_project`. But `create_story` refuses a folder that does not exist, where
+`confirm_project` does not: in the Inbox a typo costs one more question, here it would
+become the confirmed write scope at the moment of creation with nothing left to catch it.
+Filed with no folder, a story raises exactly one `needs-info` escalation.
+
+**Installable, not a second app.** Manifest, three generated icons, and a service worker
+that caches nothing but an offline notice — a cached `/api/state` is yesterday's board with
+today's confidence, and a cached `app.js` is the exact bug the `no-store` headers exist to
+prevent. The worker is served from `/sw.js` at the root because a worker only controls
+pages at or below its own path.
+
+**Responsive was mostly undoing scrolling.** `.tiles`, `.done-list` and `.flight .rail`
+scroll internally, which is right at 1500px and a trap on a phone, where a swipe that
+starts inside a box moves the box and the page looks frozen. Under 720px they let the page
+scroll. Also `100dvh` over `100vh`, a hard 16px floor on input type so iOS does not zoom in
+and refuse to zoom back out, and `viewport-fit=cover` with `env(safe-area-inset-*)`.
+
+**The `X-Colony` header was never an access control.** It is CSRF protection; the access
+control was the loopback bind. So `access.py` arms off the bind rather than off a setting:
+`check(host)` returns False on loopback, True with a token configured, and *raises*
+otherwise — there is no path through `serve()` that reaches `uvicorn.run` open and
+tokenless, and that is the property `tests/test_access.py` is really about. The gate
+answers a navigation with the login page and everything else with a 401, discriminating on
+`Accept` rather than a list of paths that would need maintaining.
+
+Cookie is `HttpOnly`, `SameSite=Lax`, 90 days, and deliberately not `Secure` — a tailnet
+address is plain http and a cookie the browser will not store is a login loop. `?k=<token>`
+makes the first visit a link or a QR code, then the middleware swaps it for the cookie and
+the page strips it from the address bar.
+
+Suite is 41 → 72 tests, 2.6s. New: `tests/test_intake.py` (11) and `tests/test_access.py`
+(21, including the middleware driven by hand — `starlette.testclient` wants httpx on this
+machine and does not get it). Smoke-tested live: every route including the manifest, the
+worker, the icons and the favicon; a story POSTed through `/api/act/story` against a copy
+of the ledger; and the gate proved to hand a 401 to `/app.js` and the login page to `/`.
+
+Written up as ARCHITECTURE.md §10.18.
+
+### What did not get built, and why
+
+**Accounts.** Asked for as "the same work on desktop and phone", which is worth separating
+from what accounts actually are.
+
+Desktop/phone parity came free with the network bind. One server, one ledger, one
+filesystem — the phone is a second view of the same state, so there is no sync step and
+nothing to reconcile. Accounts would introduce the problem they are usually brought in to
+solve.
+
+Per-user API keys solve the cheap half of hosting. The expensive half is that this program
+spawns the `claude` CLI against real files in real git worktrees on a real disk, so hosting
+a second person means hosting their filesystem, their git remotes, their `claude`
+authentication and their worktrees — with one tenant's build agent one path-traversal bug
+away from another tenant's repo. The §8.2 write-scope rules are written against one
+operator's directory tree; they are not a sandbox, and treating them as one because a login
+now exists would be the worst available reading of them.
+
+The ledger design would survive that port. The execution model would not. So the boundary
+is: this program is single-operator by construction, `access.py` is remote access rather
+than authentication, and the multi-tenant version starts from this database design and none
+of this execution model. ARCHITECTURE.md §10.19.
 
 ## Finished 2026-08-27 — the repo becomes something a stranger can clone
 

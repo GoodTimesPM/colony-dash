@@ -6,8 +6,11 @@ the tray app uses. `http://127.0.0.1:8787` still works if you'd rather, and
 `--serve` gives you exactly that with no window at all, which is also the
 fallback on a machine with no WebView2 runtime.
 
-The server is bound to 127.0.0.1 and nothing else. The ledger holds project
-notes and run transcripts; it has no business being reachable from the network.
+The server binds 127.0.0.1 unless it is told otherwise, and being told otherwise
+is deliberately hard: `--host` on a non-loopback address requires an access
+token to be configured or the process refuses to start (`access.py`). The ledger
+holds project notes and run transcripts, so the default has to be the safe one
+and the network has to be asked for out loud.
 """
 
 from __future__ import annotations
@@ -98,27 +101,35 @@ def _set_window_icon(title: str, tries: int = 40) -> None:
         pass
 
 
-def launch(port: int = DEFAULT_PORT, *, window: bool = True) -> int:
+def launch(port: int = DEFAULT_PORT, *, host: str = HOST, window: bool = True) -> int:
     from . import server
 
-    if not _port_is_free(HOST, port):
+    # The window always points at loopback even when the server is bound wider.
+    # `0.0.0.0` is an address to listen on, not one to connect to, and the
+    # desktop shell is on the machine doing the listening either way.
+    local = HOST if host in ("0.0.0.0", "::") else host
+
+    if not _port_is_free(local, port):
         # Someone already has it — almost always a dashboard you forgot was open.
         # Opening a second server on a second port would leave two windows
         # claiming to be the dashboard, so point at the live one instead.
-        log(f"already serving on http://{HOST}:{port} — reusing it")
+        log(f"already serving on http://{local}:{port} — reusing it")
     else:
         def _serve():
             try:
-                server.serve(host=HOST, port=port)
+                server.serve(host=host, port=port)
             except BaseException:
                 log("server thread died:\n" + traceback.format_exc())
 
         thread = threading.Thread(target=_serve, daemon=True)
         thread.start()
-        if not _wait_for_port(HOST, port):
+        if not _wait_for_port(local, port):
             log(f"server did not come up on {port}; see {LOG_PATH}")
             return 1
-        log(f"serving http://{HOST}:{port}")
+        log(f"serving http://{host}:{port}")
+        if host != HOST:
+            log("this is reachable from the network — the access token is "
+                "required on every request that is not the login page")
 
     if not window:
         try:
@@ -131,11 +142,11 @@ def launch(port: int = DEFAULT_PORT, *, window: bool = True) -> int:
         import webview
     except ImportError:
         log("pywebview not installed — running headless; open the URL above")
-        return launch(port, window=False)
+        return launch(port, host=host, window=False)
 
     webview.create_window(
         "Colony Dash",
-        f"http://{HOST}:{port}",
+        f"http://{local}:{port}",
         width=1500,
         height=940,
         min_size=(960, 640),
@@ -163,5 +174,5 @@ def launch(port: int = DEFAULT_PORT, *, window: bool = True) -> int:
     except Exception:  # no WebView2 runtime, no display, etc.
         log("could not open a window; falling back to the browser URL\n"
             + traceback.format_exc())
-        return launch(port, window=False)
+        return launch(port, host=host, window=False)
     return 0
