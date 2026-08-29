@@ -195,12 +195,31 @@ token:
 
 ```bash
 py -c "import secrets; print(secrets.token_urlsafe(32))"   # paste into .env
-py -m colony dash --host 100.x.y.z --serve                 # your tailnet address
+py -m colony autostart                                     # served from logon, no window
 ```
 
-Then open `http://100.x.y.z:8787/?k=<token>` on the phone once. The token is
+Then open `http://<address>:8787/?k=<token>` on the phone once. The token is
 swapped for a 90-day cookie and stripped from the address bar, because a token
 in a URL is a token in the browser history.
+
+`autostart` registers a hidden scheduled task — the same shape as the hourly
+pulse, and beside it — so the server is already up when you pick up your phone.
+That is the difference between a feature and a demo: the phone is the device you
+use *because* you are not at the desk, and "first go to the desk and start it"
+cancels the whole thing out. It binds `--host auto`, resolved at every launch
+rather than written into the task once, because an address is a fact about the
+network at boot and a task holding a stale one fails silently on the day it
+changes. A tailnet address wins; a private LAN address is the fallback and says
+so; anything else refuses.
+
+| Command | What it does |
+| --- | --- |
+| `py -m colony autostart` | install it and start it now |
+| `py -m colony autostart --show` | what is registered, and what is answering |
+| `py -m colony autostart --remove` | stop it starting by itself; on-demand still works |
+
+For one session instead of forever, `py -m colony dash --host auto --serve` is
+the same bind without the task.
 
 `--host` on a non-loopback address **refuses to start** without
 `COLONY_ACCESS_TOKEN` set. That is not a nag: the dashboard is the whole ledger,
@@ -239,13 +258,15 @@ py -m unittest discover -s tests -v
 ```
 
 Standard-library `unittest`, no install step — a suite that needs a dependency
-before it runs is a suite nobody clones and runs. 72 tests, under three seconds,
+before it runs is a suite nobody clones and runs. 96 tests, under three seconds,
 and they cover the things that are claims rather than code: migrations apply in
 order and refuse to be edited afterwards, the tool denylist survives a contract
 that asks for `Bash`, the write scope refuses everything outside one named
 project folder, a story filed in the dashboard cannot name a folder that does
 not exist, and the server cannot reach `uvicorn.run` on a network address with
-no token configured. The console's one-turn-at-a-time lock is in there too,
+no token configured, `--host auto` never resolves to a public address, and a
+dashboard already serving on the network is not raised a second time on
+loopback. The console's one-turn-at-a-time lock is in there too,
 intercepted rather than spawned — nothing in the suite launches `claude`, and
 nothing touches the real ledger.
 
@@ -253,10 +274,12 @@ nothing touches the real ledger.
 
 Developed and run on Windows 11. The core — ledger, pulse, agents, worktrees,
 server — is portable, and the dashboard is a local web app. Two commands are
-Windows-only by construction: `schedule` installs a hidden Task Scheduler entry
-that runs under `pythonw.exe` (a background heartbeat that pops a console window
-once an hour is not a background heartbeat), and `shortcut` writes a Desktop
-`.lnk`. On another OS, run the pulse from cron and skip both.
+Windows-only by construction: `schedule` and `autostart` install hidden Task
+Scheduler entries that run under `pythonw.exe` (a background heartbeat that pops
+a console window once an hour is not a background heartbeat), and `shortcut`
+writes a Desktop `.lnk`. On another OS, run the pulse from cron, the server from
+a systemd user unit or a launch agent, and skip all three. `net.py` is portable;
+it reads addresses, not the registry.
 
 ---
 
@@ -273,6 +296,8 @@ colony/
   control.py      halt, allowance, approvals, scope — the PO's levers
   server.py       FastAPI, loopback by default
   access.py       the gate that arms when the bind stops being loopback
+  net.py          which address on this machine a phone can actually reach
+  autostart.py    the server as a logon task, so the phone finds it already up
   console.py      the PO's terminal (see: the deliberate exception)
   notion.py       intake
   roster.py       the hiring pool, scanned from an agency-agents install

@@ -232,17 +232,23 @@ def cmd_dash(conn: sqlite3.Connection, args) -> int:
     # exists only because every command gets handed one. Close it first so the
     # window is never the reason a write is blocked.
     conn.close()
-    from . import access, desktop
+    from . import access, desktop, net
 
-    host = args.host or desktop.HOST
     try:
+        host, kind = net.resolve(args.host)
         # Asked here as well as in `serve()` so the refusal lands in the
         # terminal you typed into, rather than inside a server thread whose
         # only output is `.colony/dash.log`.
         access.check(host)
-    except access.Unconfigured as exc:
+    except (access.Unconfigured, net.NoAddress) as exc:
         print(str(exc))
         return 2
+
+    if kind not in ("loopback", "given"):
+        print(f"binding {host}  ({kind})")
+    warning = net.advice(kind)
+    if warning:
+        print(f"  ⚠ {warning}")
 
     return desktop.launch(port=args.port, host=host, window=not args.serve)
 
@@ -392,6 +398,49 @@ def cmd_schedule(conn: sqlite3.Connection, args) -> int:
     return 0
 
 
+def cmd_autostart(conn: sqlite3.Connection, args) -> int:
+    """Install, inspect or remove the logon server task."""
+    from . import access, autostart, net
+
+    conn.close()
+    if args.remove:
+        autostart.remove()
+        print(f"removed  {autostart.TASK_NAME}")
+        print("  the dashboard still runs on demand — this only stopped it "
+              "starting by itself")
+        return 0
+
+    if not args.show:
+        try:
+            address, kind = autostart.preflight(args.host, args.port)
+        except (access.Unconfigured, net.NoAddress) as exc:
+            print(str(exc))
+            return 2
+        print(f"installed {autostart.install(host=args.host, port=args.port)}")
+        print(f"  right now --host {args.host} resolves to {address}  ({kind})")
+        warning = net.advice(kind)
+        if warning:
+            print(f"  ⚠ {warning}")
+        autostart.start_now()
+
+    task = autostart.describe()
+    if not task:
+        print("no task registered")
+        return 1
+    rule(autostart.TASK_NAME)
+    for key in ("execute", "arguments", "state", "last_run", "last_result"):
+        print(f"  {key:<12}{task.get(key, '')}")
+    print(f"  {'time limit':<12}"
+          + ("none — it is meant to stay up" if autostart.unlimited(task)
+             else f"{task.get('time_limit')} ⚠ it will be killed; re-run without --show"))
+    print()
+
+    serving = autostart.live(args.port)
+    print(f"  answering now on http://{serving}:{args.port}" if serving else
+          "  nothing answering yet — the task waits 45s at logon for the network")
+    return 0
+
+
 # ── wiring ────────────────────────────────────────────────────────────────────
 
 
@@ -446,9 +495,10 @@ def build_parser() -> argparse.ArgumentParser:
     dash.add_argument("--serve", action="store_true",
                       help="serve only, no window — use a browser at 127.0.0.1")
     dash.add_argument("--host", default=None,
-                      help="address to bind (default 127.0.0.1). Anything else "
-                           "reaches the network and requires COLONY_ACCESS_TOKEN "
-                           "in .env — prefer your tailnet address over 0.0.0.0")
+                      help="address to bind (default 127.0.0.1). 'auto' picks "
+                           "this machine's tailnet address, or its private LAN "
+                           "address if there is no tailnet. Anything but "
+                           "loopback requires COLONY_ACCESS_TOKEN in .env")
     dash.set_defaults(func=cmd_dash)
 
     hlt = sub.add_parser("halt", help="stop all dispatch colony-wide")
@@ -484,6 +534,15 @@ def build_parser() -> argparse.ArgumentParser:
     frg.add_argument("--draft", type=int, metavar="ID",
                      help="queue a candidate for drafting on the next wake")
     frg.set_defaults(func=cmd_forge)
+
+    aut = sub.add_parser("autostart",
+                         help="keep the dashboard served from logon, for the phone")
+    aut.add_argument("--show", action="store_true", help="report the task, change nothing")
+    aut.add_argument("--remove", action="store_true", help="unregister it")
+    aut.add_argument("--host", default="auto",
+                     help="address to bind at logon (default: auto)")
+    aut.add_argument("--port", type=int, default=8787)
+    aut.set_defaults(func=cmd_autostart)
 
     sch = sub.add_parser("schedule", help="install the hourly pulse as a hidden task")
     sch.add_argument("--show", action="store_true", help="report the task, change nothing")
