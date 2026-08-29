@@ -26,6 +26,15 @@ from . import db, icon as icon_mod
 HOST = "127.0.0.1"
 DEFAULT_PORT = 8787
 LOG_PATH = db.RUNTIME_DIR / "dash.log"
+
+# Where a running server records the address it actually bound. `_port_is_free`
+# can only ask about one address, and the autostart task binds a network address
+# rather than loopback -- so a server started at logon is completely invisible to
+# a shortcut that only probes 127.0.0.1, and double-clicking the icon would raise
+# a second server on the same port on a different interface. Two dashboards, one
+# ledger, and no error anywhere. The file is a hint and never a fact: it is only
+# ever believed after the port behind it answers.
+ADDRESS_PATH = db.RUNTIME_DIR / "dash.url"
 WEBVIEW_PROFILE = db.RUNTIME_DIR / "webview"
 
 
@@ -57,6 +66,33 @@ def _port_is_free(host: str, port: int) -> bool:
     with socket.socket() as s:
         s.settimeout(0.4)
         return s.connect_ex((host, port)) != 0
+
+
+def _mark(address: str, port: int) -> None:
+    """Record the address this process is serving on, for the next launch."""
+    try:
+        ADDRESS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        ADDRESS_PATH.write_text(f"{address}:{port}\n", encoding="utf-8")
+    except OSError:
+        pass
+
+
+def _already_serving(port: int) -> str | None:
+    """The address of a live dashboard on this machine, or None.
+
+    Stale markers are the normal case -- the file outlives the process that
+    wrote it every single time -- so the port is always probed before the file
+    is believed. A marker for a different port is ignored rather than trusted,
+    because two dashboards on two ports is a thing someone may have meant.
+    """
+    try:
+        recorded = ADDRESS_PATH.read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    address, _, recorded_port = recorded.rpartition(":")
+    if not address or recorded_port != str(port):
+        return None
+    return None if _port_is_free(address, port) else address
 
 
 def _set_window_icon(title: str, tries: int = 40) -> None:
@@ -109,10 +145,13 @@ def launch(port: int = DEFAULT_PORT, *, host: str = HOST, window: bool = True) -
     # desktop shell is on the machine doing the listening either way.
     local = HOST if host in ("0.0.0.0", "::") else host
 
-    if not _port_is_free(local, port):
-        # Someone already has it — almost always a dashboard you forgot was open.
-        # Opening a second server on a second port would leave two windows
-        # claiming to be the dashboard, so point at the live one instead.
+    live = local if not _port_is_free(local, port) else _already_serving(port)
+    if live:
+        # Someone already has it — almost always a dashboard you forgot was open,
+        # or the one the logon task started on a network address. Opening a
+        # second server would leave two windows claiming to be the dashboard, so
+        # point at the live one instead.
+        local = live
         log(f"already serving on http://{local}:{port} — reusing it")
     else:
         def _serve():
@@ -126,6 +165,7 @@ def launch(port: int = DEFAULT_PORT, *, host: str = HOST, window: bool = True) -
         if not _wait_for_port(local, port):
             log(f"server did not come up on {port}; see {LOG_PATH}")
             return 1
+        _mark(local, port)
         log(f"serving http://{host}:{port}")
         if host != HOST:
             log("this is reachable from the network — the access token is "

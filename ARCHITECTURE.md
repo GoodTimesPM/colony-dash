@@ -2104,3 +2104,65 @@ projects root. Nothing else would. So the honest boundary is: this program is
 single-operator by construction, `access.py` is remote access rather than
 authentication, and the multi-tenant version is a separate build that starts
 from this database design and none of this execution model.
+
+### 10.20 Already running when you pick it up
+
+§10.18 made the dashboard reachable from a phone and then, in practice, did not.
+The server only ran while a terminal was open on the desktop, and the phone is
+the device you use *because* you are not at the desk. "First go to the desk and
+start it" cancels the feature out.
+
+So the server gets a scheduled task of its own, beside the pulse's. It is
+deliberately the same shape — `pythonw` so there is no console, hidden so it
+does not flicker in the task list, `--log` because a background process with
+nowhere to print is a process you debug by guessing — and it differs in three
+ways, each of which is a bug if you get it wrong.
+
+**No execution time limit.** Task Scheduler's default is three days, after which
+it kills the task. A server that stops on the third Tuesday and comes back at
+the next logon is worse than one that never started, because the first time you
+find out is from a phone that cannot reach it. `PT0S` rather than the default
+`P3D`, and `autostart --show` says which one is installed rather than making you
+read it out of the task's XML.
+
+**`--host auto`, resolved every launch.** A task is written once and runs for
+months; an address is a fact about the network at boot. A task holding a literal
+`100.x.y.z` fails silently on the first day that address changes, and it fails
+as "the phone stopped working" rather than as "the bind failed". `net.py`
+resolves it instead, and is picky about what it will accept: a tailnet address
+(`100.64.0.0/10`) wins, an RFC 1918 address is the fallback and is announced
+differently, and anything else raises rather than being bound.
+
+The pickiness is not decoration. The obvious implementation of "is this a
+private address" is `ipaddress.ip_address(x).is_private`, which is a broader
+question than it sounds — Python counts the documentation and benchmarking
+ranges in it, so `203.0.113.7` and `198.18.0.1` both answer True. An address
+being reserved is not the same as it being your house. The three RFC 1918
+networks are spelled out, and the test for it is the one that caught the
+difference.
+
+**Restart on failure**, three times a minute apart, plus a 45-second start
+delay. Both cover the same thing: losing the race with the network at logon,
+which is the only failure mode that is actually likely and is exactly the one
+`--host auto` would otherwise turn into a hard stop.
+
+The task holds no secret. It names a directory and some flags; the token stays
+in `.env` and is read by the process the task launches. And `preflight()` asks
+`access.check` the same question the server will ask *before* registering
+anything, so a missing token is a refusal in the terminal you typed into rather
+than an exit code in a log at seven in the morning.
+
+**The duplicate-server bug this created.** `launch()` decided whether a
+dashboard was already up by probing one address, and that was fine while the
+only address was loopback. A logon task binds the network address instead, so
+`_port_is_free("127.0.0.1", 8787)` answers True while a dashboard is running,
+and double-clicking the desktop shortcut raises a second server on the same port
+on a different interface. Two dashboards, one ledger, and no error anywhere —
+the shortcut works, the window opens, and nothing is obviously wrong.
+
+The fix is a marker: a running server writes the address it actually bound to
+`.colony/dash.url`, and `launch()` reads it. The file is a hint and never a
+fact — it outlives the process that wrote it every single time — so the port
+behind it is always probed before it is believed, and a marker for a different
+port is ignored rather than trusted, because two dashboards on two ports is
+something someone may have meant.

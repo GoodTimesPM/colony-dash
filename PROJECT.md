@@ -22,9 +22,13 @@ Jordan's integration with Claude as a whole** — not a side tool.
 python -m colony init                 create + seed the ledger, scan the roster
 python -m colony dash                 open the dashboard window (pywebview)
 python -m colony dash --serve         serve only, no window — browse 127.0.0.1:8787
-python -m colony dash --host 100.x.y.z --serve
-                                      reach it from a phone; refuses to start on a
-                                      non-loopback address without COLONY_ACCESS_TOKEN
+python -m colony dash --host auto --serve
+                                      reach it from a phone for this session; 'auto' is
+                                      the tailnet address, else the private LAN one.
+                                      Refuses to start on a non-loopback address without
+                                      COLONY_ACCESS_TOKEN
+python -m colony autostart            serve from logon so the phone finds it already up
+                                      (--show reports it, --remove unregisters it)
 python -m colony status               sprint, board, colony, inbox, pulse log
 python -m colony pulse                one heartbeat — free unless it wakes to groom
 python -m colony pulse --no-wake      tick only, guaranteed zero tokens
@@ -370,11 +374,72 @@ names the state and the next move.
       changes. When the workflow settles, delete `MANUAL` in `index.html` and write it
       again from the code rather than patching it a line at a time.
 - [ ] Update the published artifact — it still shows the pre-M1 design.
-- [ ] **Decide what happens to branch `mobile`.** Local intake, the PWA and the access
-      gate all live there and are tested but unmerged. Nothing on it changes behaviour on
+- [ ] **Decide what happens to branch `mobile`.** Local intake, the PWA, the access
+      gate and the logon task all live there and are tested but unmerged. Nothing on it changes behaviour on
       a loopback bind: the gate is off unless `--host` is passed, and `＋ story` is an
       addition rather than a change to any existing path. Merge when it has been used from
       an actual phone for a few days.
+
+## Finished 2026-08-29 — the server is up before you are
+
+Still on branch `mobile`. Reaching the dashboard from a phone worked from the moment the
+server could bind a network address, and then did not work in practice, because it only
+ran while a terminal was open on the desktop. The phone is the device you use *because*
+you are not at the desk.
+
+**`py -m colony autostart`** registers a hidden logon task, the same shape as the hourly
+pulse and beside it: `pythonw` so there is no console, hidden, `--log` to `.colony/dash.log`.
+`--show` reports it, `--remove` unregisters it, and installing also starts it, so the
+command is not a thing you run and then have to do something else about.
+
+Three differences from the pulse task, each of which is a bug if you get it wrong.
+
+**No execution time limit.** Task Scheduler's default is three days and then it kills the
+task. A server that stops on the third Tuesday and returns at the next logon is worse than
+one that never started, because the first you hear of it is a phone that cannot connect.
+`--show` prints whether the installed limit is `PT0S` or the dangerous default.
+
+**`--host auto`, resolved at every launch rather than written into the task once.** An
+address is a fact about the network at boot; a task holding a literal `100.x.y.z` fails
+silently on the first day that address changes, and it fails looking like "the phone
+stopped working". The new `colony/net.py` prefers a tailnet address (`100.64.0.0/10`),
+falls back to a private LAN address and says so differently, and *raises* rather than
+binding anything else.
+
+That last part found a real bug in its own test: the obvious way to ask "is this address
+private" is `ipaddress.ip_address(x).is_private`, and in Python 3.12 that answers True for
+the documentation and benchmarking ranges — `203.0.113.7` and `198.18.0.1` both pass. An
+address being reserved is not the same as it being your house. The three RFC 1918 networks
+are now spelled out explicitly.
+
+**Restart on failure and a 45-second start delay**, both covering the same thing: losing
+the race with the network at logon, which is the one failure that is actually likely.
+
+`preflight()` asks `access.check` the same question the server will ask before registering
+anything, so a missing `COLONY_ACCESS_TOKEN` is a refusal in the terminal rather than an
+exit code in a log at seven in the morning.
+
+### The duplicate-server bug this created
+
+`launch()` decided whether a dashboard was already up by probing one address, which was
+correct for as long as the only address was loopback. A logon task binds the network
+address instead, so `_port_is_free("127.0.0.1", 8787)` answers True while a dashboard is
+running — and double-clicking the Desktop shortcut raises a second server on the same port
+on a different interface. Two dashboards, one ledger, no error anywhere.
+
+Fixed with a marker: a running server records the address it bound to `.colony/dash.url`,
+and `launch()` reads it. The file is a hint and never a fact — it outlives the process that
+wrote it every time — so the port behind it is probed before it is believed, a stale
+marker is discarded, and a marker for a different port is ignored rather than trusted.
+Verified live: a server bound to the LAN address, then a default loopback `launch()`, which
+logged `already serving on http://10.0.0.57:8819 — reusing it` instead of binding.
+
+Suite is 72 → 96 tests, 2.3s, in the new `tests/test_autostart.py`. Nothing in it talks to
+Task Scheduler — registering a real task is a change to the machine running the tests, and
+the parts worth asserting are the two decisions made before that point. The task itself was
+installed, inspected and removed once by hand.
+
+Written up as ARCHITECTURE.md §10.20.
 
 ## Finished 2026-08-27 — the phone, and the door beside Notion
 
