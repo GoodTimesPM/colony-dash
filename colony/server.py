@@ -45,8 +45,9 @@ from fastapi.responses import (FileResponse, HTMLResponse, RedirectResponse,
                                Response, StreamingResponse)
 
 from . import (access, attachments as attach, console as console_mod, control, db,
-               forge, notion as notion_mod, outbox as outbox_mod,
-               projects as projects_mod, roster as roster_mod, usage as usage_mod)
+               forge, net, notion as notion_mod, outbox as outbox_mod,
+               phone as phone_mod, projects as projects_mod, roster as roster_mod,
+               usage as usage_mod)
 
 UI_DIR = Path(__file__).resolve().parent / "ui"
 
@@ -1835,6 +1836,43 @@ def completed_detail(kind: str, id: int) -> dict[str, Any]:
                 "timeline": _episode(conn, story_id, since, until)}
     finally:
         conn.close()
+
+
+@app.get("/api/phone")
+def api_phone(port: int = 8787) -> dict[str, Any]:
+    """Whether phone access is on, where it is, and the QR code for it.
+
+    Not part of `/api/state`, on purpose. Answering this shells out to Task
+    Scheduler and probes a socket, which is a tenth of a second the live feed
+    polls for every few seconds and nobody reads. The panel asks when it opens.
+    """
+    out = phone_mod.state(port)
+    out["svg"] = phone_mod.svg(port)
+    return out
+
+
+@app.post("/api/act/phone")
+def act_phone(body: dict = Body(...), x_colony: str | None = Header(None)) -> dict[str, Any]:
+    """Turn phone access on or off. Not `_act`: this touches no ledger row.
+
+    `_act` opens a write transaction and holds it until the control function
+    returns; this one registers a scheduled task, which takes seconds of
+    PowerShell and would block every writer in the process for the duration.
+    """
+    _guard(x_colony)
+    port = int(body.get("port") or 8787)
+    try:
+        if body.get("on"):
+            return {"ok": True, **phone_mod.turn_on(port)}
+        return {"ok": True, **phone_mod.turn_off(port)}
+    except net.NoAddress as exc:
+        # 409 rather than 500: nothing is broken, this machine is just not on a
+        # network worth binding, and the message says what to do about it.
+        raise HTTPException(409, str(exc))
+    except access.Unconfigured as exc:
+        raise HTTPException(409, str(exc))
+    except OSError as exc:
+        raise HTTPException(500, f"could not set up phone access: {exc}")
 
 
 @app.post("/api/act/halt")

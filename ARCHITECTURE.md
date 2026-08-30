@@ -2166,3 +2166,97 @@ fact — it outlives the process that wrote it every single time — so the port
 behind it is always probed before it is believed, and a marker for a different
 port is ignored rather than trusted, because two dashboards on two ports is
 something someone may have meant.
+
+### 10.21 One button, and a QR encoder to go with it
+
+§10.20 left phone access working and unreachable for a different reason: the
+setup was five steps and one of them was editing a credential file. Mint a
+token, open `.env`, paste it, save, run `py -m colony autostart`. Every one of
+those happens at the desk, on the machine you are about to walk away from,
+which is the argument for doing them from the page you are already looking at.
+
+So `phone.py` folds the four operations into one call and the dashboard grows a
+panel under **file → phone** with a switch in it. `POST /api/act/phone` resolves
+an address, mints a token if there is not one, registers the logon task and
+starts it; `GET /api/phone` answers the panel with the state and a QR code.
+Neither is part of `/api/state`, because answering costs a PowerShell call and a
+socket probe and the live feed polls every few seconds for a value nobody is
+reading.
+
+Two rules constrain the write, and both are about the fact that a web request is
+now editing `.env`.
+
+**A token is written only when there is not one.** A request that can rewrite
+the access token is a request that can lock a paired phone out of the ledger by
+accident, and the accident looks exactly like the button working. An existing
+token is used as it is.
+
+**The write is an append, not a rewrite.** No parse, no round trip through a
+dict, no reformat. `.env` holds the Notion token beside the access token, and a
+file that is only ever appended to cannot lose the line above it. The leading
+newline is conditional in both directions: a file already ending in one must not
+grow a blank line per call, and a file *not* ending in one must not get the
+token glued to the end of the last value. Both are tests.
+
+Turning it off removes the task and stops. The token stays, because deleting it
+would log out a phone that is paired and working, and "off" here means the
+server stops coming up on the network — not "forget everything".
+
+It does *show* the token, inside the URL and inside the QR code, and that is not
+a contradiction. The two callers are a terminal on the desk where `.env` already
+is, and one route behind the dashboard's guard — which is either loopback or a
+client that already holds the token. Neither learns anything it could not read
+directly. What the module will not do is *change* the value out from under a
+device already using it.
+
+**Why there is a QR encoder in this repo.** The address is a private IP, a port
+and a 43-character token, and that is a string nobody should retype on a phone
+keyboard. Every library that draws one is a fine library; the install story for
+this project is four packages, and "it also needs a QR encoder" is a worse trade
+than three hundred lines that never change again. The format was frozen in 2000.
+
+`qr.py` is deliberately narrow — byte mode, versions 1 through 10, no ECI, no
+structured append, no kanji — which covers 271 bytes and refuses rather than
+guessing beyond it. The real payload is about seventy and lands on a version 5
+symbol at level M.
+
+It was written against `segno` as an oracle and then the oracle was deleted.
+960 pinned comparisons (every version, every level, all eight masks, three
+lengths each), 200 fully automatic ones, a 3,908-symbol ASCII sweep and both
+sides of every capacity boundary, all module-for-module identical. What survives
+in `tests/test_qr.py` is a set of matrix hashes plus a decoder that reads the
+symbols back out — format information, unmask, de-interleave, recompute every
+block's Reed-Solomon codewords, recover the string. The fixtures prove the
+output has not changed; the decoder proves it was right to begin with, and it is
+the half that survives someone regenerating the fixtures.
+
+Five bugs of ours turned up in that comparison and one in `segno`. The one worth
+recording is ours: **the mask is scored before format and version information
+are written.** ISO/IEC 18004:2015 §7.8 is explicit, `segno`'s source carries the
+comment "DO NOT add format / version info in advance of evaluation", and doing
+it the other way is invisible — every mask still produces a valid symbol, the
+penalties are merely all shifted by roughly the same constant, so only a *close*
+comparison between two candidates tips the wrong way. It reads as a filing
+detail and is a correctness one. The same goes for the dark module at
+`(8, size-8)`: it belongs to the format block rather than the skeleton, because
+leaving it set during scoring puts one stray module into all eight comparisons.
+
+(`segno`'s bug, for anyone repeating the exercise: `write_padding_bits` does
+`[0] * (8 - length % 8)`, which appends a whole zero byte when the stream is
+already byte-aligned — which is every byte-mode symbol below version 10. The
+reference is `(8 - size % 8) % 8`. The oracle was patched before the comparison.
+`segno` also prefers ISO-8859-1 for non-ASCII while this module always uses
+UTF-8, which is a difference rather than a bug, and the reason the sweep is
+ASCII-only.)
+
+The terminal half is `py -m colony phone`, which prints the same code as
+half-block characters — two module rows per line, because a character cell is
+twice as tall as it is wide and one module per cell comes out stretched and,
+on a narrow window, wrapped and unscannable. Dark modules are drawn as the
+*light* half-blocks: a terminal is light-on-dark, and the naive mapping is a
+photographic negative that will not scan. And it checks the stream's encoding
+before it draws. `_force_utf8` reconfigures with `errors="replace"`, which is
+right everywhere else in this CLI — a log line with a question mark in it is
+still a log line — and wrong here, because a QR code with question marks in it
+is not a degraded QR code, it is a rectangle that looks like the feature
+working. It prints the URL and says so instead.

@@ -380,6 +380,88 @@ names the state and the next move.
       addition rather than a change to any existing path. Merge when it has been used from
       an actual phone for a few days.
 
+## Finished 2026-08-30 — phone access becomes one button
+
+Still on branch `mobile`. The previous section left phone access working and, for a
+different reason, still not something you would set up: it was five steps, and one of them
+was editing a credential file by hand. Mint a token, open `.env`, paste it, save, run
+`py -m colony autostart`. All five happen at the desk, on the machine you are about to walk
+away from — which is the argument for doing them from the page already in front of you.
+
+**The dashboard grows a panel.** `file → phone` opens a drawer with a switch, the address,
+and a QR code. `POST /api/act/phone` resolves an address, mints a token if there is not
+one, registers the logon task and starts it. `GET /api/phone` answers the panel. Neither is
+part of `/api/state`, because answering costs a PowerShell call and a socket probe, and the
+live feed polls every few seconds for a value nobody is reading.
+
+**`py -m colony phone`** is the same thing from a terminal — state by default, `--on` to
+set it up, `--off` to stop serving at logon. `autostart` stays, because it is the command
+that shows what the scheduled task actually holds when something is wrong.
+
+Two rules constrain the write, and both exist because a web request is now editing `.env`.
+
+**A token is written only when there is not one.** A request that can rewrite the access
+token is a request that can lock a paired phone out of the ledger by accident, and the
+accident looks exactly like the button working. An existing token is used as it is.
+
+**The write is an append, not a rewrite.** No parse, no round trip through a dict, no
+reformat. `.env` holds the Notion token beside the access token, and a file that is only
+ever appended to cannot lose the line above it. The conditional leading newline goes both
+ways: a file already ending in one must not grow a blank line per call, and a file not
+ending in one must not get the token glued onto the end of the last value. Both are tests.
+
+Turning it off removes the task and stops there. The token stays, because deleting it would
+log out a phone that is paired and working; "off" means the server stops coming up on the
+network, not "forget everything".
+
+### There is a QR encoder in the repo now
+
+The address is a private IP, a port and a 43-character token, which is not a string anyone
+should retype on a phone keyboard. Every library that draws a QR code is a fine library —
+this one is hand-written because the install story for this project is four packages, and
+"it also needs a QR encoder" is a worse trade than three hundred lines that never change
+again. The format was frozen in 2000.
+
+`colony/qr.py` is deliberately narrow: byte mode, versions 1 through 10, no ECI, no
+structured append, no kanji. That covers 271 bytes and refuses rather than guessing beyond
+it. The real payload is about seventy and lands on a version 5 symbol at level M.
+
+It was written against `segno` as an oracle, and then the oracle was thrown away. 960
+pinned comparisons — every version, every error level, all eight masks, three lengths each
+— plus 200 fully automatic ones, a 3,908-symbol ASCII sweep, and both sides of every
+capacity boundary, all module-for-module identical. What survives in `tests/test_qr.py` is
+a set of matrix hashes plus a decoder that reads the symbols back out: format information,
+unmask, de-interleave, recompute every block's Reed-Solomon codewords, recover the string.
+The fixtures prove the output has not changed; the decoder proves it was right to begin
+with, and it is the half that survives someone regenerating the fixtures.
+
+Five bugs of ours turned up in that comparison and one in `segno`. The one worth writing
+down is ours. **The mask is scored before format and version information are written.**
+ISO/IEC 18004:2015 §7.8 is explicit about the order, `segno`'s source carries the comment
+"DO NOT add format / version info in advance of evaluation", and getting it wrong is
+invisible: every mask still produces a valid symbol, the penalty scores are merely all
+shifted by roughly the same constant, so only a close comparison between two candidates
+tips the wrong way. It reads as a filing detail and is a correctness one. Same story for
+the dark module at `(8, size-8)` — it belongs to the format block rather than the skeleton,
+because leaving it set during scoring puts one stray module into all eight comparisons.
+
+`segno`'s own bug, for anyone repeating this: `write_padding_bits` does
+`[0] * (8 - length % 8)`, which appends a whole zero byte when the stream is already
+byte-aligned — which is every byte-mode symbol below version 10. The reference
+implementation is `(8 - size % 8) % 8`. The oracle was patched before the comparison ran.
+
+The terminal draws the same code in half-block characters, two module rows per line,
+because a character cell is twice as tall as it is wide and one module per cell comes out
+stretched and, on a narrow window, wrapped and unscannable. Dark modules print as the
+*light* half-blocks — a terminal is light-on-dark, and the naive mapping is a photographic
+negative that will not scan. And the encoding of the output stream is checked before
+anything is drawn: `_force_utf8` reconfigures with `errors="replace"`, which is right for
+every other command in this CLI and wrong here, because a QR code with question marks in it
+is not a degraded QR code, it is a rectangle that looks like the feature working.
+
+Tests: 127 passing, up from 106. `tests/test_qr.py` is 20 of the new ones and
+`tests/test_phone.py` is 11.
+
 ## Finished 2026-08-29 — the server is up before you are
 
 Still on branch `mobile`. Reaching the dashboard from a phone worked from the moment the
