@@ -398,6 +398,92 @@ def cmd_schedule(conn: sqlite3.Connection, args) -> int:
     return 0
 
 
+def _can_draw() -> bool:
+    """Whether this terminal can print half-block characters at all.
+
+    `_force_utf8` reconfigures with `errors="replace"`, which is right for every
+    other command -- a log line with a question mark in it is still a log line.
+    It is wrong here: a QR code with question marks where the dark modules go is
+    not a degraded QR code, it is a rectangle that will not scan, and it looks
+    like the feature working. So this asks first and falls back to the URL.
+    """
+    try:
+        "█▄▀".encode(getattr(sys.stdout, "encoding", None) or "ascii")
+        return True
+    except (UnicodeEncodeError, LookupError):
+        return False
+
+
+def cmd_phone(conn: sqlite3.Connection, args) -> int:
+    """Phone access as one command: turn it on, off, or look at it.
+
+    `autostart` is still the command that explains the scheduled task in detail.
+    This one is the front door: it answers "can I open the dashboard on my
+    phone right now, and how", and it prints the answer as something you point
+    a camera at rather than something you retype.
+    """
+    from . import access, autostart, net, phone, qr
+
+    conn.close()
+    if args.off:
+        phone.turn_off(args.port)
+        print("phone access off")
+        print("  the logon task is gone. The token stays in .env, so a phone "
+              "that is already paired stays paired the next time you turn it on.")
+        return 0
+
+    if args.on:
+        try:
+            result = phone.turn_on(args.port)
+        except (access.Unconfigured, net.NoAddress) as exc:
+            print(str(exc))
+            return 2
+        print("phone access on")
+        if result["minted"]:
+            print(f"  minted an access token and appended it to .env "
+                  f"as {access.TOKEN_ENV}")
+        else:
+            print(f"  used the {access.TOKEN_ENV} already in .env")
+        print(f"  registered {autostart.TASK_NAME} and started it")
+    else:
+        result = phone.state(args.port)
+
+    rule("phone access")
+    print(f"  {'switch':<10}{'on' if result['on'] else 'off'}")
+    if result["problem"]:
+        print()
+        print(result["problem"])
+        return 1
+    print(f"  {'address':<10}{result['address']}  ({result['kind']})")
+    print(f"  {'serving':<10}"
+          + ("yes" if result["serving"] else
+             "not yet — the task waits 45s at logon for the network"
+             if result["on"] else "no"))
+    if result["on"] and not result["unlimited"]:
+        print("  ⚠ the task has a time limit and will be killed after three "
+              "days; re-run `py -m colony autostart` to fix it")
+    warning = net.advice(result["kind"] or "")
+    if warning:
+        print(f"  ⚠ {warning}")
+
+    if not result["url"]:
+        print()
+        print("  no access token set, so there is no address to open. "
+              "Run `py -m colony phone --on`.")
+        return 1
+
+    print()
+    print(f"  {result['url']}")
+    print()
+    if _can_draw():
+        print(qr.text_art(result["url"], ec="M", quiet=2))
+    else:
+        print("  (this terminal cannot draw the code — its encoding is "
+              f"{getattr(sys.stdout, 'encoding', 'unknown')}. Type the address "
+              "above, or open the panel in the dashboard under file → phone.)")
+    return 0
+
+
 def cmd_autostart(conn: sqlite3.Connection, args) -> int:
     """Install, inspect or remove the logon server task."""
     from . import access, autostart, net
@@ -534,6 +620,20 @@ def build_parser() -> argparse.ArgumentParser:
     frg.add_argument("--draft", type=int, metavar="ID",
                      help="queue a candidate for drafting on the next wake")
     frg.set_defaults(func=cmd_forge)
+
+    # `phone` is `autostart` with the four setup steps folded into one flag and
+    # a QR code on the end. `autostart` stays, because it is the command that
+    # shows what the scheduled task actually holds when something is wrong.
+    phn = sub.add_parser("phone",
+                         help="open the dashboard on your phone — state, or --on to set it up")
+    phn.add_argument("--on", action="store_true",
+                     help="mint a token if there is none, register the logon "
+                          "task, start it now")
+    phn.add_argument("--off", action="store_true",
+                     help="stop serving at logon. The token and any paired "
+                          "phone are left alone")
+    phn.add_argument("--port", type=int, default=8787)
+    phn.set_defaults(func=cmd_phone)
 
     aut = sub.add_parser("autostart",
                          help="keep the dashboard served from logon, for the phone")

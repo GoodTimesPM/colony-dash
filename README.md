@@ -191,16 +191,25 @@ but an offline notice, because a cached board is yesterday's board displayed
 with today's confidence.
 
 Reaching it means serving on something other than loopback, which requires a
-token:
+token — and that is one button. In the dashboard, open **file → phone** and
+press *turn on*: it mints the token, writes it to `.env`, registers the logon
+task, starts it, and shows you a QR code to point a camera at.
+
+The same thing from a terminal, if you prefer:
 
 ```bash
-py -c "import secrets; print(secrets.token_urlsafe(32))"   # paste into .env
-py -m colony autostart                                     # served from logon, no window
+py -m colony phone --on      # set it up and print the QR code
+py -m colony phone           # where it is and whether it is answering
+py -m colony phone --off     # stop serving at logon
 ```
 
-Then open `http://<address>:8787/?k=<token>` on the phone once. The token is
-swapped for a 90-day cookie and stripped from the address bar, because a token
-in a URL is a token in the browser history.
+Scanning the code opens `http://<address>:8787/?k=<token>` on the phone once.
+The token is swapped for a 90-day cookie and stripped from the address bar,
+because a token in a URL is a token in the browser history.
+
+Turning it on never overwrites a `COLONY_ACCESS_TOKEN` that is already set, and
+turning it off leaves the token alone — a phone that is paired stays paired.
+The write to `.env` is an append and touches no existing line.
 
 `autostart` registers a hidden scheduled task — the same shape as the hourly
 pulse, and beside it — so the server is already up when you pick up your phone.
@@ -214,6 +223,7 @@ so; anything else refuses.
 
 | Command | What it does |
 | --- | --- |
+| `py -m colony phone --on` | the whole setup, and a QR code |
 | `py -m colony autostart` | install it and start it now |
 | `py -m colony autostart --show` | what is registered, and what is answering |
 | `py -m colony autostart --remove` | stop it starting by itself; on-demand still works |
@@ -298,6 +308,8 @@ colony/
   access.py       the gate that arms when the bind stops being loopback
   net.py          which address on this machine a phone can actually reach
   autostart.py    the server as a logon task, so the phone finds it already up
+  phone.py        that whole setup as one switch, on the page and in the CLI
+  qr.py           a QR encoder, so the address is something you scan
   console.py      the PO's terminal (see: the deliberate exception)
   notion.py       intake
   roster.py       the hiring pool, scanned from an agency-agents install

@@ -4862,8 +4862,106 @@ function openManual() {
   MANUAL.forEach((sec, i) => body.append(manualSection(sec, "man-" + i)));
 }
 
+// ── phone access ────────────────────────────────────────────────────────────
+//
+// The whole setup used to be five steps at the desk: mint a token, open `.env`
+// in an editor, paste it, save, run `py -m colony autostart`. All five happen
+// on the machine you are about to walk away from, which is the argument for
+// doing them here — you are already looking at the page.
+//
+// One `POST /api/act/phone` does all of it and `GET /api/phone` answers the
+// panel. Neither is in `/api/state`: answering costs a PowerShell call and a
+// socket probe, and the live feed polls every few seconds.
+
+function openPhone() {
+  const body = openDrawer("phone", "Phone Access");   // a control panel, no `nav`
+  const draw = (info) => {
+    body.replaceChildren();
+    const set = el("div", "set");
+
+    const row = el("div", "row");
+    const on = !!info.on;
+    const button = el("button", on ? "act warn" : "act", on ? "turn off" : "turn on");
+    button.onclick = async () => {
+      button.disabled = true;
+      button.textContent = on ? "stopping…" : "setting up…";
+      const out = await act("phone", { on: !on });
+      if (out && out.minted) toast("minted an access token and wrote it to .env");
+      // Redrawn from the server rather than from `out`, and on the refusal path
+      // too: `act` has already shown the reason, and a setup that failed
+      // halfway must not leave the panel claiming it is on.
+      load();
+    };
+    row.append(button, el("span", "val", on ? "on" : "off"));
+    set.append(blk("phone access", row));
+
+    if (info.problem) {
+      set.append(blk("no address", el("pre", "detail", info.problem)));
+      body.append(set);
+      return;
+    }
+
+    const where = el("div", "blk");
+    where.append(el("div", "lb", "address"));
+    where.append(el("div", "mono", info.address + ":" + info.port
+                                  + "  (" + (info.kind || "") + ")"));
+    if (info.advice) where.append(el("div", "note", info.advice));
+    if (on && !info.unlimited) {
+      where.append(el("div", "note",
+        "Task Scheduler will kill this task after three days. Re-run "
+        + "`py -m colony autostart` to clear the limit."));
+    }
+    if (on && !info.serving) {
+      where.append(el("div", "note",
+        "nothing is answering on that address yet — the logon task waits 45 "
+        + "seconds for the network before it binds."));
+    }
+    set.append(where);
+
+    if (info.url) {
+      const link = el("div", "mono", info.url);
+      link.style.wordBreak = "break-all";
+      link.title = "click to copy";
+      link.style.cursor = "pointer";
+      link.onclick = () => navigator.clipboard.writeText(info.url)
+        .then(() => toast("copied", ""))
+        .catch(() => toast("this browser would not copy it — select it instead", "bad"));
+      set.append(blk("open this on the phone", link));
+
+      if (info.svg) {
+        // Parsed rather than assigned to `innerHTML`. Nothing hostile can reach
+        // this markup -- the encoder never puts the text into the document, only
+        // into the modules -- but "this particular string is safe" is not a rule
+        // that survives the next person editing it, and a parser is one line.
+        const doc = new DOMParser().parseFromString(info.svg, "image/svg+xml");
+        const node = doc.documentElement;
+        node.style.width = "min(260px, 60vw)";
+        node.style.height = "auto";
+        node.style.borderRadius = "6px";
+        const wrap = el("div", "blk");
+        wrap.append(el("div", "lb", "or point a camera at this"));
+        wrap.append(node);
+        set.append(wrap);
+      }
+    } else {
+      set.append(blk("no token yet", el("div", "note",
+        "turning this on mints one and appends it to .env. An access token "
+        + "that is already there is used as it is and never overwritten.")));
+    }
+
+    body.append(set);
+  };
+
+  const load = () => getJSON("/api/phone")
+    .then(draw)
+    .catch(() => body.replaceChildren(
+      el("div", "empty", "could not read phone access — is the server still up?")));
+  load();
+}
+
 $("open-appearance").onclick = () => openAppearance();
 $("open-manual").onclick = () => { $("filemenu").open = false; openManual(); };
+$("open-phone").onclick = () => { $("filemenu").open = false; openPhone(); };
 
 // ── what the page shows ─────────────────────────────────────────────────────
 //
