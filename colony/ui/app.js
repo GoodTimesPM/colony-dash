@@ -3049,7 +3049,11 @@ async function openStory(id) {
   if (s.acceptance_criteria) body.append(sectionBlock("acceptance criteria", s.acceptance_criteria));
 
   if (data.tickets.length) {
-    const rows = el("div", "blk");
+    // `.rows` rather than `.blk`: the list scrolls inside itself, capped at the
+    // same height as the brief. A story that has been open for two weeks has
+    // thirty tickets on it, and unbounded they push the runs table and the
+    // timeline off the bottom of the drawer.
+    const rows = el("div", "rows");
     for (const t of data.tickets) {
       const r = el("div", "kv");
       // “Tickets can be more inclusive, acceptance/approval can be a ticket as
@@ -3077,7 +3081,7 @@ async function openStory(id) {
         rows.append(c);
       }
     }
-    body.append(blk("tickets", rows));
+    body.append(blk("tickets  ·  " + data.tickets.length, rows));
   }
 
   if (data.runs.length) {
@@ -3238,7 +3242,7 @@ async function openCompleted(arg) {
   }
 
   if (d.tickets.length) {
-    const rows = el("div", "blk");
+    const rows = el("div", "rows");   // scrolls in place, same as the story drawer
     for (const t of d.tickets) {
       const r = el("div", "kv");
       const decision = !!t.decided_esc_id;
@@ -4917,6 +4921,32 @@ function openPhone() {
         + "seconds for the network before it binds."));
     }
     set.append(where);
+
+    // The firewall is the one failure the address line cannot show. The probe
+    // behind `serving` runs on this machine, and a packet from this machine
+    // never meets the firewall -- so the address can answer here and still be
+    // dropped for the phone, with a spinner at one end and no log at the other.
+    if (info.firewall === "blocked" || info.firewall === "unknown") {
+      const warn = el("div", "blk");
+      warn.append(el("div", "lb", "windows firewall"));
+      warn.append(el("div", "note", info.firewall === "blocked"
+        ? "there is no rule for this port, so the phone's request will be "
+          + "dropped rather than refused: the browser loads forever and "
+          + "nothing is logged at either end. Run the command below in a "
+          + "terminal — it asks for administrator once."
+        : "the firewall rules could not be read, which usually means this "
+          + "process is not allowed to. If the phone loads forever, check "
+          + "this first."));
+      const cmd = el("div", "mono", "py -m colony phone --allow-firewall");
+      cmd.style.wordBreak = "break-all";
+      cmd.style.cursor = "pointer";
+      cmd.title = "click to copy";
+      cmd.onclick = () => navigator.clipboard.writeText(cmd.textContent)
+        .then(() => toast("copied", ""))
+        .catch(() => toast("this browser would not copy it — select it instead", "bad"));
+      warn.append(cmd);
+      set.append(warn);
+    }
 
     if (info.url) {
       const link = el("div", "mono", info.url);

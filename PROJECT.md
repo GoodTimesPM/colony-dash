@@ -380,6 +380,43 @@ names the state and the next move.
       addition rather than a change to any existing path. Merge when it has been used from
       an actual phone for a few days.
 
+## Finished 2026-09-01 — the phone loads forever, twice
+
+The switch from the previous section worked and the phone still did not. Two
+faults, stacked, neither of which produced an error anywhere: a browser spinner
+at one end and nothing in any log at the other.
+
+**Nothing was listening on the address in the QR code.** `desktop.launch` reads a
+marker file to avoid starting a second server on a port that already has one. It
+believed the marker in both directions, and only one is sound — the logon task
+asked for the LAN address, found the desktop dashboard on `127.0.0.1`, decided
+that counted, and exited. The decision is now `desktop._reusable`: the marker is
+believed only when loopback is what was asked for, because a loopback server does
+not satisfy a request for a network address.
+
+Pressing the button is a separate problem from the next logon, so
+`server.serve_extra` binds the network address in the running process rather than
+waiting for a second one to win a race it should lose. One app, two sockets. That
+needed `TRUST_LOOPBACK`, a flag set only by `serve_extra`, so arming the token
+gate does not log out the desktop page the switch was pressed in.
+
+**Windows Firewall had no rule for the port.** A dropped packet is not a refused
+one — a refusal reaches the browser in milliseconds, a drop looks like a server
+still thinking. The trap is that Python has two executables: a terminal run is
+`python.exe` and gets the "allow this app" prompt, while the logon task and the
+shortcut are `pythonw.exe`, a different file and therefore a different rule, and
+a hidden background task has no window to prompt in front of. So it works when
+tested from a terminal and fails on the machine you walk away from.
+
+`firewall.py` reads the rule state unelevated, reports `open` / `blocked` /
+`unknown` in the panel and the CLI, and `py -m colony phone --allow-firewall`
+writes it behind one UAC prompt. The rule is one port, TCP, inbound, private
+profiles — not the program, which would open every port any Python script here
+ever binds.
+
+Tests: 140 passing, up from 127. New: `tests/test_desktop.py` and
+`tests/test_firewall.py`, plus three gate tests for the loopback exemption.
+
 ## Finished 2026-08-30 — phone access becomes one button
 
 Still on branch `mobile`. The previous section left phone access working and, for a

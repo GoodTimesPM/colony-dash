@@ -127,7 +127,8 @@ class TestGate(unittest.TestCase):
     """
 
     @staticmethod
-    def _request(path: str, *, accept: str = "", cookie: str = "", query: str = ""):
+    def _request(path: str, *, accept: str = "", cookie: str = "", query: str = "",
+                 client: str = "127.0.0.1"):
         from starlette.requests import Request
         headers = []
         if accept:
@@ -138,11 +139,11 @@ class TestGate(unittest.TestCase):
             "type": "http", "http_version": "1.1", "method": "GET", "scheme": "http",
             "path": path, "raw_path": path.encode(), "root_path": "",
             "query_string": query.encode(), "headers": headers,
-            "server": ("127.0.0.1", 8787), "client": ("127.0.0.1", 51234),
+            "server": ("127.0.0.1", 8787), "client": (client, 51234),
             "app": server.app,
         })
 
-    def _gate(self, request, *, token="s3cret"):
+    def _gate(self, request, *, token="s3cret", trust_loopback=False):
         """Run the middleware with the gate armed. `call_next` returns a marker,
         so 'the request was let through' is distinguishable from 'the request
         was answered with something that happens to be 200'."""
@@ -153,7 +154,7 @@ class TestGate(unittest.TestCase):
         async def call_next(_request):
             return PlainTextResponse("PASSED")
 
-        with mock.patch.object(server, "REQUIRE_TOKEN", True), with_token(token):
+        with mock.patch.object(server, "REQUIRE_TOKEN", True),              mock.patch.object(server, "TRUST_LOOPBACK", trust_loopback),              with_token(token):
             return asyncio.run(server.gate(request, call_next))
 
     def test_a_navigation_gets_the_login_page(self):
@@ -196,6 +197,32 @@ class TestGate(unittest.TestCase):
     def test_a_wrong_link_token_is_not(self):
         response = self._gate(self._request("/", accept="text/html", query="k=nope"))
         self.assertNotIn(b"PASSED", response.body)
+
+    def test_loopback_is_gated_unless_the_process_serves_loopback(self):
+        """The default. A server bound only to the network has no loopback
+        socket, so a loopback peer cannot arrive -- and if one somehow does, an
+        address is not a credential."""
+        response = self._gate(self._request("/api/state", accept="*/*"))
+        self.assertEqual(response.status_code, 401)
+
+    def test_a_dual_bound_process_lets_its_own_machine_through(self):
+        """`serve_extra` sets `TRUST_LOOPBACK`, because the loopback half of
+        that process was already open and unguarded before phone access was
+        switched on. Demanding the token from it would log out the dashboard the
+        switch was pressed in."""
+        response = self._gate(self._request("/api/state", accept="*/*"),
+                              trust_loopback=True)
+        self.assertEqual(response.body, b"PASSED")
+
+    def test_trusting_loopback_trusts_nothing_else(self):
+        """The whole exemption in one assertion: it is the peer address, and the
+        phone is never one of these."""
+        for peer in ("10.0.0.14", "100.94.3.11", "192.168.1.9"):
+            with self.subTest(peer=peer):
+                response = self._gate(
+                    self._request("/api/state", accept="*/*", client=peer),
+                    trust_loopback=True)
+                self.assertEqual(response.status_code, 401)
 
     def test_a_public_path_skips_the_gate_entirely(self):
         for path in sorted(server.PUBLIC_PATHS):

@@ -1660,6 +1660,14 @@ table.runs td.dim { color: var(--ink-dim); font-variant-numeric: tabular-nums; }
 .wrap-x { overflow-x: auto; }
 .blk { display: flex; flex-direction: column; gap: 5px; }
 .blk > .lb { font-family: var(--mono); font-size: var(--step--2); letter-spacing: .1em; text-transform: uppercase; color: var(--ink-dim); }
+
+/* A block that scrolls inside itself, capped at the same 420px as `pre.detail`
+   above it -- the ticket list on a long-running story runs to thirty rows and
+   pushed the runs table and the whole timeline off the bottom of the drawer.
+   The label stays outside the scroll region so a scrolled list still says what
+   it is; that is why the cap lives on `.rows` and not on `.blk` itself. */
+.blk > .rows { max-height: 420px; overflow-y: auto; padding-right: 3px;
+               display: flex; flex-direction: column; gap: 5px; }
 .form { display: grid; grid-template-columns: auto 1fr; gap: 7px 10px; align-items: center;
         background: var(--panel-sunk); padding: 10px 12px; border-radius: 7px; }
 .form label { font-family: var(--mono); font-size: var(--step--1); color: var(--ink-dim); }

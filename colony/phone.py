@@ -40,7 +40,7 @@ not "forget everything".
 
 from __future__ import annotations
 
-from . import access, autostart, db, net, qr
+from . import access, autostart, db, firewall, net, qr
 
 # The same default the server, the shortcut and the logon task all use. It is a
 # parameter everywhere rather than a constant because someone running two
@@ -140,6 +140,12 @@ def state(port: int = DEFAULT_PORT) -> dict:
         "state": task.get("state", "") if task else "",
         "last_run": task.get("last_run", "") if task else "",
         "serving": bool(address) and _reachable(address, port),
+        # The half `serving` cannot see. That probe runs on this machine, and a
+        # packet from this machine never meets the firewall -- so a port that
+        # answers here can still be a port the phone's request dies in front of,
+        # with no error at either end. See `firewall.py`.
+        "firewall": firewall.state(port),
+        "firewall_fix": firewall.rule_command(port),
         "problem": problem,
     }
 
@@ -163,7 +169,27 @@ def turn_on(port: int = DEFAULT_PORT) -> dict:
     # Installing without starting means phone access begins at the next logon,
     # which is not what pressing a button means.
     autostart.start_now()
-    return {**state(port), "minted": minted, "address": address, "kind": kind}
+
+    # And the task alone is not enough either. It launches a *second* process,
+    # which finds this one already holding the port and stands down -- correct
+    # behaviour, and it leaves the network address unbound until the next time
+    # this process is not running. So the process that was asked bind it itself.
+    # Harmless when the task did win the race: the address is already up, the
+    # probe below says so, and nothing is started.
+    served = _reachable(address, port)
+    if not served:
+        try:
+            from . import server
+            server.serve_extra(address, port)
+            served = True
+        except OSError:
+            # Something else has the address. The task is installed and will try
+            # again at the next logon; the panel reports `serving: false` and the
+            # switch does not claim to be working.
+            served = False
+
+    return {**state(port), "minted": minted, "address": address, "kind": kind,
+            "serving": served}
 
 
 def turn_off(port: int = DEFAULT_PORT) -> dict:

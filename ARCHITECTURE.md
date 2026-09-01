@@ -2260,3 +2260,82 @@ right everywhere else in this CLI — a log line with a question mark in it is
 still a log line — and wrong here, because a QR code with question marks in it
 is not a degraded QR code, it is a rectangle that looks like the feature
 working. It prints the URL and says so instead.
+
+### 10.22 Two silent failures between the button and the phone
+
+The switch in §10.21 worked, and the phone loaded forever. Neither end logged
+anything, because neither end had anything to log. Two separate faults were
+stacked, and what they have in common is worth more than either of them: both
+report success at every layer and produce a spinner.
+
+**The server never bound the address in the QR code.** `desktop.launch` decides
+whether to start a server or point at one that is already running, and one arm of
+that decision reads `.colony/dash.url`, a marker file naming the address the last
+server bound. The marker exists for a real case: a desktop shortcut probes
+`127.0.0.1`, the logon task may have put the dashboard on a network address, and
+without the marker double-clicking the icon would raise a second server on the
+same port on a different interface — two dashboards, one ledger, no error
+anywhere.
+
+It was consulted in both directions, and only one of them is sound. The logon
+task asked for `10.0.0.57`, found the desktop dashboard answering on `127.0.0.1`,
+concluded it was already serving, and exited. The log said the dashboard was up.
+The dashboard *was* up. Nothing had ever listened on the address in the QR code.
+A loopback server does not satisfy a request for a network address — satisfying
+it is the entire content of the request. The decision now lives in
+`desktop._reusable`, which believes the marker only when loopback is what was
+asked for, and it has a test file of its own.
+
+That fixes the next logon. It does not fix the moment the button is pressed,
+which is a different problem: the task starts a *second* process, and that
+process correctly stands down when it finds this one holding the port. So
+`server.serve_extra` opens the second socket in the process that was asked. One
+FastAPI app, two sockets, no second ledger pool and no second event stream — and
+no second pulse, because the pulse has always been a scheduled task rather than a
+thread in the server. The bind is proven from outside with `_wait_for_port`
+before the call returns; a bind that fails does so inside the thread, where
+uvicorn logs it and exits, and a caller that only checked "did the thread start"
+would go on to report the switch on.
+
+One consequence needs its own flag. `REQUIRE_TOKEN` is per process, so arming it
+mid-session would demand the token from the desktop dashboard the switch was
+pressed in — a page that was open, unguarded, a moment ago, on a machine that
+can read `.env` directly. `TRUST_LOOPBACK` says the narrow thing: this process
+serves loopback *as well as* a network address, so a loopback peer is let
+through. It is set by `serve_extra` and never by `serve`, which is not a
+technicality — a server bound only to the network has no loopback socket, so a
+loopback peer cannot arrive, and that server trusts the token and nothing else.
+The check is the peer address from the ASGI scope. `X-Forwarded-For` is not
+consulted and must not be: it is a claim made by the caller.
+
+**Windows Firewall had no rule for the port.** This is the more interesting one,
+because it is invisible by design. A dropped packet is not a refused connection:
+a refusal comes back in milliseconds and the browser says so, while a drop looks
+exactly like a server that is thinking about it, forever.
+
+What makes it easy to miss is that Python ships two executables. Running the
+dashboard from a terminal runs `python.exe`, and the first network bind pops the
+"allow this app" box, which writes a rule for `python.exe`. Everything works. The
+logon task and the desktop shortcut both run `pythonw.exe` — the windowless twin,
+a different file, therefore a different rule, and one that will never be created
+by a prompt, because a hidden background task has no window to prompt in front
+of. The feature works when you test it from a terminal and fails on the machine
+you walk away from.
+
+`firewall.py` reads what it can unelevated and hands back the exact command for
+the rest. Adding a rule needs administrator rights and the dashboard is never
+going to have them — a web request that could elevate itself would be a far worse
+thing than an unreachable phone — so `allow()` is called only from the CLI, where
+a UAC prompt is something the person at the keyboard asked for by name. The rule
+it writes is one port, TCP, inbound, private profiles: not "allow pythonw.exe",
+which would open every port any Python script on this machine ever binds, on any
+network it is on.
+
+`state()` returns `open`, `blocked`, or `unknown`, and the third is not a synonym
+for the second. Port filters are among the things an unelevated caller cannot
+read on a locked-down machine, and telling someone their firewall is the problem
+when it is not sends them off to fight the wrong thing with an admin prompt open.
+
+Both the panel and the CLI now say this, because `serving: yes` cannot: that
+probe runs on this machine, and a packet from this machine never meets the
+firewall.

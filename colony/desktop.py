@@ -95,6 +95,29 @@ def _already_serving(port: int) -> str | None:
     return None if _port_is_free(address, port) else address
 
 
+def _reusable(local: str, port: int) -> str | None:
+    """The address of a live dashboard that satisfies a request to serve `local`.
+
+    The port is asked about directly first, which settles it whenever the answer
+    is yes. The marker file is a fallback for one specific case and only that
+    one: a desktop shortcut probes loopback, while the logon task may have put
+    the dashboard on a network address, and starting a second server on the same
+    port on a different interface would leave two dashboards on one ledger.
+
+    Consulting the marker in the *other* direction was a bug, and a silent one.
+    The logon task asked for 10.0.0.57, found the desktop dashboard answering on
+    127.0.0.1, concluded it was already serving and exited. The log said the
+    dashboard was up. The dashboard was up. And the phone spun on a blank tab
+    forever, because nothing had ever listened on the address in the QR code.
+
+    A loopback server does not satisfy a request for a network address. It is
+    the whole point of the request.
+    """
+    if not _port_is_free(local, port):
+        return local
+    return _already_serving(port) if local == HOST else None
+
+
 def _set_window_icon(title: str, tries: int = 40) -> None:
     """Hang the colony's mark on the window frame.
 
@@ -145,7 +168,7 @@ def launch(port: int = DEFAULT_PORT, *, host: str = HOST, window: bool = True) -
     # desktop shell is on the machine doing the listening either way.
     local = HOST if host in ("0.0.0.0", "::") else host
 
-    live = local if not _port_is_free(local, port) else _already_serving(port)
+    live = _reusable(local, port)
     if live:
         # Someone already has it — almost always a dashboard you forgot was open,
         # or the one the logon task started on a network address. Opening a

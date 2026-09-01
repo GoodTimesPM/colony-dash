@@ -98,6 +98,14 @@ class EnvWriting(unittest.TestCase):
 
 class State(unittest.TestCase):
 
+    def setUp(self):
+        # `state()` asks the firewall, which is a PowerShell call. Nothing here
+        # is about the firewall, and a unit test should not depend on how this
+        # machine's is configured.
+        patch = mock.patch.object(phone.firewall, "state", lambda port: "open")
+        patch.start()
+        self.addCleanup(patch.stop)
+
     def test_url_needs_both_halves(self):
         with mock.patch.object(access, "token", lambda: None), \
              mock.patch.object(net, "auto", lambda: ("100.1.2.3", "tailnet")):

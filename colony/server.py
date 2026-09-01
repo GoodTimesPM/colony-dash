@@ -34,6 +34,7 @@ import asyncio
 import hashlib
 import json
 import sqlite3
+import threading
 import urllib.parse
 from datetime import datetime, timedelta
 from html import escape as html_escape
@@ -2200,6 +2201,18 @@ PUBLIC_PATHS = {"/login", "/manifest.webmanifest", "/sw.js", "/favicon.ico",
 # middleware has to be able to answer "am I on?" before anything else runs.
 REQUIRE_TOKEN = False
 
+# Set by `serve_extra`, and only there. It says something narrower than it
+# sounds: this process is serving loopback *as well as* a network address, and
+# the loopback socket was open, unguarded, before the network one existed.
+# Demanding a token from it now would log out the desktop dashboard that the
+# phone switch was pressed in -- and would be demanding a secret from a caller
+# who can read the file the secret is in.
+#
+# It stays False for a plain `serve()`, where no loopback socket exists and a
+# loopback peer therefore cannot arrive. That is not a technicality: it means a
+# server bound only to the network never trusts an address, only the token.
+TRUST_LOOPBACK = False
+
 LOGIN_PAGE = """<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -2246,6 +2259,12 @@ def _login_page(*, error: str = "", next_path: str = "/") -> HTMLResponse:
 @app.middleware("http")
 async def gate(request: Request, call_next):
     if not REQUIRE_TOKEN or request.url.path in PUBLIC_PATHS:
+        return await call_next(request)
+
+    # See `TRUST_LOOPBACK`. This is a peer address, not a header:
+    # `X-Forwarded-For` is not consulted and must not be, because it is a claim
+    # made by the caller and anyone could assert they were loopback.
+    if TRUST_LOOPBACK and request.client and access.is_loopback(request.client.host):
         return await call_next(request)
 
     supplied = (request.cookies.get(access.COOKIE)
@@ -2313,3 +2332,45 @@ def serve(host: str = "127.0.0.1", port: int = 8787) -> None:
     import uvicorn
 
     uvicorn.run(app, host=host, port=port, log_level="warning")
+
+
+def serve_extra(host: str, port: int) -> None:
+    """Bind a second address in this process, on the app already running.
+
+    The phone switch is pressed on a page served by a dashboard that is already
+    up on loopback. Installing the logon task makes the network address work at
+    the *next* logon, which is not what someone who just pressed a button means
+    by on -- so the running process opens the second socket itself, and the QR
+    code on screen works before it is scanned.
+
+    One app, two sockets. Nothing is duplicated: no second ledger connection
+    pool, no second event stream, and no second pulse, because the pulse is a
+    scheduled task and has never lived in the server.
+
+    Raises `access.Unconfigured` before binding anything if there is no token,
+    and `OSError` if the address is taken.
+    """
+    import uvicorn
+
+    from .desktop import _wait_for_port
+
+    global REQUIRE_TOKEN, TRUST_LOOPBACK
+    REQUIRE_TOKEN = access.check(host) or REQUIRE_TOKEN
+    TRUST_LOOPBACK = True
+
+    config = uvicorn.Config(app, host=host, port=port, log_level="warning")
+    server = uvicorn.Server(config)
+    # `Server.run` builds its own event loop, which is why this needs a thread
+    # of its own rather than a task on the loop already running the first
+    # socket. Uvicorn skips signal handling off the main thread on purpose.
+    thread = threading.Thread(target=server.run, daemon=True,
+                              name=f"colony-serve-{host}")
+    thread.start()
+
+    # A bind that fails does so inside the thread, where uvicorn logs it and
+    # exits -- and the caller, having started a thread successfully, would go on
+    # to report the phone switch on. So the socket is proven from the outside
+    # before this returns.
+    if not _wait_for_port(host, port, timeout_s=8.0):
+        raise OSError(f"could not start serving {host}:{port} — "
+                      "something else is probably bound to it")
