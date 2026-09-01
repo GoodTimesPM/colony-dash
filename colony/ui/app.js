@@ -2973,18 +2973,76 @@ async function openConsole() {
   // The console spawns `claude` with no worktree and no tool restrictions -- it
   // is a shell on purpose -- so a token sniffed off a home LAN, which is plain
   // HTTP, would be worth a command prompt rather than a read-only board. The
-  // server refuses it either way (`_desk_only`); this is what stops the refusal
-  // arriving as a mystery 403 after you have typed a paragraph.
-  if (data.writable === false) {
-    box.disabled = true; send.disabled = true; cmds.disabled = true;
-    box.placeholder = "read-only from here";
-    prompt.prepend(el("div", "note",
+  // server refuses it either way (`_desk_only`); this row is what stops the
+  // refusal arriving as a mystery 403 after you have typed a paragraph.
+  //
+  // These three are held here rather than read off `st` inside `paint`, because
+  // `paint` is also called with the reply from `/api/console/options`, which
+  // does not carry them. A missing key would otherwise read as "locked".
+  let writable = data.writable !== false;
+  let remote = data.remote === true;
+  const desk = data.desk === true;
+
+  const access = el("div", "access");
+  prompt.prepend(access);
+
+  // Turning the boundary off is allowed from anywhere and turning it on is
+  // not -- see `act_console_remote`. So the phone gets a button in one
+  // direction only, and that is deliberate rather than an oversight: a switch
+  // that a stolen token could flip would not be a boundary.
+  function drawAccess() {
+    access.replaceChildren();
+    if (desk) {
+      const btn = el("button", "act", remote ? "restrict to this machine"
+                                            : "answer from anywhere");
+      btn.onclick = async () => {
+        if (!remote && !confirm(
+            "let the console take commands from your phone?\n\n"
+            + "it is a real shell with no restrictions, and the access token "
+            + "that reaches it crosses your network as plain HTTP. anything on "
+            + "that network which reads the token gets a command prompt on this "
+            + "machine.\n\nyou can turn this back off from anywhere.")) return;
+        btn.disabled = true;
+        const out = await act("console-remote", { on: !remote });
+        btn.disabled = false;
+        if (!out) return;
+        remote = out.remote;
+        writable = true;
+        toast(remote ? "console now answers from anywhere"
+                     : "console restricted to this machine");
+        drawAccess();
+      };
+      access.append(el("span", "note", remote
+        ? "This console takes commands from any device with the access token. "
+        : "This console only takes commands from this machine. "), btn);
+      return;
+    }
+    if (remote) {
+      const btn = el("button", "act", "restrict to the desktop");
+      btn.onclick = async () => {
+        btn.disabled = true;
+        const out = await act("console-remote", { on: false });
+        if (!out) { btn.disabled = false; return; }
+        remote = false;
+        writable = false;
+        toast("console restricted to the desktop — including this page");
+        drawAccess();
+        paint(await getJSON("/api/console").catch(() => ({ turns: [] })));
+      };
+      access.append(el("span", "note",
+        "The console is open to the network, so this page can run a real shell "
+        + "on the machine at home. Turning that off works from here; turning it "
+        + "back on does not. "), btn);
+      return;
+    }
+    access.append(el("span", "note",
       "The console is a real shell on the machine running the colony, so it "
-      + "only takes commands from that machine — an access token that leaked "
-      + "off your network should not be worth a command prompt. You can still "
-      + "read everything it did. To allow it from here anyway, put "
-      + "COLONY_CONSOLE_REMOTE=1 in .env and restart the dashboard."));
+      + "only takes commands from that machine — an access token that "
+      + "leaked off your network should not be worth a command prompt. You can "
+      + "still read everything it did. To open it up, use the console on the "
+      + "desktop."));
   }
+  drawAccess();
 
   // Redrawing the whole transcript on every poll would eat a half-typed
   // message, so the textarea is built once above and only the tape is
@@ -3022,14 +3080,18 @@ async function openConsole() {
     const busy = st.busy;
     if (st.model) model.value = st.model;
     if (st.effort) effort.value = st.effort;
-    send.disabled = busy;
+    send.disabled = busy || !writable;
     // Nothing to compact until there is a session to compact, and the CLI says
     // so in as many words ("Not enough messages to compact") rather than
     // failing -- but a button that spends tokens to be told that is a bad
     // button, so it stays off until the conversation exists.
-    compact.disabled = busy || !st.resuming;
-    clear.disabled = busy || !st.turns.length;
-    box.disabled = false;
+    compact.disabled = busy || !writable || !st.resuming;
+    clear.disabled = busy || !writable || !st.turns.length;
+    box.disabled = !writable;
+    box.placeholder = writable
+      ? "what do you want changed? enter sends, shift+enter for a new line"
+      : "read-only from here";
+    cmds.disabled = !writable;
     send.textContent = busy ? "working\u2026" : "send";
     hint.textContent = busy
       ? "he is running \u2014 shell commands can take minutes"
