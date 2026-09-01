@@ -13,6 +13,8 @@ import json
 import sqlite3
 import tempfile
 import unittest
+
+from fastapi import HTTPException
 from pathlib import Path
 from unittest import mock
 
@@ -201,6 +203,60 @@ class TestCreateProject(ScopeCase):
         self.assertTrue(made.is_dir())
         self.assertIn("because", (made / "PROJECT.md").read_text(encoding="utf-8"))
         self.assertTrue(result["created"])
+
+
+class ConsoleIsDeskOnly(unittest.TestCase):
+    """The console is a shell, and a shell is not worth an access token.
+
+    Every other route on this server is a window onto a ledger: the worst a
+    stolen token buys is reading the board and pressing approve. The console
+    spawns `claude` with no worktree and no tool restrictions, so the same token
+    buys arbitrary code execution on the machine holding `.env` -- which holds
+    the Notion token. And that access token crosses a home LAN over plain HTTP.
+
+    So the shell is scoped by peer address instead, the way token rotation is.
+    """
+
+    class Req:
+        def __init__(self, host):
+            self.client = type("C", (), {"host": host})() if host is not None else None
+
+    def setUp(self):
+        from colony import server
+        self.server = server
+        self.addCleanup(setattr, server, "CONSOLE_REMOTE", server.CONSOLE_REMOTE)
+        server.CONSOLE_REMOTE = False
+
+    def test_loopback_is_allowed(self):
+        for host in ("127.0.0.1", "::1", "localhost"):
+            with self.subTest(host=host):
+                self.server._desk_only(self.Req(host))       # does not raise
+
+    def test_the_lan_is_refused_with_a_reason_a_person_can_act_on(self):
+        for host in ("10.0.0.57", "192.168.1.9", "100.101.102.103"):
+            with self.subTest(host=host):
+                with self.assertRaises(HTTPException) as caught:
+                    self.server._desk_only(self.Req(host))
+                self.assertEqual(caught.exception.status_code, 403)
+                self.assertIn("COLONY_CONSOLE_REMOTE", caught.exception.detail)
+
+    def test_an_unknown_peer_fails_closed(self):
+        """No client on the scope must not read as "must be local, then"."""
+        with self.assertRaises(HTTPException):
+            self.server._desk_only(self.Req(None))
+
+    def test_the_escape_hatch_lifts_it(self):
+        self.server.CONSOLE_REMOTE = True
+        self.server._desk_only(self.Req("10.0.0.57"))        # does not raise
+
+    def test_every_console_write_route_is_behind_it(self):
+        """A fifth console route added later must not quietly skip the guard."""
+        import inspect
+        for name in ("console_send", "console_clear", "console_options", "console_cwd"):
+            fn = getattr(self.server, name)
+            src = inspect.getsource(fn)
+            with self.subTest(route=name):
+                self.assertIn("_desk_only(request)", src)
 
 
 if __name__ == "__main__":

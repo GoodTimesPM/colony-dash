@@ -64,6 +64,47 @@ is the one for the thought you had at 11pm, and it writes to the ledger
 directly. Neither is required; a colony with no Notion credentials configured
 still has a full board.
 
+## Where the agents come from
+
+Colony Dash does not invent its colonists. It **hires** them from persona files
+on disk, then writes the employment contract itself.
+
+Two folders are scanned, and **neither ships with this repository**:
+
+| Folder | What it is |
+| --- | --- |
+| `~/.agency-agents` | an optional clone of a persona library, e.g. [msitarzewski/agency-agents](https://github.com/msitarzewski/agency-agents) |
+| `~/.colony-agents` | personas you add yourself |
+
+Both are optional. A fresh clone with neither has an empty Standby panel and
+everything else works.
+
+The split is deliberate and it is the whole design. The first folder is somebody
+else's **git clone**, so nothing here ever writes to it — the next `git pull`
+there would either clobber the file or refuse to fast-forward past it.
+Everything the dashboard creates lands in the second, which upstream has never
+heard of. A local persona shadows an agency one with the same
+`division/filename`, which is the supported way to override one without touching
+the clone.
+
+Neither is committed here either. A persona library is a machine's furniture,
+not this project's source, and shipping a stranger's agent library inside a repo
+that merely reads it would be redistributing their work.
+
+**Standby → `＋ persona`** opens a side panel with two ways in that converge on
+one form: drop a `.md` file and its frontmatter fills the fields, or type them.
+The division is a combo box — pick a department that already exists or type a
+new one, and it becomes a folder. **`rescan`** beside it re-reads both folders,
+for a file added in an editor or a clone that was just pulled.
+
+A persona file is a résumé and nothing more: `name`, `description`, `color`,
+`emoji`, `vibe`. No `tools:`, no `model:`. The frontmatter written by that panel
+is rebuilt from the fields rather than passed through, so a file arriving with a
+`tools:` key loses it on the way in — a persona document claiming access it
+does not have is one that eventually gets believed by a person. Everything that
+actually governs an agent (write scope, tool allowlist, token ceiling, the three
+gates) is written by the contract, not by the file. See ROSTER.md.
+
 ## The ledger is the system
 
 There is no server to be down at 3am. One SQLite file under `.colony/` holds
@@ -124,9 +165,26 @@ So the console is a second door, deliberately unlike the first:
   `console_turns`. Clearing the chat starts a new epoch instead of deleting
   rows, so the spend history survives the clear.
 
-The guards that stay are the ones that were never about the agent: the server
-binds `127.0.0.1` unless told otherwise, and every `/api/console/*` call needs
-the `X-Colony` header like all other write routes.
+- **It only takes commands from the machine it runs on.** Reading the
+  transcript works from anywhere the dashboard does. Sending does not.
+
+That last one is the boundary that matters once the dashboard is on a phone.
+Every other route here is a window onto a ledger, where a stolen access token is
+worth reading the board and pressing approve. This one spawns a shell, so the
+same token would be worth arbitrary code execution on the machine holding
+`.env` — and that token crosses a home network over plain HTTP, in the first
+URL and then in a cookie. Acceptable for a dashboard. Not for a shell.
+
+So the console is scoped by **peer address** rather than by token, the same way
+token rotation is, and for the same reason: some things should not be reachable
+by something that can be copied. `COLONY_CONSOLE_REMOTE=1` in `.env` lifts it
+for anyone who wants the console on their phone anyway — an environment
+variable and a restart, deliberately, because a switch that turns off a security
+boundary should not be a button you can hit while looking for something else.
+
+The other guards are the ones that were never about the agent: the server binds
+`127.0.0.1` unless told otherwise, and every `/api/console/*` call needs the
+`X-Colony` header like all other write routes.
 
 Worth being exact about that header, because it is easy to read as more than it
 is. It is CSRF protection — it proves a call came from the dashboard's own page
@@ -236,6 +294,14 @@ itself — rotating from a phone would log that phone out in the middle of its o
 request — and the server enforces that as well as the panel. From a terminal it
 is `py -m colony phone --rotate`.
 
+Beside the on/off switch there is a **refresh**. That panel is a snapshot of
+a machine rather than of the ledger — the address after a network change,
+`serving` once the logon task finally binds, the firewall after a rule is
+added in a terminal — and it is deliberately not on the live feed, because
+asking Task Scheduler and PowerShell for all of that is too slow to poll. So
+the one thing that goes stale here has a way to be asked again that is not
+"close the drawer and open it".
+
 `autostart` registers a hidden scheduled task — the same shape as the hourly
 pulse, and beside it — so the server is already up when you pick up your phone.
 That is the difference between a feature and a demo: the phone is the device you
@@ -268,6 +334,39 @@ This is remote access, not accounts. One operator, one ledger, one machine's
 filesystem. See ARCHITECTURE.md §10.19 for why multi-tenancy is a different
 program rather than a later feature.
 
+### How safe is this, honestly
+
+Without a tailnet, on a plain home LAN, ranked by what actually matters:
+
+1. **The traffic is plain HTTP.** The access token rides in the first URL and
+   then in a cookie, unencrypted, over your network. Anything already on that
+   network — a guest, a smart TV, a compromised laptop — can read it off the
+   wire. There is no defence here against an attacker who is already inside.
+2. **The console is the reason that matters.** A leaked token would otherwise
+   buy someone the board; the console would make it a shell. Which is why the
+   console answers only from the machine itself (see *The one deliberate
+   exception*), so the worst case is a dashboard rather than a command prompt.
+3. **The token is in the first URL**, so it lands in browser history and in any
+   proxy or router log that saw it. The cookie swap mitigates everything after
+   that first request, not the request itself. `rotate token` exists for the day
+   you find it somewhere you did not expect.
+4. **There is no rate limit on `/login`.** Defensible against a 256-bit token
+   — guessing is not a strategy — but worth knowing rather than assuming.
+
+What is already right, so it does not have to be re-derived: the token is
+`secrets.token_urlsafe(32)` and compared with `secrets.compare_digest`, so
+neither guessing nor timing gets anywhere. The cookie is `HttpOnly` and
+`SameSite=Lax` (not `Secure`, deliberately — a tailnet address is plain `http`
+and `Secure` would loop the login forever). The firewall rule written by
+`--allow-firewall` is scoped to **private and domain** networks, not public, so
+joining coffee-shop Wi-Fi does not expose the port. The server binds one
+specific LAN address rather than `0.0.0.0`. And `access.check` refuses to start
+at all on a non-loopback host with no token, so there is no configuration in
+which this serves openly by accident.
+
+A tailnet (Tailscale, WireGuard) fixes 1 and 3 outright and is the recommended
+answer. Everything above is what you get when you skip it.
+
 ### The rest of the CLI
 
 | Command | What it does |
@@ -279,6 +378,7 @@ program rather than a later feature.
 | `py -m colony allowance 10` | move this sprint's budget, signed percentage points |
 | `py -m colony agents` | who is on the books and what they may touch |
 | `py -m colony roster <query>` | search the hiring pool |
+| `py -m colony roster --sync` | re-read both persona folders from disk |
 | `py -m colony projects --diff X` | what has moved on disk |
 | `py -m colony sql "SELECT ..."` | read the ledger directly |
 | `py -m colony schedule` | install the hourly pulse as a hidden task |
@@ -295,7 +395,7 @@ py -m unittest discover -s tests -v
 ```
 
 Standard-library `unittest`, no install step — a suite that needs a dependency
-before it runs is a suite nobody clones and runs. 96 tests, under three seconds,
+before it runs is a suite nobody clones and runs. 171 tests, under four seconds,
 and they cover the things that are claims rather than code: migrations apply in
 order and refuse to be edited afterwards, the tool denylist survives a contract
 that asks for `Bash`, the write scope refuses everything outside one named

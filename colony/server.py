@@ -945,7 +945,7 @@ def _roster_summary(conn: sqlite3.Connection) -> dict[str, Any]:
     """
     people = rows(
         conn,
-        "SELECT slug, name, division, description, emoji, color, vibe FROM roster "
+        "SELECT slug, name, division, description, emoji, color, vibe, source FROM roster "
         "ORDER BY division, name",
     )
     hired = {r["roster_slug"] for r in rows(
@@ -957,8 +957,10 @@ def _roster_summary(conn: sqlite3.Connection) -> dict[str, Any]:
         divisions.setdefault(p["division"], []).append(p)
     return {
         "total": len(people),
+        "mine": sum(1 for p in people if p["source"] == "local"),
         "divisions": [
-            {"division": d, "n": len(v), "people": v}
+            {"division": d, "n": len(v), "people": v,
+             "mine": sum(1 for p in v if p["source"] == "local")}
             for d, v in sorted(divisions.items(), key=lambda kv: (-len(kv[1]), kv[0]))
         ],
     }
@@ -2094,33 +2096,139 @@ def skill(id: int) -> dict[str, Any]:
         conn.close()
 
 
-@app.post("/api/act/rescan")
-def act_rescan(x_colony: str | None = Header(None)) -> dict[str, Any]:
-    """Re-read the agency-agents install. The one write that isn't a decision.
+@app.get("/api/roster/divisions")
+def api_roster_divisions() -> dict[str, Any]:
+    """The divisions that exist, so the import panel offers them before inventing.
 
-    It changes only the `roster` table — résumés, not employees — and a persona
-    whose file changed upstream is something the PO should see rather than
-    discover the next time they hire.
+    Counted from the roster rather than from the two directories, because the
+    question the dropdown is answering is "where would this persona sit next to
+    the others", and "the others" means what the scan actually found.
+    """
+    conn = _conn()
+    try:
+        return {
+            "divisions": [dict(r) for r in rows(conn,
+                "SELECT division, COUNT(*) n, "
+                "       SUM(CASE WHEN source='local' THEN 1 ELSE 0 END) mine "
+                "FROM roster GROUP BY division ORDER BY division")],
+            "local_dir": str(roster_mod.LOCAL_ROSTER_DIR),
+            "agency_dir": str(roster_mod.DEFAULT_ROSTER_DIR),
+        }
+    finally:
+        conn.close()
+
+
+@app.post("/api/act/persona")
+def act_persona(body: dict = Body(...),
+                x_colony: str | None = Header(None)) -> dict[str, Any]:
+    """Write one persona of this machine's own, then re-scan.
+
+    Both halves matter. A write with no re-scan leaves a file on disk that the
+    Standby panel cannot see, which reads as the button having done nothing --
+    and the fix a person then reaches for is pressing it again, which now fails
+    with "already exists".
+
+    The file lands under `~/.colony-agents`, never in the agency-agents clone.
+    `roster.write_persona` carries the argument for that; the short version is
+    that the clone belongs to somebody else and `git pull` wins every argument.
     """
     _guard(x_colony)
+    try:
+        path = roster_mod.write_persona(
+            division=str(body.get("division") or ""),
+            slug=str(body.get("slug") or body.get("name") or ""),
+            name=str(body.get("name") or ""),
+            description=str(body.get("description") or ""),
+            emoji=str(body.get("emoji") or ""),
+            color=str(body.get("color") or ""),
+            vibe=str(body.get("vibe") or ""),
+            body=str(body.get("body") or ""),
+            overwrite=bool(body.get("overwrite")),
+        )
+    except roster_mod.BadPersona as exc:
+        raise HTTPException(409, str(exc))
+    except OSError as exc:
+        raise HTTPException(500, f"could not write the persona file: {exc}")
+
+    result = _rescan(f"persona written to {path.parent.name}/{path.stem}")
+    return {"ok": True, "path": str(path), **result}
+
+
+@app.post("/api/act/persona-delete")
+def act_persona_delete(body: dict = Body(...),
+                       x_colony: str | None = Header(None)) -> dict[str, Any]:
+    """Delete one of this machine's own personas. Refuses agency ones.
+
+    Not guarded by loopback: unlike the console this destroys a text file that
+    the person on the phone wrote in the first place, and it cannot reach
+    anything the dashboard does not already show them.
+    """
+    _guard(x_colony)
+    slug = str(body.get("slug") or "")
+    conn = _rw()
+    try:
+        conn.execute("BEGIN")
+        try:
+            path = roster_mod.delete_persona(conn, slug)
+            control._record(conn, "note", "colony", None, f"persona removed: {slug}")
+        except BaseException:
+            conn.execute("ROLLBACK")
+            raise
+        conn.execute("COMMIT")
+        _project_cache["at"] = 0.0
+        return {"ok": True, "path": str(path)}
+    except roster_mod.BadPersona as exc:
+        raise HTTPException(409, str(exc))
+    finally:
+        conn.close()
+
+
+def _rescan(why: str) -> dict[str, Any]:
+    """Re-read both persona roots into the `roster` table.
+
+    Factored out because two routes need it and both need it to be the same
+    thing: the explicit rescan button, and the import panel, which would
+    otherwise leave a file on disk the Standby panel cannot see.
+
+    `why` prefixes the ledger note. The counts are appended here rather than
+    passed in, so that the audit line says what actually changed rather than
+    what the caller expected to change.
+    """
     conn = _rw()
     try:
         conn.execute("BEGIN")
         try:
             result = roster_mod.sync(conn)
             control._record(conn, "note", "colony", None,
-                            f"roster rescan: {result['total']} personas, "
-                            f"{len(result['added'])} added, {len(result['changed'])} changed")
+                            f"{why}: {result['total']} personas "
+                            f"({result['local']} local), {len(result['added'])} added, "
+                            f"{len(result['changed'])} changed, "
+                            f"{len(result['removed'])} removed")
         except BaseException:
             conn.execute("ROLLBACK")
             raise
         conn.execute("COMMIT")
         _project_cache["at"] = 0.0
-        return {"ok": True, **result}
-    except FileNotFoundError as exc:
-        raise HTTPException(409, str(exc))
+        return result
     finally:
         conn.close()
+
+
+@app.post("/api/act/rescan")
+def act_rescan(x_colony: str | None = Header(None)) -> dict[str, Any]:
+    """Re-read both persona roots. The one write that isn't a decision.
+
+    It changes only the `roster` table — résumés, not employees — and a persona
+    whose file changed upstream is something the PO should see rather than
+    discover the next time they hire. Also the way a persona added by hand, in
+    an editor, outside the dashboard, becomes visible without a restart.
+    """
+    _guard(x_colony)
+    try:
+        result = _rescan("roster rescan")
+    except FileNotFoundError as exc:
+        raise HTTPException(409, str(exc))
+    return {"ok": True, **result}
 
 
 # -- the console ---------------------------------------------------------------
@@ -2135,23 +2243,78 @@ def act_rescan(x_colony: str | None = Header(None)) -> dict[str, Any]:
 # is autocommit, so each statement here lands on its own.
 
 
+# Read once at import, from `.env` as well as the environment, so that lifting
+# the boundary costs a restart. A value re-read per request would mean a console
+# that quietly became network-reachable the moment a file changed, with nothing
+# in the log to say when.
+CONSOLE_REMOTE = (db._env_value("COLONY_CONSOLE_REMOTE") or "").strip().lower()     in {"1", "true", "yes", "on"}
+
+
 def _console_conn() -> sqlite3.Connection:
     return _rw()
 
 
+def _desk_only(request: Request) -> None:
+    """Refuse a console write that did not come from this machine.
+
+    Every other route on this server is a window onto a ledger: the worst a
+    stolen access token buys is reading the board and pressing approve. The
+    console is not that. It spawns `claude` with no worktree, no tool
+    restrictions and no PO gate -- it is deliberately a shell -- so the same
+    stolen token buys arbitrary code execution on the machine holding `.env`,
+    which holds the Notion token. The difference in blast radius between those
+    two is the entire reason this function exists.
+
+    That token crosses a home LAN over plain HTTP. It is in the first URL, and
+    anything on the same network can read it off the wire. Which is an
+    acceptable risk for a dashboard and not an acceptable one for a shell.
+
+    So the shell is scoped to the peer address rather than to the token, the
+    same way the token rotation route is (`act_phone_token`), and for the same
+    reason: some actions should not be reachable by anything that can be copied.
+
+    `COLONY_CONSOLE_REMOTE=1` in `.env` lifts it, for the person who has read
+    this docstring and wants the console on their phone anyway. Deliberately an
+    environment variable and not a button -- a switch that turns off a security
+    boundary should cost a file edit and a restart, so that it is never
+    something someone did by accident while looking for something else.
+    """
+    if CONSOLE_REMOTE:
+        return
+    peer = request.client.host if request.client else ""
+    # `access.is_loopback("")` is True by design -- for the token gate, an
+    # unknown peer should fall back to *asking for a token*, which is the safe
+    # side there. Here the safe side is the other one, so the empty case is
+    # spelled out rather than borrowed.
+    if not peer or not access.is_loopback(peer):
+        raise HTTPException(403,
+            "the console is a real shell on the machine running the colony, so "
+            "it only answers from that machine — a stolen access token should "
+            "not be worth a command prompt. Everything else here works from your "
+            "phone. To allow it anyway, put COLONY_CONSOLE_REMOTE=1 in .env and "
+            "restart.")
+
+
 @app.get("/api/console")
-def api_console() -> dict[str, Any]:
+def api_console(request: Request) -> dict[str, Any]:
     conn = _conn()
     try:
-        return console_mod.state(conn)
+        peer = request.client.host if request.client else ""
+        # Read is allowed from anywhere the token is: watching what the console
+        # did is a window onto the machine, which is what the rest of this server
+        # already is. Only sending is scoped. `writable` is how the panel knows
+        # to draw an explanation instead of an input box -- see `_desk_only`.
+        return {**console_mod.state(conn),
+                "writable": CONSOLE_REMOTE or access.is_loopback(peer)}
     finally:
         conn.close()
 
 
 @app.post("/api/console/send")
-def console_send(body: dict = Body(...),
+def console_send(request: Request, body: dict = Body(...),
                  x_colony: str | None = Header(None)) -> dict[str, Any]:
     _guard(x_colony)
+    _desk_only(request)
     conn = _console_conn()
     try:
         return {"ok": True, **console_mod.send(conn, str(body.get("text") or ""))}
@@ -2164,9 +2327,10 @@ def console_send(body: dict = Body(...),
 
 
 @app.post("/api/console/clear")
-def console_clear(body: dict = Body(default={}),
+def console_clear(request: Request, body: dict = Body(default={}),
                   x_colony: str | None = Header(None)) -> dict[str, Any]:
     _guard(x_colony)
+    _desk_only(request)
     conn = _console_conn()
     try:
         return {"ok": True, **console_mod.clear(conn)}
@@ -2177,9 +2341,10 @@ def console_clear(body: dict = Body(default={}),
 
 
 @app.post("/api/console/options")
-def console_options(body: dict = Body(...),
+def console_options(request: Request, body: dict = Body(...),
                     x_colony: str | None = Header(None)) -> dict[str, Any]:
     _guard(x_colony)
+    _desk_only(request)
     conn = _console_conn()
     try:
         return {"ok": True, **console_mod.set_options(
@@ -2191,9 +2356,10 @@ def console_options(body: dict = Body(...),
 
 
 @app.post("/api/console/cwd")
-def console_cwd(body: dict = Body(...),
+def console_cwd(request: Request, body: dict = Body(...),
                 x_colony: str | None = Header(None)) -> dict[str, Any]:
     _guard(x_colony)
+    _desk_only(request)
     conn = _console_conn()
     try:
         return {"ok": True, **console_mod.set_cwd(conn, body.get("path") or None)}

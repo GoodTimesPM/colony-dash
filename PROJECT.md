@@ -110,7 +110,7 @@ proposal, not a decision. The Colony panel is a direct descendant of Lloyd's Ses
   guesses. (`ARCHITECTURE.md` §5)
 - **The escalation bar is approved as written** (`ARCHITECTURE.md` §4.6), to be tuned against
   real pulse logs.
-- **agency-agents is a hiring pool, not a fleet.** 255 personas at `C:\Users\jtbal\.agency-agents`.
+- **agency-agents is a hiring pool, not a fleet.** 255 personas at `~/.agency-agents`.
   None of them carry `tools:` or `model:` frontmatter, so they supply persona and zero
   governance. Do **not** run `install.sh --tool claude-code` unfiltered. Hiring is a PO
   action. (`ROSTER.md`)
@@ -379,6 +379,54 @@ names the state and the next move.
       a loopback bind: the gate is off unless `--host` is passed, and `＋ story` is an
       addition rather than a change to any existing path. Merge when it has been used from
       an actual phone for a few days.
+
+## Finished 2026-09-01 — the roster stops belonging to the repo, and the shell gets an address
+
+Two things, and they turn out to be the same question asked from opposite ends: what is this
+program allowed to own, and what is a copyable secret allowed to reach.
+
+**Personas are no longer part of this project.** The roster used to be scanned from exactly
+one folder — a clone of `msitarzewski/agency-agents` at `~/.agency-agents` — which made
+somebody else's git repository a hard dependency of ours. A stranger cloning Colony Dash got
+`FileNotFoundError` and an instruction to install a library from a project that is not this
+one; and a persona written by hand had nowhere to live, because the next `git pull` in that
+clone would clobber it. The scan now reads two roots: `~/.agency-agents` (read only, never
+written by anything here) and `~/.colony-agents` (written by the dashboard, unknown to
+upstream). Both are optional, neither is committed, and a local persona shadows an agency one
+with the same `division/filename` — which is the whole override mechanism.
+
+**Standby → `＋ persona`** is the panel that makes that usable: drop a `.md` and its
+frontmatter fills the form, or type it. The division is a combo box over the departments that
+already exist, and typing a new one creates the folder — categorisation stays the user's
+choice rather than being inherited from whatever folders a stranger happened to ship. The
+frontmatter is rebuilt from the fields, so an imported file carrying `tools:` or `model:`
+loses it on the way in. `rescan` beside it re-reads both folders. A persona this machine
+wrote gets a delete button; an agency one does not, and the server refuses it too.
+
+**The console now only takes commands from the machine it runs on.** This was the largest
+real hole before pushing to GitHub, and it was hiding in plain sight: every route here is a
+window onto a ledger, where a stolen access token is worth reading the board — except the
+console, which is a shell by design and would make the same token worth arbitrary code
+execution on the machine holding `.env`. Two very different blast radii behind one lock, and
+that lock crosses a home LAN over plain HTTP. So the four console *write* routes are scoped
+by peer address (`_desk_only`), the way token rotation already was. Reading the transcript is
+unchanged and works from anywhere. `COLONY_CONSOLE_REMOTE=1` in `.env` lifts it for anyone
+who wants the console on their phone — an env var and a restart, not a button, because a
+switch that turns off a security boundary should not be findable by accident.
+
+A real bug fell out of writing the test for that: `access.is_loopback("")` is True by design
+(for the token gate, an unknown peer must fall back to *asking for a token*), so a request
+with no peer on the scope would have passed the console guard. `_desk_only` now tests that
+case itself instead of borrowing the answer.
+
+Also scrubbed `C:\Users\jtbal\...` out of `ROSTER.md` and `PROJECT.md`, the last personal
+paths in any tracked file, and documented `COLONY_CONSOLE_REMOTE` and both persona folders in
+`.env.example`.
+
+Tests: 171 passing, up from 147. `tests/test_roster.py` is new — two roots, shadowing, path
+traversal, the write round-trip, delete refusing an agency persona — plus five in
+`test_safety.py` for the console boundary, including one that fails if a fifth console route
+is ever added without the guard. See ARCHITECTURE.md §10.24 and §10.25.
 
 ## Finished 2026-09-01 — the token gets a button, and the log stops crying wolf
 

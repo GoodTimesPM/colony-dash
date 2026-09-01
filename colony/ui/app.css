@@ -1984,3 +1984,26 @@ body.snapping .snapbar { display: flex; }
   .drawer, .drawer.wide { height: 100dvh; border-radius: 0; }
   .tiles { max-height: none; overflow: visible; }
 }
+
+/* ── the persona drop zone ─────────────────────────────────────────────────
+   Dashed rather than solid so it reads as a target and not as a disabled
+   button, and tall enough to be a drop target rather than a link — a 20px
+   strip is aimable with a mouse and not with a thumb, and this panel is used
+   from a phone, where it is a file picker instead. */
+.dropzone {
+  border: 1px dashed var(--rule);
+  border-radius: 6px;
+  padding: 22px 14px;
+  text-align: center;
+  color: var(--ink-dim);
+  font-size: var(--step--1);
+  cursor: pointer;
+  transition: border-color .12s, color .12s, background .12s;
+}
+.dropzone:hover { border-color: var(--violet); color: var(--ink); }
+.dropzone.over {
+  border-color: var(--violet);
+  color: var(--ink);
+  background: color-mix(in oklab, var(--violet) 12%, transparent);
+}
+textarea.field.tall { min-height: 220px; }

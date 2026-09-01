@@ -2531,11 +2531,217 @@ function renderDivisions(roster) {
 
 function personaButton(p) {
   const b = el("button", "persona" + (p.hired ? " hired" : ""));
-  b.append(el("span", null, p.emoji || "·"), el("span", "nm", p.name), el("span", "dv", p.hired ? "hired" : ""));
+  b.append(el("span", null, p.emoji || "·"), el("span", "nm", p.name),
+           el("span", "dv", p.hired ? "hired" : (p.source === "local" ? "yours" : "")));
   b.title = p.description || "";
   b.onclick = () => openPersona(p.slug);
   return b;
 }
+
+// ── adding a persona ────────────────────────────────────────────────────────
+//
+// The roster is scanned off disk from two folders, and until this panel existed
+// the only way to add to it was to open an editor, get the YAML frontmatter
+// right by hand, save into the right division folder, and re-run a CLI command.
+// Four steps, three of which are "know the file format", to add one colleague.
+//
+// The important half is *which* folder it writes to. `~/.agency-agents` is
+// somebody else's git clone; writing a persona into it means the next `git pull`
+// there either clobbers the file or refuses to merge. So everything written here
+// lands in `~/.colony-agents`, which upstream has never heard of, and the two
+// are scanned together. That is also why neither folder is in this repository:
+// a persona library is a machine's furniture, not this project's source, and
+// shipping a stranger's agents inside a repo that merely reads them would be
+// redistributing their work.
+//
+// Two ways in, one form. Dropping a `.md` file fills the fields in from its
+// frontmatter; typing fills them in directly. They converge deliberately —
+// a drop that skipped the form would be a write with nothing to check first,
+// and the field most worth checking is the division, which is the one thing a
+// dropped file has an opinion about that the person dropping it may not share.
+
+function parseFrontmatter(text) {
+  // The same five-key line reader as `roster.parse_persona`, on purpose. A
+  // richer parser here would accept files the scanner then ignores, which is
+  // the worst of the options: the import succeeds and the persona never shows up.
+  const out = { body: text, meta: {} };
+  if (!text.startsWith("---")) return out;
+  const rest = text.slice(text.indexOf("\n") + 1);
+  const end = rest.indexOf("\n---");
+  if (end < 0) return out;
+  for (const line of rest.slice(0, end).split("\n")) {
+    const i = line.indexOf(":");
+    if (i < 0) continue;
+    const key = line.slice(0, i).trim().toLowerCase();
+    if (["name", "description", "color", "emoji", "vibe"].includes(key)) {
+      out.meta[key] = line.slice(i + 1).trim().replace(/^["']|["']$/g, "");
+    }
+  }
+  out.body = rest.slice(end + 4).replace(/^\n+/, "");
+  return out;
+}
+
+async function openPersonaNew() {
+  const body = openDrawer("standby", "add a persona");
+  let dirs = { divisions: [], local_dir: "", agency_dir: "" };
+  try { dirs = await getJSON("/api/roster/divisions"); } catch (_) {}
+  body.replaceChildren();
+
+  body.append(el("div", "note",
+    "Written to " + (dirs.local_dir || "your personas folder") + ", not into the "
+    + "agency-agents clone — so a git pull there can never clobber it, and "
+    + "nothing you add here becomes part of the Colony Dash repo."));
+
+  const form = el("div", "form");
+
+  // A file input as well as a drop target, because a drop target alone is
+  // unusable on a phone and this dashboard is used from one.
+  const drop = el("div", "dropzone", "drop a persona .md here, or tap to pick one");
+  const file = el("input");
+  file.type = "file";
+  file.accept = ".md,.markdown,text/markdown,text/plain";
+  file.style.display = "none";
+  drop.onclick = () => file.click();
+  ["dragenter", "dragover"].forEach((name) => drop.addEventListener(name, (ev) => {
+    ev.preventDefault();
+    drop.classList.add("over");
+  }));
+  ["dragleave", "drop"].forEach((name) => drop.addEventListener(name, () => {
+    drop.classList.remove("over");
+  }));
+
+  const fields = {};
+  const field = (key, label, hint, tag) => {
+    const input = el(tag || "input", "field");
+    input.placeholder = hint || "";
+    fields[key] = input;
+    return blk(label, input);
+  };
+
+  // Jordan sorts his roster by department, so the division is the categorisation
+  // and it is required. A datalist rather than a select: the existing divisions
+  // are the suggestion, but "the 17 folders a stranger happened to ship" is not
+  // a closed set of the departments anyone could want.
+  const division = el("input", "field");
+  division.placeholder = "engineering, finance, your-own-department…";
+  division.setAttribute("list", "roster-divisions-list");
+  const list = el("datalist");
+  list.id = "roster-divisions-list";
+  for (const d of dirs.divisions || []) {
+    const o = el("option");
+    o.value = d.division;
+    o.label = d.n + (d.mine ? " (" + d.mine + " yours)" : "");
+    list.append(o);
+  }
+  fields.division = division;
+
+  form.append(drop, file);
+  form.append(blk("division", division, list,
+    el("div", "note", "becomes a folder. Pick one of yours, or type a new "
+      + "department and it gets created.")));
+  form.append(field("name", "name", "Project Shepherd"));
+  form.append(field("slug", "file name", "leave blank to use the name"));
+  form.append(field("description", "description",
+    "one line. This is what the hiring prompt reads.", "textarea"));
+  form.append(field("vibe", "vibe", "optional. One line, shown on the card."));
+
+  const short = el("div", "row");
+  const emoji = el("input", "field");
+  emoji.placeholder = "🐑";
+  emoji.style.maxWidth = "6em";
+  const color = el("input", "field");
+  color.placeholder = "blue";
+  color.setAttribute("list", "roster-colors-list");
+  const colors = el("datalist");
+  colors.id = "roster-colors-list";
+  for (const c of ["red", "orange", "yellow", "green", "teal", "blue", "purple",
+                   "pink", "brown", "grey"]) {
+    const o = el("option");
+    o.value = c;
+    colors.append(o);
+  }
+  fields.emoji = emoji;
+  fields.color = color;
+  short.append(emoji, color, colors);
+  form.append(blk("emoji and colour", short,
+    el("div", "note", "both optional — they are the face on the Standby card.")));
+
+  const bodyBox = el("textarea", "field tall");
+  bodyBox.placeholder = "# Who they are\n\nYou are …\n\n## How they work\n\n…";
+  fields.body = bodyBox;
+  form.append(blk("the persona itself", bodyBox,
+    el("div", "note", "markdown. Headings become the sections shown on the "
+      + "persona card. This is the part an agent is actually given — the "
+      + "frontmatter above is only how it gets found.")));
+
+  const replace = el("input");
+  replace.type = "checkbox";
+  const replaceRow = el("label", "row");
+  replaceRow.append(replace, el("span", null,
+    " replace a persona of mine with the same file name"));
+  form.append(replaceRow);
+
+  const fill = (text, filename) => {
+    const parsed = parseFrontmatter(text);
+    for (const key of ["name", "description", "emoji", "color", "vibe"]) {
+      if (parsed.meta[key]) fields[key].value = parsed.meta[key];
+    }
+    bodyBox.value = parsed.body;
+    if (filename) {
+      const stem = filename.replace(/\.mdx?$/i, "");
+      fields.slug.value = stem;
+      if (!fields.name.value) fields.name.value = stem;
+    }
+    drop.textContent = (filename ? "loaded " + filename : "loaded")
+      + " — check the division, then add";
+    if (!division.value) division.focus();
+  };
+  const take = (f) => {
+    if (!f) return;
+    const reader = new FileReader();
+    reader.onload = () => fill(String(reader.result || ""), f.name);
+    reader.readAsText(f);
+  };
+  drop.addEventListener("drop", (ev) => {
+    ev.preventDefault();
+    take(ev.dataTransfer && ev.dataTransfer.files && ev.dataTransfer.files[0]);
+  });
+  file.onchange = () => take(file.files && file.files[0]);
+
+  const save = el("button", "act", "add persona");
+  save.onclick = async () => {
+    if (!fields.name.value.trim()) { toast("a persona needs a name", "bad"); return; }
+    if (!division.value.trim()) { toast("pick or type a division", "bad"); return; }
+    save.disabled = true;
+    const out = await act("persona", {
+      division: division.value,
+      slug: fields.slug.value || fields.name.value,
+      name: fields.name.value,
+      description: fields.description.value,
+      emoji: emoji.value,
+      color: color.value,
+      vibe: fields.vibe.value,
+      body: bodyBox.value,
+      overwrite: replace.checked,
+    });
+    save.disabled = false;
+    if (!out) return;                       // `act` has already said why
+    toast("added — " + out.total + " personas on file");
+    closeDrawer();
+  };
+  form.append(save);
+  body.append(form);
+}
+
+$("roster-add").onclick = openPersonaNew;
+$("roster-rescan").onclick = async () => {
+  const out = await act("rescan", {});
+  if (out) {
+    toast(out.total + " personas (" + out.local + " yours), "
+      + out.added.length + " added, " + out.changed.length + " changed, "
+      + out.removed.length + " gone");
+  }
+};
 
 // ── drawer ──────────────────────────────────────────────────────────────────
 
@@ -2762,6 +2968,23 @@ async function openConsole() {
   row.append(cmds, hint, send);
   prompt.append(box, row);
   wrap.append(prompt);
+
+  // Read from anywhere the token reaches; write only from the machine itself.
+  // The console spawns `claude` with no worktree and no tool restrictions -- it
+  // is a shell on purpose -- so a token sniffed off a home LAN, which is plain
+  // HTTP, would be worth a command prompt rather than a read-only board. The
+  // server refuses it either way (`_desk_only`); this is what stops the refusal
+  // arriving as a mystery 403 after you have typed a paragraph.
+  if (data.writable === false) {
+    box.disabled = true; send.disabled = true; cmds.disabled = true;
+    box.placeholder = "read-only from here";
+    prompt.prepend(el("div", "note",
+      "The console is a real shell on the machine running the colony, so it "
+      + "only takes commands from that machine — an access token that leaked "
+      + "off your network should not be worth a command prompt. You can still "
+      + "read everything it did. To allow it from here anyway, put "
+      + "COLONY_CONSOLE_REMOTE=1 in .env and restart the dashboard."));
+  }
 
   // Redrawing the whole transcript on every poll would eat a half-typed
   // message, so the textarea is built once above and only the tape is
@@ -3344,6 +3567,9 @@ async function openPersona(slug) {
   add("division", p.division);
   if (p.vibe) add("vibe", p.vibe);
   add("file", p.path);
+  add("source", p.source === "local"
+    ? "yours — written on this machine, safe from a git pull"
+    : "the agency-agents clone — read only, and a pull upstream can rewrite it");
   if (p.hired) add("status", `hired as “${p.hired.role}”${p.hired.project ? " on " + p.hired.project : ""}`);
   body.append(facts);
 
@@ -3360,6 +3586,25 @@ async function openPersona(slug) {
     body.append(blk(sec.title || "criteria", el("pre", "detail tall", sec.body)));
   }
   if (!p.sections.length && p.body) body.append(sectionBlock("persona file", p.body));
+
+  // Only ever offered for a persona this machine wrote. Deleting an agency one
+  // would delete a file out of somebody else's git clone -- the loss shows up
+  // as a dirty working tree in a repo the user did not think they were editing,
+  // and the next pull puts it straight back, so the button would look broken on
+  // top of being wrong. The server refuses it too; this only hides it.
+  if (p.source === "local") {
+    const gone = el("button", "act warn", "delete this persona");
+    gone.onclick = () => confirmThen(
+      `Delete ${p.name}?
+
+The file at ${p.path} is removed. Any agent already `
+      + `hired from it keeps running — a contract is not the résumé it came from.`,
+      async () => {
+        const out = await act("persona-delete", { slug: p.slug });
+        if (out) { toast(`${p.name} removed`); closeDrawer(); }
+      });
+    body.append(blk("remove", gone));
+  }
 }
 
 function hireForm(p) {

@@ -3,11 +3,50 @@
 Colony Dash does not invent its agents. It **hires** them from a talent pool already on this
 machine, then puts them under contract.
 
-## 1. What's installed
+## 1. Where personas come from
 
-**[msitarzewski/agency-agents](https://github.com/msitarzewski/agency-agents)**, cloned to
-`C:\Users\jtbal\.agency-agents`. **270 agent persona files** across 17 divisions — counted by
-`python -m colony roster`, which is now the authority:
+Two folders are scanned, and **neither is part of this repository**. Both are optional; with
+neither, Standby is empty and everything else in the dashboard works exactly as before.
+
+| Folder | What it is | Written by |
+| --- | --- | --- |
+| `~/.agency-agents` | an optional clone of somebody else's persona library | never, by anything here |
+| `~/.colony-agents` | personas you add yourself | the dashboard, and you |
+
+The split is the entire design of this module. The first folder is a **git clone**, and the
+next `git pull` in it either clobbers a file written there or refuses to fast-forward past
+it — so nothing in Colony Dash ever writes to it. Everything the dashboard creates lands in
+the second folder, which upstream has never heard of.
+
+Neither is committed here, either. A persona library is a machine's furniture, not this
+project's source; shipping a stranger's agent library inside a repo that merely reads it
+would be redistributing their work and would make cloning that library a dependency of
+`git clone` rather than of first run.
+
+A local persona **shadows** an agency one with the same `division/filename`. That is the
+supported way to override an upstream persona: write your own into the same division and
+leave the clone alone.
+
+### Adding one
+
+**Standby → `＋ persona`.** A side panel with two ways in that converge on the same form:
+drop a `.md` file and its frontmatter fills the fields, or type them. The division is a
+combo box — pick an existing department or type a new one, and it becomes a folder. The
+frontmatter is **rebuilt from the fields** rather than passed through, so a file arriving
+with a `tools:` or `model:` key loses it on the way in (see §2 for why that matters).
+
+**Standby → `rescan`** re-reads both folders, for a persona added in an editor rather than
+here, or an agency clone that has just been pulled.
+
+A persona you wrote gets a **delete** button on its card. An agency one does not, and the
+server refuses it too: deleting one would dirty a git clone the user did not think they were
+editing, and the next pull would put it straight back.
+
+### The reference library
+
+**[msitarzewski/agency-agents](https://github.com/msitarzewski/agency-agents)** is what this
+was built against — **270 agent persona files** across 17 divisions, counted by
+`python -m colony roster`:
 
 | Division | Files | Division | Files |
 | --- | --- | --- | --- |

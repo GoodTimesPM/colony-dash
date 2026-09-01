@@ -2391,3 +2391,92 @@ answers now. If it does and this process's serving thread is already dead,
 someone else won, and the log says so in one line. The distinction the log has to
 preserve is between *nothing is listening*, which is a failure, and *something
 else is listening*, which is the system working.
+
+### 10.24 A persona library the repo does not own
+
+The roster is scanned off disk, and until now it was scanned off exactly one
+directory: a clone of somebody else's agent library at `~/.agency-agents`. Two
+problems, and only the second one is interesting.
+
+The first is ordinary: a hand-written persona had nowhere to live. You could put
+a file in that clone, and the next `git pull` there would either clobber it or
+refuse to fast-forward past it. So the only durable way to add a colleague was
+to not add one.
+
+The second is that the clone had quietly become a dependency of *this*
+repository. A stranger cloning Colony Dash and running it got an empty Standby
+panel and a `FileNotFoundError` telling them to install a library they had never
+heard of, from a project that is not this one. The obvious fix — vendor the
+personas into the repo — is worse: it redistributes someone else's work, it puts
+270 markdown files under this project's history, and it makes "which version of
+the persona library" a question about a git submodule rather than a folder.
+
+So the scan reads two roots and neither is in the repository:
+
+    ~/.agency-agents    optional, read only, never written by anything here
+    ~/.colony-agents    written by the dashboard, unknown to anything upstream
+
+Both optional. Neither present is a `FileNotFoundError`, which is correct —
+"the roster is empty" and "the roster could not be read" are different facts and
+the panel should not show zero for the second. Either one present is a normal
+install.
+
+A local persona **shadows** an agency one with the same `division/filename`.
+That is deliberately the only override mechanism: no precedence file, no
+patching, no "local overrides" syntax. Put a file with the same name in the same
+division, and leave the clone alone.
+
+`roster.source` (migration 027) is what tells them apart after the scan has
+flattened both into one table, and it decides exactly one thing: whether a
+persona can be deleted from the dashboard. Offering delete on an agency persona
+would dirty a git clone the user did not think they were editing, and the next
+pull would put the file straight back — a button that is both wrong and looks
+broken. The route refuses it as well as the panel hiding it.
+
+**Writing is the part that needed care**, because a division name is typed into
+a web form and used as a path component. `_safe_name` folds to `[a-z0-9-]` and
+refuses an empty result, so `../..` cannot survive; `persona_path` then resolves
+the result and re-asserts it is inside the root. Two checks for one property,
+because the cost of being wrong is a web request writing anywhere on the disk.
+
+The frontmatter is **rebuilt from the fields** rather than passed through. The
+scanner already ignores `tools:` and `model:` (§ROSTER.md 2), so a file carrying
+them is not dangerous to the system — but a persona document on disk that claims
+tool access it does not have is a document that eventually gets believed by a
+person, and the import is the last place it can be dropped cheaply.
+
+### 10.25 The console gets an address boundary
+
+Every route on this server except one is a window onto a ledger. The worst a
+stolen access token buys on those is reading the board and pressing approve —
+bad, bounded, and undoable.
+
+`console.py` is not that. It runs `claude` with `--dangerously-skip-permissions`,
+no allowlist and no worktree, deliberately (§"The one deliberate exception"). So
+the same stolen token would buy arbitrary code execution on the machine holding
+`.env`, which holds the Notion token, which is the credential nothing else in
+this system will even read into memory.
+
+Those two blast radii were behind the same lock, and the lock is a 256-bit
+string that crosses a home LAN over plain HTTP — in the first URL, then in a
+cookie. Sniffable by anything already on the network. That is an acceptable risk
+for a dashboard and not an acceptable one for a shell.
+
+So `_desk_only` scopes the four console *write* routes by peer address instead,
+exactly as `act_phone_token` does, and for the same reason: some capabilities
+should not be reachable by anything that can be copied. Reading the transcript
+is unchanged and works from anywhere the token does — watching what the console
+did is a window onto the machine, which is what the rest of this server already
+is.
+
+One asymmetry worth spelling out, because it looks like an inconsistency.
+`access.is_loopback("")` returns True: for the token gate, an unknown peer must
+fall back to *demanding a token*, so the empty case is the safe side there.
+Here the safe side is the opposite one, so `_desk_only` tests `not peer` itself
+rather than borrowing that answer. A test pins it.
+
+`COLONY_CONSOLE_REMOTE=1` lifts the boundary. An environment variable read once
+at import, not a toggle in the UI: a switch that disables a security boundary
+should cost a file edit and a restart, so that it is never something someone did
+by accident while looking for something else — and so that a console which
+became network-reachable did so at a moment there is a restart to point at.
