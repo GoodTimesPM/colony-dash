@@ -1876,6 +1876,48 @@ def act_phone(body: dict = Body(...), x_colony: str | None = Header(None)) -> di
         raise HTTPException(500, f"could not set up phone access: {exc}")
 
 
+@app.post("/api/act/phone-token")
+def act_phone_token(request: Request, body: dict = Body(...),
+                    x_colony: str | None = Header(None)) -> dict[str, Any]:
+    """Rotate the access token. Every paired device is logged out by this.
+
+    Its own route rather than a flag on `act_phone`, for the same reason it is
+    its own function in `phone.py`: rotating is destructive to anything already
+    paired, and a destructive act reached by passing an extra key to the switch
+    is one that eventually gets passed by accident.
+
+    The QR code comes back with it, because the only sensible next action after
+    rotating is scanning the new one, and making that a second request is making
+    a person press two buttons to finish one thought.
+    """
+    _guard(x_colony)
+
+    # Loopback only, and enforced here rather than only in the panel that hides
+    # the button. A rotate from the network logs the caller out in the middle of
+    # its own request: the write succeeds, the response comes back, and every
+    # call after it is a 401 -- which reads as the feature being broken rather
+    # than as it having worked. The desktop window is exempt for the same reason
+    # it is exempt from the token: it is on the machine holding the file.
+    peer = request.client.host if request.client else ""
+    if not access.is_loopback(peer):
+        raise HTTPException(403, "rotating the token is only allowed from the "
+                                 "machine itself — doing it from here would log "
+                                 "this device out mid-request. Use the dashboard "
+                                 "on the desktop, or `py -m colony phone --rotate`.")
+
+    port = int(body.get("port") or 8787)
+    try:
+        out = phone_mod.rotate(port)
+    except OSError as exc:
+        # The write is atomic, so this means `.env` is unchanged and the old
+        # token still works. Say so, because "rotate failed" otherwise leaves
+        # someone wondering whether their phone is about to stop working.
+        raise HTTPException(500, f"could not write .env, so the token is "
+                                 f"unchanged and paired devices still work: {exc}")
+    out["svg"] = phone_mod.svg(port)
+    return {"ok": True, **out}
+
+
 @app.post("/api/act/halt")
 def act_halt(body: dict = Body(...), x_colony: str | None = Header(None)) -> dict[str, Any]:
     _guard(x_colony)
@@ -2360,10 +2402,21 @@ def serve_extra(host: str, port: int) -> None:
 
     config = uvicorn.Config(app, host=host, port=port, log_level="warning")
     server = uvicorn.Server(config)
+    def _run() -> None:
+        try:
+            server.run()
+        except SystemExit:
+            # A failed bind. uvicorn has already logged one ERROR line saying
+            # which address and why; letting `SystemExit` escape a thread makes
+            # the interpreter print an "Exception in thread" traceback on top of
+            # it, which lands in the same log the person debugging this reads.
+            # `_wait_for_port` below is what actually decides the outcome.
+            pass
+
     # `Server.run` builds its own event loop, which is why this needs a thread
     # of its own rather than a task on the loop already running the first
     # socket. Uvicorn skips signal handling off the main thread on purpose.
-    thread = threading.Thread(target=server.run, daemon=True,
+    thread = threading.Thread(target=_run, daemon=True,
                               name=f"colony-serve-{host}")
     thread.start()
 

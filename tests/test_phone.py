@@ -96,6 +96,121 @@ class EnvWriting(unittest.TestCase):
         self.assertNotIn("=", token)
 
 
+class Rotating(unittest.TestCase):
+    """`rotate()` is the one call in this module that rewrites `.env`.
+
+    Every test here is really the same test asked five ways: the Notion token
+    on the line above has to still be there afterwards. That file is not
+    recoverable from anywhere -- it is the only copy of a credential the user
+    pasted in by hand -- so the rewrite gets pinned harder than the append does.
+    """
+
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.dir.cleanup)
+        self.env = Path(self.dir.name) / ".env"
+        for target, attr in ((phone, "ENV_PATH"),):
+            patch = mock.patch.object(target, attr, self.env)
+            patch.start()
+            self.addCleanup(patch.stop)
+        # `rotate` ends by calling `state()`, which shells out to Task Scheduler
+        # and PowerShell. None of these tests are about either.
+        for attr, value in (("state", lambda port: "open"),):
+            patch = mock.patch.object(phone.firewall, attr, value)
+            patch.start()
+            self.addCleanup(patch.stop)
+        patch = mock.patch.object(phone, "state", lambda port=8787: {})
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def test_replaces_the_line_and_keeps_the_rest(self):
+        self.env.write_text(EXISTING + f"{access.TOKEN_ENV}=old-one\n",
+                            encoding="utf-8")
+        phone.rotate()
+        body = self.env.read_text(encoding="utf-8")
+        self.assertNotIn("old-one", body)
+        self.assertIn("NOTION_TOKEN=ntn_pretend\n", body)
+        self.assertIn("NOTION_STORIES_DB=1234\n", body)
+        self.assertEqual(body.count(f"{access.TOKEN_ENV}="), 1)
+
+    def test_order_and_comments_survive(self):
+        """No parse, no dict, no re-serialise -- so nothing gets reordered."""
+        before = ("# top comment\n"
+                  "NOTION_TOKEN=ntn_pretend\n"
+                  "\n"
+                  "# phone\n"
+                  f"{access.TOKEN_ENV}=old-one\n"
+                  "# trailing comment\n"
+                  "LAST=9\n")
+        self.env.write_text(before, encoding="utf-8")
+        phone.rotate()
+        after = self.env.read_text(encoding="utf-8")
+        self.assertEqual(
+            [line for line in after.splitlines()
+             if not line.startswith(f"{access.TOKEN_ENV}=")],
+            [line for line in before.splitlines()
+             if not line.startswith(f"{access.TOKEN_ENV}=")])
+
+    def test_crlf_endings_are_not_converted(self):
+        """A file edited in Notepad has \\r\\n, and must keep it.
+
+        Rewriting the whole file in "\\n" would leave every other line changed
+        in a diff, which is exactly the noise that makes someone stop reading
+        diffs of their credential file.
+        """
+        self.env.write_text("NOTION_TOKEN=ntn_pretend\r\n"
+                            f"{access.TOKEN_ENV}=old-one\r\n",
+                            encoding="utf-8", newline="")
+        phone.rotate()
+        raw = self.env.read_bytes()
+        self.assertEqual(raw.count(b"\r\n"), 2)
+        self.assertNotIn(b"old-one", raw)
+
+    def test_a_file_with_no_token_gets_one(self):
+        """Rotating on a machine that never had a token leaves one."""
+        self.env.write_text(EXISTING, encoding="utf-8")
+        phone.rotate()
+        body = self.env.read_text(encoding="utf-8")
+        self.assertTrue(body.startswith(EXISTING))
+        self.assertIn(f"{access.TOKEN_ENV}=", body)
+
+    def test_the_new_token_is_not_the_old_one(self):
+        self.env.write_text(f"{access.TOKEN_ENV}=old-one\n", encoding="utf-8")
+        phone.rotate()
+        first = self.env.read_text(encoding="utf-8")
+        phone.rotate()
+        second = self.env.read_text(encoding="utf-8")
+        self.assertNotEqual(first, second)
+        self.assertNotIn("old-one", second)
+
+    def test_environment_is_updated_only_when_it_was_already_set(self):
+        """`db._env_value` prefers `os.environ`, so a stale export wins.
+
+        And the other half matters more: a token put into `os.environ` that was
+        not there before is a token handed to the `claude` subprocess the
+        console spawns, which is not allowed to read credentials.
+        """
+        self.env.write_text(f"{access.TOKEN_ENV}=old-one\n", encoding="utf-8")
+        with mock.patch.dict("os.environ", {}, clear=False):
+            import os
+            os.environ.pop(access.TOKEN_ENV, None)
+            phone.rotate()
+            self.assertNotIn(access.TOKEN_ENV, os.environ)
+        with mock.patch.dict("os.environ", {access.TOKEN_ENV: "old-one"}):
+            import os
+            phone.rotate()
+            self.assertNotEqual(os.environ[access.TOKEN_ENV], "old-one")
+            self.assertIn(os.environ[access.TOKEN_ENV],
+                          self.env.read_text(encoding="utf-8"))
+
+    def test_no_temp_file_is_left_behind(self):
+        self.env.write_text(f"{access.TOKEN_ENV}=old-one\n", encoding="utf-8")
+        phone.rotate()
+        leftovers = [p.name for p in Path(self.dir.name).iterdir()
+                     if p.name != ".env"]
+        self.assertEqual(leftovers, [])
+
+
 class State(unittest.TestCase):
 
     def setUp(self):

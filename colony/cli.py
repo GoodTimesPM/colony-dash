@@ -443,6 +443,15 @@ def cmd_phone(conn: sqlite3.Connection, args) -> int:
         print(f"opened TCP {args.port} inbound for private networks")
         print()
 
+    if args.rotate:
+        # Deliberately before `--on`, so `--rotate --on` means "new token, then
+        # bring it up with that token" rather than the other order, which would
+        # print a QR code and then invalidate it.
+        result = phone.rotate(args.port)
+        print(f"rotated {access.TOKEN_ENV} in .env")
+        print("  every paired phone is logged out until it scans the code below")
+        print()
+
     if args.on:
         try:
             result = phone.turn_on(args.port)
@@ -666,6 +675,9 @@ def build_parser() -> argparse.ArgumentParser:
     phn.add_argument("--allow-firewall", action="store_true",
                      help="add the Windows Firewall rule for the port (prompts "
                           "for administrator once)")
+    phn.add_argument("--rotate", action="store_true",
+                     help="write a new access token to .env. Every paired "
+                          "phone is logged out until it scans the new code")
     phn.add_argument("--port", type=int, default=8787)
     phn.set_defaults(func=cmd_phone)
 

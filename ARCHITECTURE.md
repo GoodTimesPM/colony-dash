@@ -2339,3 +2339,55 @@ when it is not sends them off to fight the wrong thing with an admin prompt open
 Both the panel and the CLI now say this, because `serving: yes` cannot: that
 probe runs on this machine, and a packet from this machine never meets the
 firewall.
+
+### 10.23 Rotating a credential, and a race that only looked like a failure
+
+Two small things, both about the same feature and both about what gets written
+down when something goes wrong.
+
+**The token can be replaced from the panel.** `phone.rotate()` is the one write
+in that module which is not an append, and it exists because the previous way to
+change a token was five steps ending in an editor open on a credential file. The
+module's standing rule — never change a token out from under a device that is
+using it — is not bent by this; rotating *is* that act, done deliberately, and
+the reason to do it (a token someone else has seen) is a reason to do it in the
+next ten seconds rather than after finding the right terminal.
+
+Two properties keep it safe next to the Notion token. Only lines beginning
+`COLONY_ACCESS_TOKEN=` change, and every other byte is written back in order,
+comments, blank lines and CRLF endings included — the file is never parsed into
+a dict and re-serialised, because that is the step which silently reorders keys
+and drops comments. And the replacement is atomic: the new text goes to a
+temporary file beside `.env` and is moved over it with `os.replace`, so a crash
+in the middle leaves the old file whole rather than a truncated one.
+
+It is loopback-only, enforced at the route and not only in the panel that hides
+the button. Rotating from a phone logs that phone out in the middle of its own
+request: the write succeeds, the response arrives, and every call after it is a
+401 — which reads as the feature being broken rather than as it having worked.
+The desktop window survives its own click for the same reason it needs no token,
+being trusted by peer address (see §10.22 and `server.TRUST_LOOPBACK`).
+
+One asymmetry worth stating, because it is easy to get backwards: `db._env_value`
+prefers `os.environ` over the file, so a token exported into the process would
+outlive the rotation and the new QR code would encode a value nothing accepts.
+`rotate()` therefore updates the environment — but *only when the variable was
+already there*. Putting it into an environment that did not have it would hand
+the token to the `claude` subprocess the console spawns, which is not allowed to
+read credentials.
+
+**A lost race is not an error.** `_reusable` asks whether an address is free and
+the bind happens a moment later, and two callers aim straight at that window on
+purpose: the logon task, and the phone switch binding the address from inside the
+process it was pressed in. One of them loses. Losing is the correct outcome —
+there is one dashboard on one ledger either way — but uvicorn's answer to a
+failed bind is `sys.exit(3)`, and letting that reach a thread's exception handler
+wrote forty lines of asyncio internals into `dash.log` for a non-event, several
+times per session, on top of the one ERROR line that actually said what happened.
+
+So `SystemExit` is caught and dropped in both serving threads, and the outcome is
+decided by the only party that can decide it: the caller, asking whether the port
+answers now. If it does and this process's serving thread is already dead,
+someone else won, and the log says so in one line. The distinction the log has to
+preserve is between *nothing is listening*, which is a failure, and *something
+else is listening*, which is the system working.
