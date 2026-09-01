@@ -203,6 +203,21 @@ py -m colony phone           # where it is and whether it is answering
 py -m colony phone --off     # stop serving at logon
 ```
 
+There is one step the dashboard cannot take for you. Windows Firewall needs a
+rule for the port, and writing one needs administrator rights, which a web
+request is never getting. If the phone loads forever rather than showing an
+error, this is why — a blocked packet is dropped, not refused, so the browser
+waits instead of failing. Both the panel and the CLI say so when the rule is
+missing, and `py -m colony phone --allow-firewall` writes it behind one UAC
+prompt. It opens one port on private networks, not the program.
+
+The trap worth knowing: a dashboard started from a terminal runs `python.exe`
+and Windows offers to allow it the first time it binds. The logon task and the
+desktop shortcut run `pythonw.exe`, which is a different file and therefore a
+different rule — and a hidden task has no window to prompt in front of. So this
+works when you test it from a terminal and fails on the machine you walk away
+from.
+
 Scanning the code opens `http://<address>:8787/?k=<token>` on the phone once.
 The token is swapped for a 90-day cookie and stripped from the address bar,
 because a token in a URL is a token in the browser history.
@@ -224,6 +239,7 @@ so; anything else refuses.
 | Command | What it does |
 | --- | --- |
 | `py -m colony phone --on` | the whole setup, and a QR code |
+| `py -m colony phone --allow-firewall` | open the port, once, as administrator |
 | `py -m colony autostart` | install it and start it now |
 | `py -m colony autostart --show` | what is registered, and what is answering |
 | `py -m colony autostart --remove` | stop it starting by itself; on-demand still works |
@@ -309,6 +325,7 @@ colony/
   net.py          which address on this machine a phone can actually reach
   autostart.py    the server as a logon task, so the phone finds it already up
   phone.py        that whole setup as one switch, on the page and in the CLI
+  firewall.py     the Windows rule without which none of the above arrives
   qr.py           a QR encoder, so the address is something you scan
   console.py      the PO's terminal (see: the deliberate exception)
   notion.py       intake

@@ -422,7 +422,7 @@ def cmd_phone(conn: sqlite3.Connection, args) -> int:
     phone right now, and how", and it prints the answer as something you point
     a camera at rather than something you retype.
     """
-    from . import access, autostart, net, phone, qr
+    from . import access, autostart, firewall, net, phone, qr
 
     conn.close()
     if args.off:
@@ -431,6 +431,17 @@ def cmd_phone(conn: sqlite3.Connection, args) -> int:
         print("  the logon task is gone. The token stays in .env, so a phone "
               "that is already paired stays paired the next time you turn it on.")
         return 0
+
+    if args.allow_firewall:
+        # The one step that needs administrator rights, kept as its own flag so
+        # the UAC prompt is always something you asked for by name.
+        try:
+            firewall.allow(args.port)
+        except RuntimeError as exc:
+            print(str(exc))
+            return 2
+        print(f"opened TCP {args.port} inbound for private networks")
+        print()
 
     if args.on:
         try:
@@ -462,6 +473,26 @@ def cmd_phone(conn: sqlite3.Connection, args) -> int:
     if result["on"] and not result["unlimited"]:
         print("  ⚠ the task has a time limit and will be killed after three "
               "days; re-run `py -m colony autostart` to fix it")
+    # A blocked port is the failure with no error message: the phone's request
+    # is dropped rather than refused, so the browser shows a spinner and neither
+    # end logs anything at all. Say it here, where there is room to say it.
+    if result.get("firewall") == "blocked":
+        print("  ⚠ Windows Firewall has no rule for this port, so the "
+              "phone's request will be dropped")
+        print("    rather than refused — the browser loads forever and "
+              "neither end logs anything. Fix it with:")
+        print()
+        print("        py -m colony phone --allow-firewall")
+        print()
+        print("    or, in an administrator PowerShell:")
+        print()
+        print(f"        {result['firewall_fix']}")
+        print()
+    elif result.get("firewall") == "unknown":
+        print("  ? could not read the firewall rules — that usually needs "
+              "administrator rights.")
+        print("    If the phone loads forever, this is the first thing to "
+              "check.")
     warning = net.advice(result["kind"] or "")
     if warning:
         print(f"  ⚠ {warning}")
@@ -632,6 +663,9 @@ def build_parser() -> argparse.ArgumentParser:
     phn.add_argument("--off", action="store_true",
                      help="stop serving at logon. The token and any paired "
                           "phone are left alone")
+    phn.add_argument("--allow-firewall", action="store_true",
+                     help="add the Windows Firewall rule for the port (prompts "
+                          "for administrator once)")
     phn.add_argument("--port", type=int, default=8787)
     phn.set_defaults(func=cmd_phone)
 
