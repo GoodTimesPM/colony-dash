@@ -1476,6 +1476,19 @@ button.pulse[disabled] { cursor: default; }
 .console .prompt .hint {
   font-family: var(--mono); font-size: var(--step--2); color: var(--ink-dim); flex: 1;
 }
+/* The console's address boundary, stated above the box rather than only in
+   a refusal after you have typed. On the desktop it carries the switch; on
+   a phone it carries an explanation and, when the console is open to the
+   network, the one button that closes it again. */
+.console .prompt .access {
+  display: flex; align-items: baseline; gap: 9px; flex-wrap: wrap;
+  padding: 8px 10px; border: 1px dashed var(--rule); border-radius: 6px;
+}
+.console .prompt .access .note {
+  font-size: var(--step--2); color: var(--ink-dim); line-height: 1.45; flex: 1;
+  min-width: 15em;
+}
+
 textarea.console-box {
   width: 100%; min-height: 96px; resize: vertical;
   background: var(--panel-sunk); color: var(--ink);

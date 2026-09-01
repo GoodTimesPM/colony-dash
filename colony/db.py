@@ -49,6 +49,65 @@ def _env_value(key: str) -> str | None:
     return None
 
 
+def set_env_value(key: str, value: str, path: Path | None = None,
+                  comment: str | None = None) -> bool:
+    """Set one key in `.env`, in place. Returns True if a line was replaced.
+
+    Factored out of `phone.rotate`, which held the only copy, once a second
+    caller appeared. Duplicating it would have been the worse option by some
+    distance: this file holds the Notion token, it is the only copy of a
+    credential typed in by hand, and a second slightly-different rewrite of it
+    is how one of the two eventually loses a line.
+
+    Two properties, both of which are the point:
+
+      * **Only lines starting `KEY=` change.** Every other line is written back
+        byte for byte, in order, comments and blank lines included. The file is
+        never parsed into a dict and re-serialised, because that is the step
+        that reformats quoting, drops comments and reorders keys. CRLF endings
+        survive for the same reason: a rewrite that reflows the whole file makes
+        every future diff of a credential file unreadable, and an unreadable
+        diff is one nobody checks.
+      * **The replacement is atomic.** New text goes to a temporary file beside
+        the target and is moved over it with `os.replace`, so a crash midway
+        leaves the old file whole rather than a truncated one with a token cut
+        in half.
+
+    `os.environ` is deliberately untouched. `_env_value` prefers the live
+    environment, so a caller that needs the new value to win inside this process
+    has to say so itself -- and it should think about that first, because this
+    process hands its environment to the `claude` subprocess the console spawns.
+    """
+    env_path = path or (PROJECT_DIR / ".env")
+    prefix = key + "="
+    try:
+        body = env_path.read_text(encoding="utf-8")
+    except OSError:
+        body = ""
+
+    # `keepends` so a CRLF file keeps CRLF, and a last line with no newline at
+    # all stays that way.
+    lines = body.splitlines(keepends=True)
+    replaced = False
+    for index, line in enumerate(lines):
+        if line.lstrip().startswith(prefix):
+            ending = line[len(line.rstrip("\r\n")):]
+            lines[index] = prefix + value + ending
+            replaced = True
+
+    text = "".join(lines)
+    if not replaced:
+        lead = "" if (not text or text.endswith("\n")) else "\n"
+        note = ("\n" + "# " + comment + "\n") if comment else "\n"
+        text += lead + note + prefix + value + "\n"
+
+    temp = env_path.with_name(env_path.name + ".new")
+    temp.write_text(text, encoding="utf-8")
+    os.replace(temp, env_path)
+    return replaced
+
+
+
 # Read scope for every agent, structural or hired. Write scope is always narrower
 # and always set per ticket. ARCHITECTURE.md §8.1.
 #

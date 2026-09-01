@@ -2243,15 +2243,33 @@ def act_rescan(x_colony: str | None = Header(None)) -> dict[str, Any]:
 # is autocommit, so each statement here lands on its own.
 
 
-# Read once at import, from `.env` as well as the environment, so that lifting
-# the boundary costs a restart. A value re-read per request would mean a console
-# that quietly became network-reachable the moment a file changed, with nothing
-# in the log to say when.
-CONSOLE_REMOTE = (db._env_value("COLONY_CONSOLE_REMOTE") or "").strip().lower()     in {"1", "true", "yes", "on"}
+# Whether the console answers from anywhere, or only from this machine. Read at
+# import from `.env` as well as the environment, and changed at runtime by
+# `act_console_remote` -- which is the only thing allowed to change it, and
+# which writes the file back so the answer survives a restart.
+#
+# It is deliberately not re-read per request. A boundary that moves the moment
+# a file changes on disk is one that can be moved by an editor left open in the
+# background, with nothing anywhere to say when. Every change to it now goes
+# through one route, and that route writes a ledger note.
+CONSOLE_REMOTE = (db._env_value("COLONY_CONSOLE_REMOTE") or "").strip().lower() \
+    in {"1", "true", "yes", "on"}
 
 
 def _console_conn() -> sqlite3.Connection:
     return _rw()
+
+
+def _at_the_desk(request: Request) -> bool:
+    """True when the request came from the machine the colony runs on.
+
+    `access.is_loopback("")` is True by design -- for the token gate, a peer the
+    server cannot identify should fall back to *asking for a token*, which is
+    the safe side there. Every caller here wants the other side, so the empty
+    case is spelled out once rather than borrowed four times.
+    """
+    peer = request.client.host if request.client else ""
+    return bool(peer) and access.is_loopback(peer)
 
 
 def _desk_only(request: Request) -> None:
@@ -2273,39 +2291,93 @@ def _desk_only(request: Request) -> None:
     same way the token rotation route is (`act_phone_token`), and for the same
     reason: some actions should not be reachable by anything that can be copied.
 
-    `COLONY_CONSOLE_REMOTE=1` in `.env` lifts it, for the person who has read
-    this docstring and wants the console on their phone anyway. Deliberately an
-    environment variable and not a button -- a switch that turns off a security
-    boundary should cost a file edit and a restart, so that it is never
-    something someone did by accident while looking for something else.
+    `act_console_remote` lifts it, for the person who has read this and wants
+    the console on their phone anyway. That switch is itself desk-only in the
+    direction that loosens, which is the property that makes it safe to be a
+    button at all: a stolen token cannot turn off the thing that is stopping it.
     """
     if CONSOLE_REMOTE:
         return
-    peer = request.client.host if request.client else ""
-    # `access.is_loopback("")` is True by design -- for the token gate, an
-    # unknown peer should fall back to *asking for a token*, which is the safe
-    # side there. Here the safe side is the other one, so the empty case is
-    # spelled out rather than borrowed.
-    if not peer or not access.is_loopback(peer):
+    if not _at_the_desk(request):
         raise HTTPException(403,
             "the console is a real shell on the machine running the colony, so "
             "it only answers from that machine — a stolen access token should "
             "not be worth a command prompt. Everything else here works from your "
-            "phone. To allow it anyway, put COLONY_CONSOLE_REMOTE=1 in .env and "
-            "restart.")
+            "phone. To allow it from here, turn on 'answer from anywhere' in the "
+            "console on the desktop.")
+
+
+@app.post("/api/act/console-remote")
+def act_console_remote(request: Request, body: dict = Body(...),
+                       x_colony: str | None = Header(None)) -> dict[str, Any]:
+    """Move the console's address boundary, and write the move to `.env`.
+
+    The asymmetry is the design, and it is the answer to the obvious objection
+    to putting this behind a button at all -- that a switch which disables a
+    security boundary is worthless if whoever gets past the boundary can flip
+    it:
+
+      * **Turning it on is desk-only.** Loosening the boundary is exactly the
+        thing the boundary exists to prevent, so it can only be done from the
+        machine that is already trusted. A token read off the wire buys nothing
+        here either.
+      * **Turning it off works from anywhere.** Tightening is always safe, and
+        the moment you want it is the moment you are away from the desk and have
+        realised the phone in your pocket can open a shell at home. Making that
+        wait until you are back at the desk would be the wrong way round.
+
+    The general rule, which is worth keeping if a third switch ever appears: you
+    may tighten from anywhere and loosen only from the desk.
+
+    `.env` is rewritten so the choice survives a restart, and the in-process
+    value is set so it does not *need* one. `db.set_env_value` touches only the
+    `COLONY_CONSOLE_REMOTE=` line, which matters because the Notion token is in
+    the same file.
+    """
+    _guard(x_colony)
+    on = bool(body.get("on"))
+    if on and not _at_the_desk(request):
+        raise HTTPException(403,
+            "opening the console to the network can only be done from the "
+            "machine itself — otherwise a stolen access token could switch off "
+            "the check that is keeping it out. Turn it on from the dashboard on "
+            "the desktop. Turning it back off works from anywhere.")
+
+    global CONSOLE_REMOTE
+    try:
+        db.set_env_value("COLONY_CONSOLE_REMOTE", "1" if on else "0",
+                         comment="Console reachable from the network. "
+                                 "See README, 'How safe is this, honestly'.")
+    except OSError as exc:
+        # Nothing changed: the file write is atomic and it failed, so leaving
+        # the live value alone keeps the process and the file agreeing.
+        raise HTTPException(500, f"could not write .env, so the console is "
+                                 f"unchanged: {exc}")
+    CONSOLE_REMOTE = on
+
+    conn = _rw()
+    try:
+        control._record(conn, "note", "colony", None,
+                        "console opened to the network" if on
+                        else "console restricted to this machine")
+    finally:
+        conn.close()
+    return {"ok": True, "remote": on}
 
 
 @app.get("/api/console")
 def api_console(request: Request) -> dict[str, Any]:
     conn = _conn()
     try:
-        peer = request.client.host if request.client else ""
+        desk = _at_the_desk(request)
         # Read is allowed from anywhere the token is: watching what the console
         # did is a window onto the machine, which is what the rest of this server
         # already is. Only sending is scoped. `writable` is how the panel knows
         # to draw an explanation instead of an input box -- see `_desk_only`.
         return {**console_mod.state(conn),
-                "writable": CONSOLE_REMOTE or access.is_loopback(peer)}
+                "writable": CONSOLE_REMOTE or desk,
+                "remote": CONSOLE_REMOTE,
+                "desk": desk}
     finally:
         conn.close()
 

@@ -380,6 +380,49 @@ names the state and the next move.
       addition rather than a change to any existing path. Merge when it has been used from
       an actual phone for a few days.
 
+## Finished 2026-09-01 — the boundary gets a switch, and the switch only turns one way
+
+Follow-on from the section below, from one question: can opening the console to the network
+be a button instead of a file edit, and does putting it on a phone break the point of it.
+
+The answer to the second is yes, and it is the whole design. A switch that disables a
+security check is worth nothing if whoever the check is keeping out can also flip it. But
+that is a fact about *who may press it*, not about whether it should exist — which is where
+the original reasoning ("an env var and a restart, not a button, because a switch that turns
+off a security boundary should not be findable by accident") was half right and wrong in the
+half that mattered. Being hard to find is not a security property.
+
+**So the switch exists, and it is asymmetric.** `act_console_remote` applies the same
+peer-address check to turning the boundary *off* that `_desk_only` applies to the console
+itself; turning it back *on* works from anywhere. The general rule, worth keeping if another
+switch of this shape ever appears: **you may tighten from anywhere and loosen only from the
+desk.** Closing it from a phone is not only safe, it is wanted exactly when you are away from
+the desk and have realised the phone in your pocket can open a shell at home.
+
+It writes `COLONY_CONSOLE_REMOTE` into `.env` so the choice survives a restart, and sets the
+live value so it does not need one. Every move of the boundary now writes a ledger note,
+which is a better answer than the restart it replaced: there is a timestamp for when the
+console became network-reachable, which the file-edit version never had.
+
+**`db.set_env_value` is new, and is the same rewrite `phone.rotate` already had.** Only lines
+starting `KEY=` change, everything else goes back byte for byte with its comments and line
+endings, and the result moves into place with `os.replace`. That file holds the Notion token
+and is the only copy of it, so having two slightly different rewrites of it was a bug waiting
+for its turn. `rotate` now calls it and its eighteen tests still pass unchanged, which is the
+evidence that the factoring did not move any behaviour.
+
+**A real bug fell out of this one too.** `paint()` in the console panel set `box.disabled =
+false` on every poll, so the read-only state the previous session added unlocked itself about
+a second after it was drawn. The server refused the send either way, so nothing was ever
+exposed — but the page said "type here" and then threw a 403, which is the worst of both.
+`paint` now respects the boundary, and the explanation of it sits above the box permanently
+rather than being a note that appears once.
+
+Tests: 177 passing, up from 171. Six new in `test_safety.py` (`TheSwitchIsAsymmetric`) —
+loosening refused from the LAN and from an unknown peer, tightening allowed from the LAN,
+the Notion token surviving three flips, and a failed `.env` write leaving the process and the
+file still agreeing about what is allowed. See ARCHITECTURE.md §10.25.
+
 ## Finished 2026-09-01 — the roster stops belonging to the repo, and the shell gets an address
 
 Two things, and they turn out to be the same question asked from opposite ends: what is this
@@ -412,7 +455,8 @@ that lock crosses a home LAN over plain HTTP. So the four console *write* routes
 by peer address (`_desk_only`), the way token rotation already was. Reading the transcript is
 unchanged and works from anywhere. `COLONY_CONSOLE_REMOTE=1` in `.env` lifts it for anyone
 who wants the console on their phone — an env var and a restart, not a button, because a
-switch that turns off a security boundary should not be findable by accident.
+switch that turns off a security boundary should not be findable by accident. *(Superseded
+the same day: it is a button now, and asymmetric. See the section above.)*
 
 A real bug fell out of writing the test for that: `access.is_loopback("")` is True by design
 (for the token gate, an unknown peer must fall back to *asking for a token*), so a request

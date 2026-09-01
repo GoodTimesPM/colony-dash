@@ -238,7 +238,7 @@ class ConsoleIsDeskOnly(unittest.TestCase):
                 with self.assertRaises(HTTPException) as caught:
                     self.server._desk_only(self.Req(host))
                 self.assertEqual(caught.exception.status_code, 403)
-                self.assertIn("COLONY_CONSOLE_REMOTE", caught.exception.detail)
+                self.assertIn("desktop", caught.exception.detail)
 
     def test_an_unknown_peer_fails_closed(self):
         """No client on the scope must not read as "must be local, then"."""
@@ -257,6 +257,104 @@ class ConsoleIsDeskOnly(unittest.TestCase):
             src = inspect.getsource(fn)
             with self.subTest(route=name):
                 self.assertIn("_desk_only(request)", src)
+
+
+class TheSwitchIsAsymmetric(unittest.TestCase):
+    """You may tighten the console boundary from anywhere; loosen only at the desk.
+
+    This class is the reason the boundary can be a button at all. A switch that
+    turns off a security check is worth nothing if whoever gets past the check
+    can also flip the switch, so the direction that loosens is held to the same
+    peer-address rule as the thing it loosens. The direction that tightens is
+    open, because the moment you want it is the moment you are away from the
+    desk and have realised your phone can open a shell at home.
+    """
+
+    class Req:
+        def __init__(self, host):
+            self.client = type("C", (), {"host": host})() if host is not None else None
+
+    def setUp(self):
+        from colony import server
+        self.server = server
+        self.dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.dir.cleanup)
+        self.env = Path(self.dir.name) / ".env"
+        # A stand-in for the real file, holding the thing that must survive.
+        self.env.write_text("NOTION_TOKEN=ntn_pretend\n", encoding="utf-8")
+
+        self.addCleanup(setattr, server, "CONSOLE_REMOTE", server.CONSOLE_REMOTE)
+        server.CONSOLE_REMOTE = False
+        self.written = []
+
+        # Captured before the patch: `server.db` *is* `colony.db`, so patching
+        # the attribute and then looking it up again is a call to the stub.
+        real_set = db.set_env_value
+
+        def fake_set(key, value, path=None, comment=None):
+            self.written.append((key, value))
+            return real_set(key, value, self.env, comment)
+
+        patch = mock.patch.object(server.db, "set_env_value", fake_set)
+        patch.start()
+        self.addCleanup(patch.stop)
+        # The route writes a ledger note; none of these tests are about that.
+        patch = mock.patch.object(server, "_rw", lambda: sqlite3.connect(":memory:"))
+        patch.start()
+        self.addCleanup(patch.stop)
+        patch = mock.patch.object(server.control, "_record",
+                                  lambda *a, **k: None)
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def call(self, host, on):
+        return self.server.act_console_remote(self.Req(host), {"on": on}, "1")
+
+    def test_turning_it_on_from_the_lan_is_refused(self):
+        with self.assertRaises(HTTPException) as caught:
+            self.call("192.168.1.9", True)
+        self.assertEqual(caught.exception.status_code, 403)
+        self.assertFalse(self.server.CONSOLE_REMOTE)
+        self.assertEqual(self.written, [])          # and `.env` was not touched
+
+    def test_turning_it_on_at_the_desk_works_and_is_written_down(self):
+        out = self.call("127.0.0.1", True)
+        self.assertTrue(out["remote"])
+        self.assertTrue(self.server.CONSOLE_REMOTE)
+        self.assertIn("COLONY_CONSOLE_REMOTE=1",
+                      self.env.read_text(encoding="utf-8"))
+
+    def test_turning_it_off_from_the_lan_is_allowed(self):
+        """Tightening is always safe, and is wanted exactly when you are away."""
+        self.server.CONSOLE_REMOTE = True
+        out = self.call("192.168.1.9", False)
+        self.assertFalse(out["remote"])
+        self.assertFalse(self.server.CONSOLE_REMOTE)
+        self.assertIn("COLONY_CONSOLE_REMOTE=0",
+                      self.env.read_text(encoding="utf-8"))
+
+    def test_an_unknown_peer_cannot_loosen(self):
+        with self.assertRaises(HTTPException):
+            self.call(None, True)
+
+    def test_the_notion_token_survives_the_write(self):
+        """`.env` holds a credential typed in by hand and copied nowhere else."""
+        self.call("127.0.0.1", True)
+        self.call("127.0.0.1", False)
+        self.call("127.0.0.1", True)
+        body = self.env.read_text(encoding="utf-8")
+        self.assertIn("NOTION_TOKEN=ntn_pretend", body)
+        self.assertEqual(body.count("COLONY_CONSOLE_REMOTE="), 1)
+
+    def test_a_failed_write_leaves_the_boundary_where_it_was(self):
+        """Otherwise the process and the file disagree about what is allowed."""
+        def boom(*a, **k):
+            raise OSError("disk full")
+        with mock.patch.object(self.server.db, "set_env_value", boom):
+            with self.assertRaises(HTTPException) as caught:
+                self.call("127.0.0.1", True)
+        self.assertEqual(caught.exception.status_code, 500)
+        self.assertFalse(self.server.CONSOLE_REMOTE)
 
 
 if __name__ == "__main__":

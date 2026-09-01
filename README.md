@@ -177,10 +177,26 @@ URL and then in a cookie. Acceptable for a dashboard. Not for a shell.
 
 So the console is scoped by **peer address** rather than by token, the same way
 token rotation is, and for the same reason: some things should not be reachable
-by something that can be copied. `COLONY_CONSOLE_REMOTE=1` in `.env` lifts it
-for anyone who wants the console on their phone anyway — an environment
-variable and a restart, deliberately, because a switch that turns off a security
-boundary should not be a button you can hit while looking for something else.
+by something that can be copied.
+
+The console panel has a switch for it — **answer from anywhere**, next to the
+message box — and the switch is asymmetric on purpose:
+
+| | from the desktop | from a phone |
+|---|---|---|
+| open the console to the network | yes, behind a confirm | no |
+| close it again | yes | yes |
+
+You may tighten from any device and loosen only from the machine itself. That
+asymmetry is the entire reason this can be a button rather than a file edit: a
+switch that a stolen access token could flip would not be a boundary. And the
+direction that *is* open from anywhere is the one you want at the moment you
+need it — away from the desk, having realised the phone in your pocket can open
+a shell at home.
+
+The switch writes `COLONY_CONSOLE_REMOTE` into `.env`, so the choice survives a
+restart, and sets it live, so it does not need one. Editing that line by hand
+still works and takes effect on the next start.
 
 The other guards are the ones that were never about the agent: the server binds
 `127.0.0.1` unless told otherwise, and every `/api/console/*` call needs the
@@ -395,7 +411,7 @@ py -m unittest discover -s tests -v
 ```
 
 Standard-library `unittest`, no install step — a suite that needs a dependency
-before it runs is a suite nobody clones and runs. 171 tests, under four seconds,
+before it runs is a suite nobody clones and runs. 177 tests, under four seconds,
 and they cover the things that are claims rather than code: migrations apply in
 order and refuse to be edited afterwards, the tool denylist survives a contract
 that asks for `Bash`, the write scope refuses everything outside one named

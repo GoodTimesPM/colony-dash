@@ -2475,8 +2475,39 @@ fall back to *demanding a token*, so the empty case is the safe side there.
 Here the safe side is the opposite one, so `_desk_only` tests `not peer` itself
 rather than borrowing that answer. A test pins it.
 
-`COLONY_CONSOLE_REMOTE=1` lifts the boundary. An environment variable read once
-at import, not a toggle in the UI: a switch that disables a security boundary
-should cost a file edit and a restart, so that it is never something someone did
-by accident while looking for something else — and so that a console which
-became network-reachable did so at a moment there is a restart to point at.
+`COLONY_CONSOLE_REMOTE` lifts the boundary, and `act_console_remote` is the one
+thing allowed to change it.
+
+It was an environment variable and a restart when this was first written, on the
+reasoning that a switch which disables a security boundary should cost a file
+edit — never something someone did by accident while looking for something
+else. That reasoning was half right, and the half it got wrong is the half that
+matters. The objection to a button is not that a button is easy; it is that a
+button reachable by whoever the boundary is keeping out is not a boundary. Which
+is a property of *who may press it*, not of whether it exists.
+
+So the switch exists, and it is asymmetric:
+
+* **Loosening is desk-only.** `act_console_remote` applies the same peer-address
+  check to `on=True` that `_desk_only` applies to the console itself. A token
+  read off the wire buys nothing here either, which is the property that makes
+  the button safe.
+* **Tightening works from anywhere.** It is always safe, and the moment it is
+  wanted is the moment you are away from the desk and have realised the phone in
+  your pocket can open a shell at home. Making that wait for the walk back would
+  be the wrong way round.
+
+The general rule, worth keeping if a third switch of this shape ever appears:
+**you may tighten from anywhere and loosen only from the desk.**
+
+The route writes `.env` through `db.set_env_value` — which touches only the one
+`KEY=` line and moves the result into place atomically, because the Notion token
+is in the same file — and then sets the in-process value, so the change costs no
+restart. It also writes a ledger note, which is what replaced "there is a
+restart to point at": every move of this boundary is now on the record with a
+timestamp, which the file-edit version never was.
+
+`db.set_env_value` is factored out of `phone.rotate`, which held the only copy
+until this route needed the same thing. Two slightly different rewrites of the
+file holding the only copy of a hand-typed credential is how one of them
+eventually loses a line.
