@@ -25,6 +25,14 @@ Two rules this module will not bend on, both about the credential file:
     access token, and a file that is only ever appended to cannot lose the
     line above.
 
+`rotate()` is the deliberate exception to the first rule and honours the second.
+Changing the token by accident is the failure the rule guards against; changing
+it on purpose is a thing a person needs to be able to do from the panel, because
+the alternative is opening a credential file in an editor. It rewrites the one
+line it is named after, leaves every other byte in place, and moves the file
+into position atomically -- and it is behind its own button, so it is never
+something the switch does on its way to somewhere else.
+
 It does *show* the token, inside the URL and the QR code. That reads like it
 contradicts the above and does not: the only callers are the CLI, which is a
 terminal on the desk where `.env` already is, and one route behind the
@@ -39,6 +47,8 @@ not "forget everything".
 """
 
 from __future__ import annotations
+
+import os
 
 from . import access, autostart, db, firewall, net, qr
 
@@ -96,6 +106,78 @@ def _ensure_token() -> tuple[str, bool]:
     # console hands its environment to a `claude` subprocess that is not allowed
     # to see credentials. See `db._env_value`.
     return minted, True
+
+
+def rotate(port: int = DEFAULT_PORT) -> dict:
+    """Mint a new access token, replace the old one in `.env`, redraw the QR.
+
+    This is the one write in this module that is not an append, and the rule it
+    appears to break -- never change a token out from under a device that is
+    using it -- is the rule it exists to serve. Rotating *is* the act of logging
+    every paired device out at once, and it is what you want the moment a token
+    has been read over your shoulder, pasted into a chat window, or carried out
+    of the house on a phone that is not coming back. So it is its own function
+    behind its own button, and never a side effect of the switch: `turn_on()`
+    still uses an existing token exactly as it finds it.
+
+    Two properties make it safe to point at a file that also holds the Notion
+    token:
+
+      * **Only `COLONY_ACCESS_TOKEN=` lines change.** Every other line is
+        written back byte for byte, in order, comments and blanks included. The
+        file is never parsed into a dict and re-serialised, because that is the
+        step that reformats quoting, drops comments, and reorders keys.
+      * **The replacement is atomic.** The new text is written to a temporary
+        file beside `.env` and moved over it with `os.replace`, so a crash in
+        the middle leaves the old file whole rather than a truncated one with
+        the Notion token cut in half.
+
+    The desktop dashboard survives this and the phone does not, which is the
+    whole point: loopback on a dual-bound process is trusted by peer address
+    rather than by token (see `server.TRUST_LOOPBACK`), so the page the button
+    was pressed in stays logged in while every network client is turned away.
+    """
+    fresh = access.mint()
+    prefix = f"{access.TOKEN_ENV}="
+
+    try:
+        body = ENV_PATH.read_text(encoding="utf-8")
+    except OSError:
+        body = ""
+
+    # `keepends` so a file with CRLF line endings keeps them, and so a last line
+    # with no newline at all stays that way.
+    lines = body.splitlines(keepends=True)
+    replaced = False
+    for index, line in enumerate(lines):
+        if line.lstrip().startswith(prefix):
+            ending = line[len(line.rstrip("\r\n")):]
+            lines[index] = f"{prefix}{fresh}{ending}"
+            replaced = True
+
+    text = "".join(lines)
+    if not replaced:
+        # Nothing to replace, so this is the append path from `_ensure_token`,
+        # and for the same reason: a rotate on a machine that never had a token
+        # should leave one, not fail.
+        lead = "" if (not text or text.endswith("\n")) else "\n"
+        text += (f"{lead}\n# Phone access. Written by the dashboard.\n"
+                 f"{prefix}{fresh}\n")
+
+    temp = ENV_PATH.with_name(ENV_PATH.name + ".new")
+    temp.write_text(text, encoding="utf-8")
+    os.replace(temp, ENV_PATH)
+
+    # `db._env_value` prefers the live environment over the file, so a token
+    # exported into this process would otherwise outlive the rotation and the
+    # new QR code would be for a token nothing accepts. Only updated when it was
+    # already there: putting it in `os.environ` that was not would hand it to
+    # the `claude` subprocess the console spawns, which is not allowed to read
+    # credentials. See `db._env_value`.
+    if os.environ.get(access.TOKEN_ENV):
+        os.environ[access.TOKEN_ENV] = fresh
+
+    return {**state(port), "minted": True, "rotated": True}
 
 
 def _reachable(address: str, port: int) -> bool:

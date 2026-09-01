@@ -4896,7 +4896,17 @@ function openPhone() {
       // halfway must not leave the panel claiming it is on.
       load();
     };
-    row.append(button, el("span", "val", on ? "on" : "off"));
+    // Everything in this panel is a snapshot of a machine, not of the ledger,
+    // and the live feed deliberately does not carry it (see `/api/phone`). So
+    // the one thing that goes stale here -- the address after a network change,
+    // `serving` after the logon task finally binds, the firewall after the
+    // rule is added in a terminal -- needs a way to be asked again that is not
+    // "close the drawer and open it".
+    const again = el("button", "link", "refresh");
+    again.title = "ask the machine again — address, firewall, and whether it is serving";
+    again.onclick = () => { again.textContent = "checking…"; load(); };
+
+    row.append(button, el("span", "val", on ? "on" : "off"), again);
     set.append(blk("phone access", row));
 
     if (info.problem) {
@@ -4973,6 +4983,49 @@ function openPhone() {
         wrap.append(node);
         set.append(wrap);
       }
+
+      // The whole reason this button exists: rotating used to mean minting a
+      // token in a terminal, opening `.env` in an editor, replacing one line,
+      // saving, and re-running a command to get a QR code that matched. Five
+      // steps to undo one mistake, and the mistake -- a token that has been
+      // seen by someone -- is one you want undone in the next ten seconds.
+      //
+      // Offered only on the machine itself, because "log every phone out" is a
+      // button that, pressed on a phone, logs that phone out mid-press: the
+      // rotate succeeds, the redraw after it comes back 401, and the person is
+      // staring at a login page wondering whether it worked. The server would
+      // let it happen -- the request carried a valid token right up until it
+      // did not -- so the guard belongs here, where the caller knows where it
+      // is standing. The desktop window is loopback and is trusted by peer
+      // address rather than by token, which is why it survives its own click.
+      const here = ["127.0.0.1", "::1", "localhost"].includes(location.hostname);
+      const roll = el("div", "blk");
+      roll.append(el("div", "lb", "token"));
+      roll.append(el("div", "note", here
+        ? "rotating writes a new token to .env and logs out every phone that "
+          + "has the old one. This window stays signed in — it is on this "
+          + "machine, and the dashboard trusts that by address rather than by "
+          + "token. Scan the new code above afterwards to pair again."
+        : "rotating is only offered on the machine itself: doing it from here "
+          + "would log this device out in the middle of the click. Open the "
+          + "dashboard on the desktop, or run `py -m colony phone --rotate`."));
+      const spin = el("button", "act warn", "rotate token");
+      spin.disabled = !here;
+      spin.onclick = () => confirmThen(
+        "Rotate the access token?\n\nEvery paired phone stops working until it "
+        + "scans the new QR code. This window is unaffected.",
+        async () => {
+          spin.disabled = true;
+          spin.textContent = "rotating…";
+          const out = await act("phone-token", { port: info.port });
+          if (out) toast("new token written to .env — scan the code again");
+          // Redrawn from the server on both paths, so a write that failed
+          // halfway cannot leave a QR code on screen for a token that is not
+          // in the file.
+          load();
+        });
+      roll.append(spin);
+      set.append(roll);
     } else {
       set.append(blk("no token yet", el("div", "note",
         "turning this on mints one and appends it to .env. An access token "

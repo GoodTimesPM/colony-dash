@@ -226,6 +226,16 @@ Turning it on never overwrites a `COLONY_ACCESS_TOKEN` that is already set, and
 turning it off leaves the token alone — a phone that is paired stays paired.
 The write to `.env` is an append and touches no existing line.
 
+Changing the token on purpose is a separate button, *rotate token*, next to the
+QR code. It writes a new value over the `COLONY_ACCESS_TOKEN=` line and leaves
+every other byte of `.env` where it was, moving the file into place atomically
+so a crash halfway through cannot take the Notion token with it. Every paired
+phone is logged out; the desktop window is not, because a loopback caller is
+trusted by address rather than by token. It is offered only on the machine
+itself — rotating from a phone would log that phone out in the middle of its own
+request — and the server enforces that as well as the panel. From a terminal it
+is `py -m colony phone --rotate`.
+
 `autostart` registers a hidden scheduled task — the same shape as the hourly
 pulse, and beside it — so the server is already up when you pick up your phone.
 That is the difference between a feature and a demo: the phone is the device you
@@ -240,6 +250,7 @@ so; anything else refuses.
 | --- | --- |
 | `py -m colony phone --on` | the whole setup, and a QR code |
 | `py -m colony phone --allow-firewall` | open the port, once, as administrator |
+| `py -m colony phone --rotate` | a new token; every paired phone is logged out |
 | `py -m colony autostart` | install it and start it now |
 | `py -m colony autostart --show` | what is registered, and what is answering |
 | `py -m colony autostart --remove` | stop it starting by itself; on-demand still works |

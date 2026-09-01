@@ -380,6 +380,39 @@ names the state and the next move.
       addition rather than a change to any existing path. Merge when it has been used from
       an actual phone for a few days.
 
+## Finished 2026-09-01 — the token gets a button, and the log stops crying wolf
+
+Follow-on from the section below, and both halves came out of reading
+`.colony/dash.log` after the phone finally worked.
+
+**Rotating the access token is a button now.** It sits beside the QR code in
+`file > phone`, and `py -m colony phone --rotate` is the same thing from a
+terminal. Before this, changing a token meant minting one, opening `.env` in an
+editor, replacing a line, saving, and re-running a command to get a matching QR
+code — five steps to undo one mistake, and the mistake is the kind you want
+undone immediately. `phone.rotate()` rewrites only the `COLONY_ACCESS_TOKEN=`
+line, writes through a temporary file and `os.replace` so a crash cannot take the
+Notion token with it, and is refused from anywhere but loopback: rotating from a
+phone would log that phone out in the middle of its own request. The panel also
+grew a plain **refresh**, because nothing in it is on the live feed by design and
+the address, the firewall and `serving` all change underneath it.
+
+**The bind race stopped writing tracebacks.** `_reusable` asks whether an address
+is free and the bind happens a moment later; the logon task and the phone switch
+both land inside that window on purpose, and one of them has to lose. Losing is
+correct — one dashboard, one ledger — but uvicorn answers a failed bind with
+`sys.exit(3)`, which reached a thread exception handler and put forty lines of
+asyncio internals into the log several times a session. `SystemExit` is now
+caught in both serving threads and the outcome is decided by asking whether the
+port answers, which is the only question that separates *nothing is listening*
+from *something else is listening*.
+
+Tests: 147 passing, up from 140. The seven new ones are all `rotate()` against
+`.env`, and they are really one test asked seven ways: the Notion token on the
+line above is still there afterwards, byte for byte, with its own line endings.
+
+See ARCHITECTURE.md §10.23.
+
 ## Finished 2026-09-01 — the phone loads forever, twice
 
 The switch from the previous section worked and the phone still did not. Two

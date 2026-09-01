@@ -9,3 +9,7 @@
 
 __pycache__/
 *.pyc
+
+# Written and moved into place by `phone.rotate()`. Never survives a
+# successful call, but a crash mid-write could leave one holding a token.
+.env.new

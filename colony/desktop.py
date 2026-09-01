@@ -180,6 +180,14 @@ def launch(port: int = DEFAULT_PORT, *, host: str = HOST, window: bool = True) -
         def _serve():
             try:
                 server.serve(host=host, port=port)
+            except SystemExit:
+                # uvicorn's answer to a failed bind: one ERROR line naming the
+                # address, then `sys.exit(3)`. Letting that reach the handler
+                # below wrote forty lines of asyncio internals into the log for
+                # an event that is usually not a failure at all, and buried the
+                # ones that are. Whether it mattered is decided by the caller,
+                # who is the only party that can ask whether the port answers.
+                pass
             except BaseException:
                 log("server thread died:\n" + traceback.format_exc())
 
@@ -189,10 +197,24 @@ def launch(port: int = DEFAULT_PORT, *, host: str = HOST, window: bool = True) -
             log(f"server did not come up on {port}; see {LOG_PATH}")
             return 1
         _mark(local, port)
-        log(f"serving http://{host}:{port}")
-        if host != HOST:
-            log("this is reachable from the network — the access token is "
-                "required on every request that is not the login page")
+
+        # The port answers. That is not the same as "this process is serving
+        # it": `_reusable` asked whether the address was free and the bind
+        # happened a moment later, and two callers aim straight at that window
+        # -- the logon task, and the phone switch binding the address from the
+        # process it was pressed in. One of them loses the race, and losing is
+        # the correct outcome, because there is one dashboard on one ledger
+        # either way. A dead serving thread is how this process learns it was
+        # the loser, and the right response is the one `_reusable` would have
+        # given a second earlier: use theirs, and say so in a single line.
+        thread.join(timeout=0.5)
+        if not thread.is_alive():
+            log(f"another dashboard bound {local}:{port} first — reusing it")
+        else:
+            log(f"serving http://{host}:{port}")
+            if host != HOST:
+                log("this is reachable from the network — the access token is "
+                    "required on every request that is not the login page")
 
     if not window:
         try:
