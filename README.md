@@ -14,10 +14,19 @@ The interesting problem here is not "can an LLM write code." It is: **what does
 it take to leave one running unattended and still trust the repo in the
 morning?** Most of this codebase is the answer to that question.
 
-<!-- Screenshots: drop PNGs into docs/ and uncomment.
-![The dashboard](docs/dashboard.png)
-![The PO inbox](docs/inbox.png)
--->
+![The Colony Dash window](docs/dashboard.png)
+
+*One window. Spend across the top, what needs a human under it, the board in the
+middle, the colony down the left, the levers on the right.*
+
+**Contents** &mdash; [How it works](#how-it-works) &middot;
+[The dashboard, panel by panel](#the-dashboard-panel-by-panel) &middot;
+[Where the agents come from](#where-the-agents-come-from) &middot;
+[The ledger](#the-ledger-is-the-system) &middot;
+[The safety model](#the-safety-model) &middot;
+[Budget](#budget) &middot; [Running it](#running-it) &middot;
+[From a phone](#from-a-phone) &middot;
+[How safe is this, honestly](#how-safe-is-this-honestly)
 
 ---
 
@@ -54,15 +63,138 @@ Two things in that diagram carry most of the weight.
 silent cron job is indistinguishable from a broken one, so a gap in the `pulses`
 table is itself the alarm.
 
+<img src="docs/pulse-log.png" alt="The pulse log" width="330">
+
+*`clean` is a real result, and `clean x13` is thirteen hours of nothing that were
+each checked. `forced` is a beat someone asked for by hand; it does not move the
+scheduled one. A wake carries the tokens it cost.*
+
 **Nothing reaches a real repo without a human.** Agents write into a throwaway
 git worktree. The diff goes to the PO inbox with a recommendation and a cost.
 The loop never merges its own work and never approves its own output.
+
+![The PO inbox](docs/po-inbox.png)
+
+*The inbox is five slots wide and usually mostly empty, which is the point &mdash;
+a card here has already been triaged as something no agent may decide. The empty
+slots are not padding; they are the ceiling on how much can be waiting for you
+before dispatch stops adding to it.*
 
 Work arrives through two doors. Notion is the one with a workflow around it —
 someone else's board, synced on every pulse. The dashboard's **＋ story** button
 is the one for the thought you had at 11pm, and it writes to the ledger
 directly. Neither is required; a colony with no Notion credentials configured
 still has a full board.
+
+## The dashboard, panel by panel
+
+### The board
+
+![The board](docs/board.png)
+
+Seven lanes, and the counts are the whole summary. `needs info` and `needs
+criteria` are lanes rather than error states, because "the colony does not know
+enough to start" is a normal condition that should be visible rather than
+retried.
+
+**Filed** is separated below the line and labelled *nothing is being asked about
+these*. A story that is done, shelved or never started is still worth having on
+the board &mdash; but mixed in with live work it reads as a backlog, and a
+backlog you have stopped believing is worse than a short one.
+
+### Completed
+
+![The completed dispatches list](docs/completed.png)
+
+Every delivery, newest first, with what changed in one sentence and what it cost.
+The counts under each &mdash; `5 criteria met`, `1 skipped`, `2 blockers` &mdash;
+are the honest version: a dispatch that met most of its criteria and hit two
+blockers is reported that way rather than as a green tick. `NO CHANGES` is its
+own outcome, because a run that correctly decided there was nothing to do is not
+a failure and should not be filed as one.
+
+### Ordis, and the colony
+
+<img src="docs/ordis.png" alt="The Ordis panel" width="300"> <img src="docs/colony-roster.png" alt="The colony panel" width="300">
+
+Left: the heartbeat. Beats, wakes, tokens spent, and how long until the next one
+&mdash; plus the last beat's verdict in quotes, which is `"clean"` far more often
+than not. Right: who is actually employed. Each agent shows its model, whether
+its contract is read-only or write-capable, and how many runs it has done.
+`RETIRE` ends a contract; the two structural agents do not have the button,
+because a colony with no investigator and no reviewer is not a colony.
+
+### Replying to a story
+
+![Replying to Ordis on a story](docs/story-chat.png)
+
+A story is a thread, not a form. Ordis asks, you answer in your own words, and
+the reply is read on the next pulse rather than spending a token now &mdash; the
+footer says so. `LEARNED` entries are what the colony took from the exchange and
+kept, shown with the exact sentence it stored, because a system that claims to
+learn should be willing to show its notes. A red `BLOCKED` band sits in the
+timeline at the point it happened rather than at the top, so you can see what was
+already understood before the question came up.
+
+### Files
+
+![The files panel](docs/files.png)
+
+What has moved on disk since a given commit, across every project the colony can
+read, ranked by how much. This is the colony's read scope made visible: the
+answer to "what has been happening around here" that does not require asking an
+agent. The tree below it is a plain browser with a filter.
+
+### Spend
+
+![The spend panel](docs/spend.png)
+
+Tokens over time, by hour, day, week, month or year, and then the same total
+broken out per agent. Cache reads are shown separately (`8.8M incl. cache
+reads`) because otherwise an agent looks ten times more expensive than it is, and
+the number you would then act on is the wrong one.
+
+### Macros
+
+<img src="docs/macros.png" alt="The macros panel" width="345">
+
+The levers, in the order you would reach for them. `HALT` is first, is red, and
+says exactly what it cannot do: it stops new dispatch and it cannot claw back a
+run already in flight. `PULSE NOW` runs one extra beat and explicitly leaves the
+schedule alone. `TICK ONLY` is the free one. The allowance is moved in signed
+percentage points rather than set blind.
+
+**Your last decisions** at the bottom is a short log of what *you* did, which
+exists because the most common question after a week away is not what the colony
+did but what you told it.
+
+### The forge
+
+<img src="docs/forge.png" alt="The forge panel" width="330">
+
+The forge watches finished work for repeatable procedure. When the PO keeps
+correcting the same thing by hand &mdash; nine times naming the project folder,
+ten times deferring the same kind of escalation &mdash; that is not the PO being
+diligent, it is the colony being wrong in a way a written procedure could get
+right the first time. A candidate can be drafted into a skill; an `ACTIVE` one
+carries its own evidence (`8 run(s) - 8/8 won - 25.2k tok saved`) and can be
+retired the moment it stops paying.
+
+### Themes
+
+<img src="docs/themes.png" alt="The theme dropdown" width="185">
+
+Twenty-odd of them, grouped. Purely cosmetic and entirely unjustifiable, except
+that this is a window someone looks at every day.
+
+<details>
+<summary>The whole page, top to bottom</summary>
+
+![The dashboard, middle](docs/dashboard-mid.png)
+
+![The dashboard, bottom](docs/dashboard-bottom.png)
+
+</details>
 
 ## Where the agents come from
 
@@ -78,6 +210,12 @@ Two folders are scanned, and **neither ships with this repository**:
 
 Both are optional. A fresh clone with neither has an empty Standby panel and
 everything else works.
+
+<img src="docs/standby.png" alt="The Standby panel" width="300">
+
+*270 personas here, grouped by department, `2 hired / 58` in Engineering. This is
+a hiring pool rather than a roster: nothing in it costs anything or has any
+authority until a contract is written for it.*
 
 The split is deliberate and it is the whole design. The first folder is somebody
 else's **git clone**, so nothing here ever writes to it — the next `git pull`
@@ -96,6 +234,12 @@ one form: drop a `.md` file and its frontmatter fills the fields, or type them.
 The division is a combo box — pick a department that already exists or type a
 new one, and it becomes a folder. **`rescan`** beside it re-reads both folders,
 for a file added in an editor or a clone that was just pulled.
+
+<img src="docs/add-persona.png" alt="The add-a-persona panel" width="440">
+
+*The panel says where the file is going and why, in the first sentence, because
+"which of these two folders did that just write to" is the question this design
+exists to answer.*
 
 A persona file is a résumé and nothing more: `name`, `description`, `color`,
 `emoji`, `vibe`. No `tools:`, no `model:`. The frontmatter written by that panel
@@ -198,6 +342,12 @@ The switch writes `COLONY_CONSOLE_REMOTE` into `.env`, so the choice survives a
 restart, and sets it live, so it does not need one. Editing that line by hand
 still works and takes effect on the next start.
 
+![The console](docs/console.png)
+
+*The banner states what this is before you type in it, and the row above the box
+states where it will answer from. On a phone that row carries an explanation and,
+if the console is open to the network, the one button that closes it again.*
+
 The other guards are the ones that were never about the agent: the server binds
 `127.0.0.1` unless told otherwise, and every `/api/console/*` call needs the
 `X-Colony` header like all other write routes.
@@ -268,6 +418,13 @@ Reaching it means serving on something other than loopback, which requires a
 token — and that is one button. In the dashboard, open **file → phone** and
 press *turn on*: it mints the token, writes it to `.env`, registers the logon
 task, starts it, and shows you a QR code to point a camera at.
+
+<img src="docs/phone-access.png" alt="The phone access panel" width="440">
+
+*The address, the token URL and the QR code are redacted in this screenshot. The
+panel names the network it found and how good that is &mdash; `(lan)` says
+plainly that the token is the only lock and that a tailnet would make it the
+second.*
 
 The same thing from a terminal, if you prefer:
 
