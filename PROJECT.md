@@ -380,6 +380,37 @@ names the state and the next move.
       addition rather than a change to any existing path. Merge when it has been used from
       an actual phone for a few days.
 
+## Finished 2026-09-01 — the README becomes the manual
+
+Nineteen screenshots arrived, and with them a question worth answering once: does the
+README double as the manual, or is a separate manual the right shape. One file, and the
+README is it. A repository's README is the document that actually gets read; a MANUAL.md
+beside it is read by nobody and drifts within a month, at which point there are two
+documents and no way to tell which one is lying. The split that already exists is the
+correct one — README is what the thing is and how to run it, ARCHITECTURE.md is why it
+is built that way, ROSTER.md is the hiring model, PROJECT.md is this log.
+
+So the README grew a **The dashboard, panel by panel** section between "How it works" and
+"Where the agents come from", carrying the board, completed, story replies, files, spend,
+macros, the forge and the themes; the shots that support an existing argument went inline
+in the section that already makes it — the pulse log under "the pulse writes a row even
+when nothing happened", the console under the asymmetric switch, the phone panel under
+the setup it describes. The two full-page scrolls sit in a `<details>` block so the page
+is not eleven screens of screenshot before the safety model. A contents line at the top
+links the eight sections a reader actually goes looking for.
+
+**Two screenshots were edited before being committed, and it is worth being exact about
+why.** `PHONE ACCESS.png` showed a live access token three times over — in the pairing
+URL, and encoded in the QR code beside it, and the LAN address above both. That token had
+already been rotated, but a token in a public repository's README is a token in a public
+repository's README, and the QR code is the part that would have been missed by anyone
+scanning the text. All three are boxed out. `ADD PERSONA.png` carried a Windows username
+in the home directory it names; the path now reads `C:\Users\<you>\.colony-agents`,
+which is also the more useful thing for a reader to see. The originals stay on the
+Desktop; only the edited copies are in `docs/`.
+
+Nothing executable changed, so the suite is still 177.
+
 ## Finished 2026-09-01 — the boundary gets a switch, and the switch only turns one way
 
 Follow-on from the section below, from one question: can opening the console to the network
