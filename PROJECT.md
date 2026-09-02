@@ -382,6 +382,31 @@ names the state and the next move.
 
 ## Finished 2026-09-02 — the launch that lost the race, and the screenshots that named real work
 
+- [x] **`install.ps1`, and the README section that stops assuming Python literacy.** The old
+      "Running it" section handed a stranger four commands and a `git clone <this repo>`
+      placeholder, which is documentation for people who already know how to read it. The
+      installer does the whole thing: finds a Python 3.12+, builds a `.venv` inside the
+      checkout, installs the four pinned dependencies, copies `.env.example` to `.env`,
+      creates the ledger, and writes the Desktop shortcut. It is idempotent by construction,
+      so re-running it is a repair. `-Uninstall` takes the `.venv`, the shortcut and the two
+      scheduled tasks back out after asking, and deliberately leaves the ledger and `.env`
+      alone while printing both paths. `colony-dash.cmd` picks the venv interpreter and falls
+      back to `py`, so a hand-installed setup keeps working unchanged.
+      - **The bug the first test run found, which is the reason to test installers on a
+        copy.** `python -m colony` resolves the package on the *working directory*, not on
+        the path to the script. The first run was launched from one folder over and cheerfully
+        initialised the live ledger instead of the copy it was installing. No damage (`init`
+        is idempotent and the roster rescan found the same 270 personas) but the fix is a
+        `Push-Location $Root` before anything spawns a Python. Verified afterwards by running
+        it again from the same hazardous directory and watching the ledger path land inside
+        the copy.
+      - `-Uninstall` grew a confirmation prompt for the same class of reason: the scheduled
+        tasks and the Desktop shortcut are machine-wide, not folder-scoped, so an uninstall
+        run from the wrong checkout would take out the one actually in use.
+      - Verified: parses clean, the shortcut it writes targets `.venv\Scripts\pythonw.exe`
+        with the checkout as its working directory, the shim runs from an unrelated cwd, and
+        the live shortcut, both live tasks and the live ledger were all untouched. 203 tests
+        still green.
 - [x] **MIT `LICENSE` added**, and a `## License` section at the end of the README. The
       copyright line carries a real name, which is the one place identifying data survives.
       Swapping it for a GitHub handle is a one-word edit; git's own commit history carries

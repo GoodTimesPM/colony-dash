@@ -26,7 +26,7 @@ right.</em></p>
 [Where the agents come from](#where-the-agents-come-from) &middot;
 [The ledger](#the-ledger-is-the-system) &middot;
 [Safety](#the-safety-model) &middot;
-[Budget](#budget) &middot; [Running it](#running-it) &middot;
+[Budget](#budget) &middot; [Installing it](#installing-it) &middot;
 [From a phone](#from-a-phone) &middot;
 [Tailscale](#tailscale-makes-it-work-off-your-wifi) &middot;
 [How safe is this, honestly](#how-safe-is-this-honestly)
@@ -415,16 +415,56 @@ a wake is not, and most hours only need a tick.
 
 ---
 
-## Running it
+## Installing it
 
-Needs the `claude` CLI on your `PATH`, already authenticated. Built and run on
-Python 3.12.
+Windows, and Python 3.12 or newer. Three lines:
 
-```bash
-git clone <this repo>
+```powershell
+git clone https://github.com/<you>/colony-dash.git
 cd colony-dash
-py -m pip install -r requirements.txt
+powershell -ExecutionPolicy Bypass -File .\install.ps1
+```
 
+That builds a `.venv` inside the checkout, installs the four dependencies into
+it, copies `.env.example` to `.env`, creates the ledger, and puts a Colony Dash
+shortcut on your Desktop. It prints what it is doing at each step and stops with
+an explanation if something is missing, so a failure tells you which thing to go
+fix. Running it twice is fine: every step checks for its own result first, which
+makes it a repair as much as an install.
+
+The `-ExecutionPolicy Bypass` is there because Windows blocks downloaded scripts
+by default. It applies to that one run and changes nothing on your machine.
+
+Then:
+
+```powershell
+.\colony-dash.cmd dash        # the dashboard window
+.\colony-dash.cmd status      # the same thing as text
+.\colony-dash.cmd --help      # everything else
+```
+
+Or double-click the Desktop shortcut.
+
+`colony-dash.cmd` is a two-line wrapper that picks the `.venv` interpreter and
+runs from the checkout. If you would rather install the dependencies into your
+own Python, do that and `py -m colony dash` works exactly the same.
+
+### What it needs that it cannot install for you
+
+The **`claude` CLI**, on your `PATH` and signed in. The dashboard, the board and
+the ledger all work without it. No agent can run until it is there.
+
+The **WebView2 runtime** for the desktop window, which ships with Edge and is
+already on most Windows machines. Without it the server still runs and says so,
+and you use a browser at `127.0.0.1:8787`. `colony dash --serve` skips the
+window on purpose if that is what you prefer.
+
+The installer checks for both at the end and tells you which is missing.
+
+### Doing it by hand
+
+```powershell
+py -m pip install -r requirements.txt
 cp .env.example .env      # optional, every key in it is optional
 py -m colony init         # ledger, migrations, the two structural agents
 py -m colony dash         # the dashboard window
@@ -434,8 +474,16 @@ py -m colony dash         # the dashboard window
 says "roster skipped" if you do not. The colony runs either way. Without a roster
 it just cannot hire beyond the two structural agents.
 
-`colony dash --serve` skips the desktop window and only serves, if you would
-rather use a browser at `127.0.0.1:8787`.
+### Removing it
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -Uninstall
+```
+
+Deletes the `.venv`, the Desktop shortcut and the two scheduled tasks, after
+asking. Your ledger and your `.env` are left where they are and the script
+prints both paths, because deleting a ledger cannot be undone and should be a
+thing you do deliberately. After that the folder is yours to delete.
 
 The colony watches the folder containing this checkout, which assumes a layout
 like:
@@ -727,6 +775,8 @@ colony/
   ui/             index.html, app.css, app.js, no build step
                   manifest.webmanifest, sw.js, icons, installable on a phone
 tests/            stdlib unittest, no install step
+install.ps1       clone to working dashboard, and -Uninstall back out again
+colony-dash.cmd   runs the CLI against the .venv the installer built
 ```
 
 ## Further reading
