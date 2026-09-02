@@ -380,6 +380,55 @@ names the state and the next move.
       addition rather than a change to any existing path. Merge when it has been used from
       an actual phone for a few days.
 
+## Finished 2026-09-02 — the launch that lost the race, and the screenshots that named real work
+
+- [x] **MIT `LICENSE` added**, and a `## License` section at the end of the README. The
+      copyright line carries a real name, which is the one place identifying data survives.
+      Swapping it for a GitHub handle is a one-word edit; git's own commit history carries
+      the name either way, so scrubbing only the LICENSE would not hide anything.
+- [x] **`mobile` merged into `master`.** Fast-forward clean, nothing behind. The main branch
+      here is named `master`, not `main`.
+- [x] **The "how it works" diagram spread out.** Same shape as before; the pulse moved to the
+      top rank beside the two intakes, node and rank spacing well past the mermaid defaults,
+      and four long labels hand-wrapped so the boxes stop growing into each other.
+- [x] **A real GitHub rendering bug caught in the `pulse-log.png` caption.** Markdown backticks
+      inside an HTML block render as literal backticks on GitHub, because GitHub does not parse
+      markdown inside raw HTML. Now `<code>` tags.
+- [x] **Screenshots blurred.** Ten of the nineteen carried real folder names, story titles or
+      a whole chat thread. The interface around them is untouched, which is the part a
+      screenshot exists to show. Script kept out of the repo; the committed PNGs are the
+      blurred ones.
+- [x] **`colony-dash-only` branch cut** by `git subtree split`, 67 commits, colony-dash at the
+      root, verified free of `.env`, machine paths and any name but the LICENSE line.
+
+### Bug fixed 2026-09-02: a headless launch that lost the port never ended
+
+`launch` asks whether the port is free, then binds a moment later. Two callers aim straight at
+that window — the logon task, and the phone switch binding a network address from the process
+it was pressed in. One loses, and losing is correct, because there is one dashboard on one
+ledger either way.
+
+What was wrong is what the loser did next. It logged `another dashboard bound ... first —
+reusing it` and fell into the sleep loop written for a process holding its own daemon server
+thread. It held a console and an interpreter for a server it did not own, forever. Nine had
+accumulated.
+
+`launch` now tracks whether it actually bound the port. A process that did not, returns. The
+two fallbacks out of the window path used to recurse back into `launch` to reach that same
+sleep, which worked only by accident — the recursion found the port taken and idled anyway —
+so they call `_idle` directly now, and only when they own the port.
+
+Three tests in `tests/test_desktop.py`. They patch both `sys.modules["colony.server"]` and the
+attribute on the package, because `from . import server` reads the attribute when there is one:
+patching only `sys.modules` passes alone and fails under `unittest discover`, where an earlier
+test has already imported the real module — and then the tests bind 8787 for real.
+
+### Still open
+
+The push. There is no `gh` on this machine, no git remote on the repo and no stored credential,
+so nothing here can reach GitHub yet. The split branch is cut and waiting.
+
+
 ## Finished 2026-09-01, the phone works off the wifi
 
 The PO asked the obvious question after a week of using phone access: does this
