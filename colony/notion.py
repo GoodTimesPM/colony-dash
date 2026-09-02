@@ -36,10 +36,10 @@ RESEARCH_STATUS = "Exploring"
 # The other five options on the Notion select, and what they mean here.
 #
 # Only two of the seven statuses are an instruction to the colony. The rest are
-# the PO filing something — finished, parked, or not begun — and a row being
+# The PO filing something — finished, parked, or not begun — and a row being
 # filed is the *absence* of a request. Treating them as work was the loop's
-# loudest mistake: an idea Jordan wrote down and left alone came back an hour
-# later as a question in his Inbox asking which folder it belonged to, which is
+# loudest mistake: an idea the PO wrote down and left alone came back an hour
+# later as a question in their Inbox asking which folder it belonged to, which is
 # the colony inventing an obligation out of a note.
 SETTLED_STATUS = {
     "Done":        "done",
@@ -66,7 +66,7 @@ def ledger_status(notion_status: str | None) -> str:
 # intake filter, or it can feed itself work it invented — is still the right
 # rule and is still enforced, just somewhere better: the only two callers of
 # `queue_notion` are a button in the story drawer and the drop dialog, and both
-# of them are Jordan's hand on a control. No agent, wake or tick queues a
+# of them are the PO's hand on a control. No agent, wake or tick queues a
 # status. What the omission was actually preventing was *the PO* starting work
 # from the dashboard, which was never the thing to prevent.
 #
@@ -169,7 +169,7 @@ def fetch_page_content(page_id: str) -> dict:
 
     Returns the flattened text *and* the checklist split into what is already
     done and what is not. Flattening `- [x]` and `- [ ]` to the same kind of
-    string is how the Inbox ended up asking Jordan to decide things he had
+    string is how the Inbox ended up asking the PO to decide things they had
     already decided: the ledger could see the sentence but not the checkbox.
 
     `blocks` carries the block id of every to-do, so a later tick can tick one
@@ -329,10 +329,10 @@ def set_status(page_id: str, status: str, *, kind: str = "select") -> dict:
 
 
 def add_comment(page_id: str, text: str) -> dict:
-    """Say something on the page. How a question reaches Jordan when he is out.
+    """Say something on the page. How a question reaches the PO when they are out.
 
-    Prefixed so a comment from the loop is never mistaken for one Jordan left
-    himself — the board is shared with his own thinking, and an unattributed
+    Prefixed so a comment from the loop is never mistaken for one the PO left
+    themselves — the board is shared with their own thinking, and an unattributed
     machine voice in the middle of it is worse than no comment at all.
     """
     body = f"Ordis · {text.strip()}"[:1900]

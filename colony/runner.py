@@ -9,7 +9,7 @@ unanswerable. The agent could only skip it.
 
 So the agent stops trying and hands the command over. `needs_run` in its reply
 raises a `run-request` card carrying the command as written, why it is needed,
-and what the agent expects to see. Jordan reads the command and decides. If he
+and what the agent expects to see. The PO reads the command and decides. If they
 runs it, the colony runs it here and puts the output back on the story, where
 the next build reads it.
 
@@ -40,7 +40,7 @@ TIMEOUT_S = 90
 MAX_OUTPUT = 40000
 
 # The things the colony may not do at any tier, whoever asks. These are not a
-# security boundary — the PO can open a terminal and type any of them himself.
+# security boundary — the PO can open a terminal and type any of them themselves.
 # They are here so that a command which *looks* routine on a card cannot turn
 # out to have been one of these.
 FORBIDDEN = [
@@ -79,7 +79,7 @@ def check(command: str) -> str:
 
 
 def check_folder(project: str) -> Path:
-    """The folder the command runs in. Always one of Jordan's project folders."""
+    """The folder the command runs in. Always one of the PO's project folders."""
     name = (project or "").strip().replace("\\", "/").strip("/")
     if not name or ".." in name.split("/") or ":" in name:
         raise RunRefused(f"{project!r} is not a folder inside the projects directory")
@@ -102,7 +102,7 @@ def _drop_leading_cd(command: str, cwd: Path) -> str:
     """Strip a leading `cd` that only asks for the folder we are already in.
 
     A cd somewhere else is a different thing and is refused: the folder a
-    command runs in is the write scope Jordan approved, and a command that
+    command runs in is the write scope the PO approved, and a command that
     starts by leaving it has not been approved for wherever it lands.
     """
     while True:
@@ -137,10 +137,10 @@ def execute(command: str, project: str) -> dict:
     command = _drop_leading_cd(command, cwd)
 
     try:
-        # shell=True: the commands on these cards are written the way Jordan
+        # shell=True: the commands on these cards are written the way the PO
         # would type them (`py -m apply.main auto`), and splitting them by hand
-        # would mean explaining to him why his own line did not work. The text
-        # is one he read and approved, which is the whole control here.
+        # would mean explaining to them why their own line did not work. The text
+        # is one they read and approved, which is the whole control here.
         completed = proc_mod.run(
             command, cwd=str(cwd), shell=True, capture_output=True, text=True,
             encoding="utf-8", errors="replace", timeout=TIMEOUT_S,

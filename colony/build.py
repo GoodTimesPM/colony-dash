@@ -97,17 +97,17 @@ def seeded_note(seeded: dict | None) -> str:
     """
     if not seeded:
         return ("This checkout is git's copy of the last commit. Files git does not "
-                "track are not here: no `.env`, no build output, nothing Jordan has "
+                "track are not here: no `.env`, no build output, nothing the PO has "
                 "edited but not yet committed. If a criterion depends on one of "
                 "those, say so plainly — an absent `.env` means the setting is not "
                 "visible to you, not that it is unset.")
 
     moved = (seeded.get("tracked") or 0) + (seeded.get("untracked") or 0)
     lines = [
-        f"This checkout is the last commit plus Jordan's uncommitted work: "
-        f"{moved} file(s) were copied in from his live tree before you started, "
-        f"so a file he has edited or staged but not committed IS here and IS "
-        f"current. Your patch is taken against that seeded state, so his changes "
+        f"This checkout is the last commit plus the PO's uncommitted work: "
+        f"{moved} file(s) were copied in from their live tree before you started, "
+        f"so a file they have edited or staged but not committed IS here and IS "
+        f"current. Your patch is taken against that seeded state, so their changes "
         f"will not show up as yours."
     ]
     secrets = seeded.get("secrets") or []
@@ -152,7 +152,7 @@ def build_prompt(ticket: sqlite3.Row, workdir: str,
 
     `scope` is the folder list off the agent's contract, which the PO can widen
     from the contract drawer. It defaults to the story's own folder, which is
-    what every contract holds until he changes one. `seeded` is what
+    what every contract holds until they change one. `seeded` is what
     `worktree.seed` put in the checkout on top of the commit.
     """
     criteria = (ticket["acceptance_criteria"] or "").strip() or "(none recorded — ask, do not guess)"
@@ -164,14 +164,14 @@ def build_prompt(ticket: sqlite3.Row, workdir: str,
     # kind of detail an agent stops trusting.
     scope_lines = "\n".join(
         "  " + workdir.rstrip("\\/") + "\\" + f.replace("/", "\\") for f in folders)
-    return f"""You are a build agent in Jordan's colony of Claude agents. Ordis is the Scrum
-Master; Jordan is the Product Owner and has approved this work.
+    return f"""You are a build agent in the PO's colony of Claude agents. Ordis is the Scrum
+Master; the PO is the Product Owner and has approved this work.
 
 You are working inside an ISOLATED GIT WORKTREE at:
   {workdir}
 
-This is a throwaway checkout. It is not Jordan's working tree. Your changes will
-be turned into a patch that Jordan reads and approves before anything lands.
+This is a throwaway checkout. It is not the PO's working tree. Your changes will
+be turned into a patch that the PO reads and approves before anything lands.
 
 WRITE SCOPE — you may create and edit files ONLY under:
 {scope_lines}
@@ -186,7 +186,7 @@ is refused.
 You are not the only one working on this. When a criterion needs a command run
 — a script, a test, a real API call — do not skip it and do not fake it. Put
 the command in `needs_run` with the criterion it answers and what a correct
-result looks like. Jordan sees the command, applies your patch, then runs it
+result looks like. The PO sees the command, applies your patch, then runs it
 against the live tree, and the whole transcript comes back on the story for
 whoever picks it up next. Write `expect` carefully: it is recorded next to the
 output and it is what the next agent compares against, so "exit 0" is never
@@ -201,7 +201,7 @@ STORY #{ticket['sid']}: {ticket['story_title']}
 {brief[:5000]}
 --- end brief ---
 
---- acceptance criteria (approved by Jordan) ---
+--- acceptance criteria (approved by the PO) ---
 {criteria[:3000]}
 --- end criteria ---
 {attach.evidence(attached or [])}
@@ -214,7 +214,7 @@ and do not add dependencies.
 
 Work the criteria in order. If one of them turns out to be impossible or wrong,
 do the others in full and say precisely which one you left and why — scaling the
-work down is Jordan's call, not yours.
+work down is the PO's call, not yours.
 
 {voice.STYLE}
 
@@ -228,7 +228,7 @@ When you are done, reply with ONLY a JSON object, no prose around it:
   "needs_run": [{{"command": "one shell command, as you would type it",
                   "why": "the criterion it answers",
                   "expect": "what a correct result looks like"}}],
-  "risks": "anything Jordan should look at closely in the diff, or null",
+  "risks": "anything the PO should look at closely in the diff, or null",
   "learned": "one thing worth keeping about this codebase, or null"
 }}"""
 
@@ -290,7 +290,7 @@ def run_one(conn: sqlite3.Connection, ticket: sqlite3.Row) -> dict:
         work = worktree.create(tid)
         # The checkout starts as git's copy of the last commit. Seeding brings
         # it up to what is actually on disk, because half the criteria on the
-        # run that prompted this pointed at files Jordan had staged and not
+        # run that prompted this pointed at files the PO had staged and not
         # committed, and the agent honestly reported they did not exist.
         seeded = worktree.seed(tid, folders, secrets=bool(terms.get("sees_secrets")))
     except Exception as exc:  # git refused; a blocked ticket, never a crashed pulse
@@ -486,10 +486,10 @@ def _raise_run_requests(conn: sqlite3.Connection, ticket: sqlite3.Row,
     A build agent has no shell, so a criterion phrased "run X and confirm Y"
     used to come back as a skip with a paragraph explaining why. The paragraph
     was correct and got nobody any closer. Now the agent writes the command it
-    would have run and the colony asks Jordan whether to run it.
+    would have run and the colony asks the PO whether to run it.
 
     Refused commands are not raised. Nothing is gained by putting a card in
-    front of him that says `git push` on it; the reason is recorded on the
+    front of them that says `git push` on it; the reason is recorded on the
     story instead so the agent's request is not silently dropped.
     """
     from . import runner

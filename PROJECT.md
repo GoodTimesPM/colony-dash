@@ -7,9 +7,9 @@ judged on, and the PO can set a status, tick a box or leave a comment from the d
 Priority: **High.**
 **Created:** 2026-08-15 (as "PO Dashboard"; renamed **Colony Dash** 2026-08-17)
 
-The orchestrator loop and dashboard where Jordan acts as Product Owner over a colony of
+The orchestrator loop and dashboard where the PO acts as Product Owner over a colony of
 Claude agents run by Ordis as Scrum Master. Intended to become the **main dashboard for
-Jordan's integration with Claude as a whole** — not a side tool.
+The PO's integration with Claude as a whole** — not a side tool.
 
 - `ARCHITECTURE.md` — the full backbone: state model, pulse mechanics, budget, dashboard, forge.
 - `ROSTER.md` — where agents come from (agency-agents) and how they get hired.
@@ -53,7 +53,7 @@ holds `NOTION_TOKEN`, `NOTION_DATABASE_ID`, and `COLONY_MYSQL_*`.
 The in-practice execution of the Notion idea **[Mimic Scrum Environment](https://app.notion.com/p/3a6e98f012738047bccdf1671a127948)**
 (Priority: High, Status: In Progress). That page holds the *why*; this folder holds the build.
 
-- Jordan = **Product Owner** — owns backlog, priority, approvals.
+- the PO = **Product Owner** — owns backlog, priority, approvals.
 - Ordis = **Scrum Master** — the heartbeat loop that grooms, staffs, dispatches, reports.
 - The colony = **specialist agents** — hired from the roster, spawned per ticket, stateless,
   they die after one run.
@@ -99,7 +99,7 @@ proposal, not a decision. The Colony panel is a direct descendant of Lloyd's Ses
 - **One usage poller, not two.** That endpoint allows ~5 req/5 min per account and Claude
   Code shares the bucket. The tray app stays the only poller and writes a shared cache file;
   Colony Dash reads the file. (`ARCHITECTURE.md` §6.2)
-- **Blast radius: all of `D:\ALL STUFF\PROJECTS`, read.** Write is only ever the one project
+- **Blast radius: all of the projects root, read.** Write is only ever the one project
   folder named by the active ticket, in a worktree, after approval. Never `.env`, never
   `.git/` internals, never outside the directory, never `push`/`amend`/force-push.
   **Priority weight to `job-search/` and the Job Radar pipeline.**
@@ -183,8 +183,8 @@ four of them human: groomed → PO accepts the criteria → project confirmed �
 a write scope → PO dispatches → build runs in a worktree → **PO approves the patch**. The
 write contract grants Edit/Write inside one throwaway worktree and **denies Bash outright**,
 which is what makes "the colony cannot push" a capability statement rather than a promise.
-Approved work lands **uncommitted** in the real folder — Jordan reads the diff in the drawer
-and commits it himself. Nothing in `control.py` spends tokens: approving marks a story
+Approved work lands **uncommitted** in the real folder — the PO reads the diff in the drawer
+and commits it themselves. Nothing in `control.py` spends tokens: approving marks a story
 dispatchable, and the next wake decides, so a mis-click is free. Every write records a
 `po_actions` row in the same transaction as the effect it authorises.
 
@@ -275,7 +275,7 @@ Also shipped with M3, from the same session's asks:
   to Ordis* on a re-raised question used to show an empty thread while the real
   history sat under a closed escalation. It shows the whole exchange now.
 - **The thread shows questions and learnings too**, colour-coded: amber is you,
-  violet is Ordis, mint is what he learned, and the dim line is the question
+  violet is Ordis, mint is what they learned, and the dim line is the question
   that started that stretch.
 - **The token allowance moves in ±5 steps.** It used to only go up.
 - **You can highlight and copy text.** The pywebview shell defaults
@@ -350,7 +350,7 @@ names the state and the next move.
       handoff, or one retire? **Check the stale flags first** — the next pulse will mark any
       question the Notion page has already moved past, and a stale card wants **re-ask**
       rather than an answer.
-- [ ] **Approve or reject the first hire Ordis picked himself.** Inbox card #19: Developer
+- [ ] **Approve or reject the first hire Ordis picked themselves.** Inbox card #19: Developer
       Tooling Engineer as `scan-cli-builder` on `personal-desktop-projects`, for
       *Full computer scan*. Rejecting is a real answer — the next pulse proposes someone
       else, and the counter that keeps the roster diverse learns from it either way.
@@ -379,6 +379,59 @@ names the state and the next move.
       a loopback bind: the gate is off unless `--host` is passed, and `＋ story` is an
       addition rather than a change to any existing path. Merge when it has been used from
       an actual phone for a few days.
+
+## Finished 2026-09-01, the repo stops naming its owner
+
+The push to GitHub was the forcing function. A sweep of every tracked file for the
+PO's name, their Windows username and the absolute path of this machine found
+hits in `ARCHITECTURE.md`, `PROJECT.md`, `ROSTER.md`, `pulse.py`, `projects.py`,
+`db.py`, `wake.py`, ten migration comments, and four screenshots.
+
+Two of those were more than cosmetic.
+
+`wake.py:703` guarded against double-prefixing a settled line by checking
+for a prefix built from the PO's own name, while `wake.py:571` tells the model to begin such a
+line with `the PO says` and `wake.py:704` writes `The PO says: `. The guard had
+stopped matching the string it guards, so a settled line written the way the
+prompt asks for it would come back as `The PO says: the PO says: ...`. Now it
+checks `the po says`.
+
+Editing comments in ten already-applied migrations would have bricked every
+existing ledger. `db.py`'s `migrate()` hashes each `.sql` file and refuses to run
+when an applied file's hash moves, which is the right rule and the reason the
+edit was dangerous. `db.py` now carries `SUPERSEDED`, a dict from filename to the
+exact earlier digests this file vouches for. A listed digest is forgiven once and
+the row is immediately rewritten to the current hash, so the exact check is back
+on from the next start and the list cannot rot into a hole. Three tests in
+`tests/test_ledger.py` cover the accept-once path, that forgiveness is per file,
+and that no entry names a migration that does not exist. Verified against two
+fresh copies of the live `.colony/ledger.db`.
+
+Capitalization was scoped by reading `app.css` first. `#d-eyebrow`, `.blk > .lb`
+and `.link` are already uppercased by `text-transform`, so only `#d-title`
+renders its string literally. Five titles changed: `New Story`, `Add a Persona`,
+`Write Approval`, `How the Colony Works`, `Talking Directly, with a Shell`.
+
+`+ Story` is now a mint bubble (`.link.go`), because filing a story is the one
+control on the board a new reader is meant to find, and it was the same grey as
+`HIDE FILED`.
+
+The four screenshots that show changed text were repainted rather than retaken,
+with `scratchpad/shots.py`. The font was identified by measurement: rendering the
+old strings in Segoe UI Variable Text at the fitted size reproduces the original
+line breaks exactly. `docs/console.png` had this machine's absolute root in the path
+chip; `PROJECTS` was moved ten character cells left rather than re-rendered,
+because the CSS size is fractional. `docs/story-chat.png` had the PO's first name
+in four ledger rows and now says `the PO`, which is what the rest of the app calls
+that role.
+
+`README.md` was rewritten end to end: sentence-case headings, no em dashes, all
+nineteen images centered with centered captions, and a flowchart that starts at
+the `+ Story` button. Notion is gone from the diagram and appears four times in
+the prose, all of them saying it is optional. It is not removed entirely because
+`colony/notion.py` exists and the layout section would be lying if it omitted it.
+
+Suite at 186.
 
 ## Finished 2026-09-01 — the README becomes the manual
 
@@ -494,7 +547,7 @@ A real bug fell out of writing the test for that: `access.is_loopback("")` is Tr
 with no peer on the scope would have passed the console guard. `_desk_only` now tests that
 case itself instead of borrowing the answer.
 
-Also scrubbed `C:\Users\jtbal\...` out of `ROSTER.md` and `PROJECT.md`, the last personal
+Also scrubbed a home-directory path out of `ROSTER.md` and `PROJECT.md`, the last personal
 paths in any tracked file, and documented `COLONY_CONSOLE_REMOTE` and both persona folders in
 `.env.example`.
 
@@ -809,7 +862,7 @@ run.
 
 ### The hardcoded root
 
-`db.py:25` read `PROJECTS_ROOT = Path("D:/ALL STUFF/PROJECTS")`. Every other module derives
+`db.py:25` read `PROJECTS_ROOT = Path(...)` with one machine's absolute path in it. Every other module derives
 its root from that one line — `control.ROOT_POSIX`, `projects.ROOT`, `runner.ROOT`,
 `worktree.ROOT`, `pulse.PROJECTS_ROOT`, `forge.SKILLS_DIR` — so it was a single point of
 change, and a single point of failure for anyone else.
@@ -960,7 +1013,7 @@ correct for a loop that fires unattended at 3am. It is the wrong answer when the
 PO is sitting in front of the page and wants the page changed.
 
 **The console is a second door, described in ARCHITECTURE.md §8.3.** It is in the
-Ordis panel because it is Ordis himself rather than another department, and it is
+Ordis panel because it is Ordis themselves rather than another department, and it is
 the only control on the dashboard that does not wait for a pulse. Full tool access,
 `--dangerously-skip-permissions`, `cwd` at the projects root, no ticket and no
 worktree between it and the tree.
@@ -1129,7 +1182,7 @@ Both passes `apply_patch` had were index-aware. `--index` writes the index, and
 the patch touches is `MM` in `git status` — staged with one content, on disk
 with another. PROJECT.md was exactly that: a staged edit from earlier work plus
 an unstaged tick of the `NOTION_OG_TRACKER_DB` checkbox. That combination says
-nothing about whether the patch applies, and it is Jordan's ordinary state in
+nothing about whether the patch applies, and it is the PO's ordinary state in
 assisted-apply, so every patch touching that project was going to be refused.
 
 There is now a plain `git apply` between the two. It is as strict as the first
@@ -1137,7 +1190,7 @@ pass — all-or-nothing, every context line matched against what is on disk —
 and it simply does not involve the index. The result lands unstaged, which is
 where an applied patch was going anyway, and both the story event and the
 card's reply say so, because `git diff --cached` is not the whole picture when
-the PO already had work staged on the same file.
+The PO already had work staged on the same file.
 
 The three-way merge stays last, where it belongs: it is the only pass that can
 write conflict markers, so it should be the one nothing else could replace.
@@ -1179,7 +1232,7 @@ Two separate faults, and the second is the worse one.
 
 **Exit codes were the only evidence.** The agent wrote a precise `expect`
 sentence for each command — the exact output line that would mean the sync
-worked — and the colony put it on the card, showed it to Jordan once, and threw
+worked — and the colony put it on the card, showed it to the PO once, and threw
 it away. What went into the story was the exit code. A program that catches its
 own network error and returns 0 is completely ordinary, and the record said the
 criterion had been answered.
@@ -1229,7 +1282,7 @@ of thing end and both are in one list sorted by the date they finished:
 | kind | what it is | when it is added |
 | --- | --- | --- |
 | dispatch | an `implement` ticket that reached `done` | when its ticket closes |
-| story | a story filed `done`, `shipped` or `shelved` | when Jordan files it |
+| story | a story filed `done`, `shipped` or `shelved` | when the PO files it |
 
 A dispatch is listed whether or not its story is finished, because the patch it
 delivered is the thing you would otherwise rebuild by hand next week. A story
@@ -1253,8 +1306,8 @@ skip list, the runs table, the tickets cut in the window and the whole
 conversation live.
 
 Nothing on this panel writes. It reads `tickets.status`, which a ticket sets when
-its own run closes, and `settled_as`, which is Jordan's word for a story and
-stays his.
+its own run closes, and `settled_as`, which is the PO's word for a story and
+stays their.
 
 ## Finished 2026-08-24 — the lane a story fell into, and Ordis reading its own pulse
 
@@ -1274,7 +1327,7 @@ settles a question, the story comes out of `needs-info` and used to go straight
 to `backlog`. But `GROOMABLE_WHERE` only reads a `backlog` story while its
 acceptance criteria are empty, and a story that had already been groomed still
 had them. So it landed in a lane nothing reads: not groomable, not dispatched,
-no ticket, no card. It sat there until Jordan asked why nothing happened.
+no ticket, no card. It sat there until the PO asked why nothing happened.
 
 There are three lanes now, and the one a story takes turns on whether its
 criteria were ever approved:
@@ -1282,12 +1335,12 @@ criteria were ever approved:
 | story on unblock | lane | why |
 | --- | --- | --- |
 | no criteria | `backlog` | never groomed; grooming finds it there |
-| criteria, never approved | `needs-criteria`, criteria cleared | drafted without the answer he just gave |
-| criteria he approved | `ready` | his approval stands; the question only interrupted it |
+| criteria, never approved | `needs-criteria`, criteria cleared | drafted without the answer they just gave |
+| criteria they approved | `ready` | their approval stands; the question only interrupted it |
 
-The third row is the one that matters. Clearing criteria Jordan approved would
-make him approve the same list a second time, so the story goes back to the lane
-the question interrupted and waits for Dispatch, which is his call and stays his
+The third row is the one that matters. Clearing criteria the PO approved would
+make them approve the same list a second time, so the story goes back to the lane
+the question interrupted and waits for Dispatch, which is their call and stays their
 call.
 
 One more thing came out of the same trace. `decisions_since` used
@@ -1300,9 +1353,9 @@ beat for precisely this reason.
 Story #1 was repaired by hand to match: escalation #31 resolved, the story back
 in `ready` with its approved criteria, and a timeline note saying why.
 
-## Finished 2026-08-24 — the colony writes the way Jordan reads
+## Finished 2026-08-24 — the colony writes the way the PO reads
 
-Jordan enabled the `i-have-adhd` writing-style skill for his own sessions and
+The PO enabled the `i-have-adhd` writing-style skill for their own sessions and
 asked for the colony to use it too. The agents had always been told what to
 decide and never told how to write it down, so the shape of a recommendation
 was whatever the model reached for: an opening line announcing what it was
@@ -1314,17 +1367,17 @@ the rules against the fields these prompts actually ask for. The first line
 carries the answer. No preamble and no closer. Name the file, the line, the
 number. More than one step means a numbered list of at most five. A failure is
 stated flatly with its cause and its fix. Estimates are in real units. End on
-one thing he can do in under two minutes.
+one thing they can do in under two minutes.
 
 It goes into all five prompts that ask a colonist for prose — grooming, the
 build work order, the hiring decision, an Ordis reply, and a skill draft — and
 in each one it sits immediately above the JSON contract, so the last thing the
 agent reads before the field list is how to fill the fields in. That costs
-about 350 tokens per prompt. It is worth it: a report Jordan does not read
+about 350 tokens per prompt. It is worth it: a report the PO does not read
 wastes the whole run, and a build run costs four figures.
 
 Nothing here can stop a model writing badly. It can only say what good looks
-like, in the words Jordan uses on himself.
+like, in the words the PO uses on themselves.
 
 ## Finished 2026-08-24 — the checkout an agent gets, and a way to hand work back
 
@@ -1344,12 +1397,12 @@ inbox.
 
 **The worktree holds what is on disk, not just what is committed.** This was
 the real cause of two of the three skipped criteria. `create` checked out HEAD
-and stopped, so nine files Jordan had staged in `job-search/assisted-apply` and
+and stopped, so nine files the PO had staged in `job-search/assisted-apply` and
 not committed were absent, and the agent reported truthfully that
 `PROPOSAL_next_steps.md` does not exist. `worktree.seed` now copies in every
 tracked file that differs from HEAD repo-wide, plus every untracked file inside
 the agent's scope folders, and records the result with `git write-tree`. The
-diff is taken against that tree rather than HEAD, so Jordan's own uncommitted
+diff is taken against that tree rather than HEAD, so the PO's own uncommitted
 work does not come back in the patch as though an agent had written it. No
 commit is involved: a tree object is not a commit and master is untouched. One
 untracked file over 2 MB is skipped and the work order says how many were.
@@ -1357,7 +1410,7 @@ untracked file over 2 MB is skipped and the work order says how many were.
 **A contract can be allowed to read the credential files.** `.env` is git-ignored
 in every project here, so a worktree never contained one, and an agent asked
 whether `NOTION_API_KEY` is set answered that it is not — which was wrong, and
-was the second thing Jordan asked about. `agents.sees_secrets` is off by
+was the second thing the PO asked about. `agents.sees_secrets` is off by
 default; the contract drawer has a switch for it. When it is on, `seed` copies
 the `.env` files from the top-level project containing each scope folder, after
 the base tree is written, and `diff` deletes them before it looks. A key
@@ -1375,7 +1428,7 @@ correct result looks like. Approving runs it in the project folder with a
 90-second limit, puts the whole transcript on the story as a finding, and sends
 the story back to `ready`. It does not move to `accepted` and it does not touch
 Notion: the command answered a question, and what that means for the story is
-Jordan's decision. `colony/runner.py` refuses `git push`, `git commit`, a forced
+The PO's decision. `colony/runner.py` refuses `git push`, `git commit`, a forced
 git operation, a recursive force delete, a pipe into a shell, and anything
 outside the projects directory — a refused request is recorded on the story
 rather than put in front of the PO.
@@ -1424,7 +1477,7 @@ hiring it again.
 `dispatch` still matches a story to an agent by that project and
 `build.contract` still looks the contract up by it, so widening a scope is not
 the same as moving an agent. The server checks each folder exists under
-`D:\ALL STUFF\PROJECTS` before storing it, refuses `..`, absolute paths, dot
+the projects root before storing it, refuses `..`, absolute paths, dot
 folders and an empty list, and refuses a read-only contract outright — there is
 no write scope to widen on one.
 
@@ -1497,7 +1550,7 @@ Three faults, found from one screenshot of story #1's reply drawer.
 command runs and pr". Every card's text was stored through a `[:1000]` — eight
 sites in `wake.py`, one in `pulse.py` — and story #1's acceptance criteria are
 1359 characters, so the PO was being asked to approve a list whose last two
-bullets he could not see. Nothing was wrong with the display; the text was
+bullets they could not see. Nothing was wrong with the display; the text was
 already gone by the time it reached the page. The cap is now
 `control.card_text`, which keeps 8000 characters, cuts at a word if it ever has
 to cut at all, and puts an ellipsis there so a cut is visible as a cut. Story
@@ -1505,17 +1558,17 @@ to cut at all, and puts an ellipsis there so a cut is visible as a cut. Story
 the whole thing. `_event` shortens a summary with `_gist` now instead of
 slicing at 400, for the same reason.
 
-**Ordis confirmed something he had no way to check.** He wrote "NOTION_OG_TRACKER_DB
+**Ordis confirmed something they had no way to check.** They wrote "NOTION_OG_TRACKER_DB
 is set in .env.example with the database ID — it's live now, not just logging
-'not set'." The key is set, but in `.env`, which is outside his read scope; he
+'not set'." The key is set, but in `.env`, which is outside their read scope; they
 read the committed template beside it and reported one as the other. "It's live
-now" he could not observe at all — his contract denies Bash, so he cannot run a
+now" they could not observe at all — their contract denies Bash, so they cannot run a
 program and cannot see one run. The next groom then wrote acceptance criteria on
 top of both claims. `reply_prompt` now states plainly what Read, Grep and Glob
 can establish and what they cannot, forbids the words live, running, working,
 fixed and verified, and names the `.env` / `.env.example` trap. The reply JSON
-gained a `checked` list: the files he actually opened to support `settled`. If it
-comes back empty, `answer_po` records the settled line as "Jordan says: ...
+gained a `checked` list: the files they actually opened to support `settled`. If it
+comes back empty, `answer_po` records the settled line as "the PO says: ...
 (Ordis opened no file to check this.)", so the agent downstream reads it as
 somebody's word rather than as a finding.
 
@@ -1573,7 +1626,7 @@ success when a merge is *possible*, not when it is clean. The real apply then me
 files into the working tree, hit a conflict on `apply/main.py`, wrote conflict markers into
 it, left stages 1/2/3 in the index, and exited non-zero. `control._settle_patch` caught the
 non-zero exit and reported a refusal. So the PO was told nothing had landed while six files
-had changed under him, one of them with conflict markers in it. The `does not exist in index`
+had changed under them, one of them with conflict markers in it. The `does not exist in index`
 line came from a second press of Apply: once a path is conflicted it has no stage 0, and
 `git apply --index` looks for stage 0.
 
@@ -1609,7 +1662,7 @@ against it. That is a change to how patches are produced and it has not been mad
 
 The board printed DONE on "15 Part Job Search" as soon as the patch from ticket #22
 was approved. The PO had not said the project was finished, and did not want the loop
-deciding that for him:
+deciding that for them:
 
 > "just because I finish one part of the project does not mean I am completely finished
 > with the project ... running projects are the norm for this type of work ... once I
@@ -1657,7 +1710,7 @@ The colony may move a story through the **working** lanes — `needs-criteria`, 
 `ready`, `in-progress`, `po-review`, `needs-info` — because that is the loop reporting where
 work is. It may **never** put a story in a lane that reads as finished (`accepted`,
 `archived`, any `settled_as`), and it may never push a Status to Notion. Ending things is
-the PO's, in Notion or on a button, and nowhere else.
+The PO's, in Notion or on a button, and nowhere else.
 
 ## Finished 2026-08-22 — what the words mean, and the edit that went nowhere
 
@@ -1814,15 +1867,15 @@ started this morning at 05:00 has no runs in it yet.
 ## Finished 2026-08-21 — the four things the loop was making the PO do
 
 Four complaints from the PO seat, all of them the same complaint: the loop kept handing
-Jordan work that was its own.
+The PO work that was its own.
 
 **Images pasted into the chat are read now.** They always could be — attachments live on
 disk and go to agents as absolute paths, and a live `claude -p --allowedTools Read` describes
 one correctly. But only `reply_prompt` ever mentioned them, and only the ones on the message
 being answered; `groom_prompt` and `build_prompt` mentioned them nowhere. Story 1 carries
-three screenshots, and the groom that asked Jordan for “the exact field list ... it was
+three screenshots, and the groom that asked the PO for “the exact field list ... it was
 never transcribed into text anywhere” was holding a prompt that did not know they existed.
-**It asked him for a picture he had already sent.** `attachments.for_story` collects every
+**It asked them for a picture they had already sent.** `attachments.for_story` collects every
 file on a story's thread and `attachments.evidence` puts them in all three prompts.
 
 **Blockers moved into the conversation.** `/api/thread` returns a `state` block — whether
@@ -1842,7 +1895,7 @@ so a decision is `intent='chore'` plus `decided_esc_id`, the same shape a reply 
 as `intent='research'` plus `po_message_id`.
 
 **And the PO stopped picking agents.** The tile that said “open Standby, pick a persona and
-hire them with write scope” was asking him to read a roster of 270 people to do the Scrum
+hire them with write scope” was asking them to read a roster of 270 people to do the Scrum
 Master's job. `wake.staff_stories` picks one per pulse for a ready, project-confirmed,
 writer-less story, reads the persona files and the project, names the finalists it passed
 over, and brings a name to approve. `control.propose_hire` and the `hire` escalation kind
@@ -2010,7 +2063,7 @@ afterwards, so no wake spends tokens on a request the PO did not make.
 
 ## Finished 2026-08-18 — M3.1, the PO's own quality-of-life pass
 
-Ten things Jordan asked for after living with M3 for a day. All shipped.
+Ten things the PO asked for after living with M3 for a day. All shipped.
 
 - [x] **No console windows, ever.** Two separate bugs wearing one costume. The flashing
       2-3x/minute was `PROJECT_TTL_S = 30.0` in `server.py`: every 30s the SSE snapshot

@@ -6,7 +6,7 @@
 -- reads NOTION_API_KEY cannot answer without seeing whether the key is there,
 -- and "it is not in the checkout" is not the same answer as "it is not set".
 -- An agent asked to rename a variable has no business with the file. The PO
--- decides which of the two he is hiring.
+-- decides which of the two they are hiring.
 --
 -- The credentials never reach git. `worktree.seed` copies them in after the
 -- base tree is written and `worktree.diff` deletes them before it looks, so

@@ -65,6 +65,52 @@ class TestMigrations(LedgerCase):
         self.assertIn("append-only", str(caught.exception))
         conn.close()
 
+    def test_a_superseded_digest_is_accepted_once_and_then_rewritten(self):
+        """Comment-only rewrites of migrations that have already run.
+
+        Ten of them happened at once when this repo was prepared to be
+        published, on files that had been applied months earlier. The schema was
+        untouched; the bytes above it were not, so the guard saw a fork.
+        """
+        conn = db.connect(self.path)
+        db.migrate(conn, verbose=False)
+
+        name = next(iter(db.SUPERSEDED))
+        stale = db.SUPERSEDED[name][0]
+        conn.execute("UPDATE _migrations SET sha256 = ? WHERE filename = ?",
+                     (stale, name))
+
+        self.assertEqual(db.migrate(conn, verbose=False), [])
+
+        # And the row is current again, so the exact check is back on from the
+        # next start. This is what keeps the list from growing into a hole.
+        now = conn.execute("SELECT sha256 FROM _migrations WHERE filename = ?",
+                           (name,)).fetchone()["sha256"]
+        self.assertNotEqual(now, stale)
+        self.assertEqual(db.migrate(conn, verbose=False), [])
+        conn.close()
+
+    def test_forgiveness_is_per_file(self):
+        """A digest listed for one migration does not excuse another."""
+        conn = db.connect(self.path)
+        db.migrate(conn, verbose=False)
+
+        listed = next(iter(db.SUPERSEDED))
+        other = next(p.name for p in sorted(db.MIGRATIONS_DIR.glob("*.sql"))
+                     if p.name != listed)
+        conn.execute("UPDATE _migrations SET sha256 = ? WHERE filename = ?",
+                     (db.SUPERSEDED[listed][0], other))
+
+        with self.assertRaises(RuntimeError):
+            db.migrate(conn, verbose=False)
+        conn.close()
+
+    def test_every_superseded_entry_names_a_migration_that_exists(self):
+        """A typo here would be silent: the entry simply never matches."""
+        on_disk = {p.name for p in db.MIGRATIONS_DIR.glob("*.sql")}
+        for name in db.SUPERSEDED:
+            self.assertIn(name, on_disk)
+
     def test_the_schema_has_the_tables_the_system_reads(self):
         conn = db.open_ledger(self.path)
         names = {r["name"] for r in conn.execute(

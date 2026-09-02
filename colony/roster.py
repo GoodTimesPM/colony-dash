@@ -119,7 +119,7 @@ def scan(root: Path = DEFAULT_ROSTER_DIR,
     in the same division under `~/.colony-agents`, and leave the clone alone.
 
     An entirely missing agency clone is fine and always has been the likely case
-    for anyone who is not Jordan. What is not fine is *silently* empty, so the
+    for anyone who is not the PO. What is not fine is *silently* empty, so the
     caller gets `FileNotFoundError` only when neither root exists -- at which
     point the roster genuinely has nowhere to come from and the panel should say
     so rather than show zero.
@@ -195,7 +195,7 @@ def digest(conn: sqlite3.Connection, *, desc_chars: int = 200) -> str:
     with terms from the story and show the top twenty — and that economy is the
     bias. A search over the story text can only ever return personas whose
     description already sounds like the story, which is how a colony ends up
-    with four engineers and no one who has ever thought about a user. Jordan
+    with four engineers and no one who has ever thought about a user. The PO
     asked for the opposite: "this environment needs to be diverse."
 
     Roughly 70k characters, so about 18k tokens. That is a third of one grooming

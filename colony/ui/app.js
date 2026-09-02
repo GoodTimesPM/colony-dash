@@ -16,8 +16,8 @@ const STATUS_LABEL = {
   // Not "done". `accepted` means the PO approved one patch and the files landed
   // — it says nothing about whether the project is finished, and printing DONE
   // over a story whose Notion row still reads In Progress is the board deciding
-  // that for him. The real finished state is `settled_as`, which only his Notion
-  // status or his own button can set, and it has its own chip.
+  // that for them. The real finished state is `settled_as`, which only their Notion
+  // status or their own button can set, and it has its own chip.
   "accepted": "delivered",
 };
 
@@ -380,7 +380,7 @@ function renderOrdis(o) {
   }
 
   // The console lives here rather than in its own panel because it is Ordis
-  // himself, not another department. It is also the one control on the page
+  // themselves, not another department. It is also the one control on the page
   // that does not wait for a pulse, which is the whole reason it exists.
   const term = el("button", "act go", "open the console");
   term.title = "talk to Ordis directly, with a real shell, right now";
@@ -858,7 +858,7 @@ function flightRow(f) {
     const m = el("div", "m");
     // A reply is a ticket like any other, but "research · unstaffed" describes
     // the mechanism and not the thing: what the PO wants to read here is that
-    // he said something and Ordis has not answered yet.
+    // they said something and Ordis has not answered yet.
     const reply = !!f.po_message_id;
     m.append(el("span", "st", f.run_id ? "running" : f.status),
              el("span", null, reply ? "reply" : f.intent),
@@ -889,7 +889,7 @@ function flightRow(f) {
 // something."
 //
 // Two things end and both are here: a dispatch, which is an implement ticket
-// that delivered a patch, and a story, which is one Jordan filed. They share a
+// that delivered a patch, and a story, which is one the PO filed. They share a
 // list because the question is chronological — what has this colony produced,
 // in what order — and they keep separate badges because the answer to "did we
 // already build this" is different from "did I already close this".
@@ -1476,8 +1476,8 @@ async function openCompose(e, opts) {
   const ta = el("textarea", "compose-box");
   ta.placeholder =
     "Write to Ordis the way you would in a terminal.\n\n" +
-    "He reads this on the next pulse, answers in the same thread, and revises " +
-    "his recommendation if you have changed it. He cannot approve, reject or " +
+    "They read this on the next pulse, answers in the same thread, and revises " +
+    "their recommendation if you have changed it. They cannot approve, reject or " +
     "confirm a project from your reply — those stay yours.";
   wrap.append(ta);
 
@@ -1532,7 +1532,7 @@ async function openCompose(e, opts) {
   ta.focus();
 
   // By story wherever there is one. Asking for the escalation's thread was how
-  // the conversation kept vanishing: Ordis closes a question he thinks he
+  // the conversation kept vanishing: Ordis closes a question they think they
   // answered, the next groom raises a new one about the same story, and the
   // drawer opened on an empty thread with six messages sitting one row away in
   // the ledger.
@@ -1672,7 +1672,7 @@ function projectSelect(current, opts) {
 function openNewStory() {
   // No `nav`: a back button that reopened this would be an empty form claiming
   // to be the one you were typing in. Same rule the reply drawer follows.
-  const body = openDrawer("board", "new story");
+  const body = openDrawer("board", "New Story");
   const wrap = el("div", "form");
 
   const title = el("input", "field");
@@ -1807,7 +1807,7 @@ function renderMacros(c) {
   al.append(el("div", "lb", "token allowance"));
   // The bar measures the whole week now, not the distance travelled inside a
   // boost cap that no longer exists — so the empty part of it is the share of
-  // the quota left for Jordan's own sessions, which is the number the dial is
+  // the quota left for the PO's own sessions, which is the number the dial is
   // actually trading against.
   const lo = c.allowance_min === undefined ? 0 : c.allowance_min;
   const hi = c.allowance_max === undefined ? 100 : c.allowance_max;
@@ -2582,7 +2582,7 @@ function parseFrontmatter(text) {
 }
 
 async function openPersonaNew() {
-  const body = openDrawer("standby", "add a persona");
+  const body = openDrawer("standby", "Add a Persona");
   let dirs = { divisions: [], local_dir: "", agency_dir: "" };
   try { dirs = await getJSON("/api/roster/divisions"); } catch (_) {}
   body.replaceChildren();
@@ -2618,7 +2618,7 @@ async function openPersonaNew() {
     return blk(label, input);
   };
 
-  // Jordan sorts his roster by department, so the division is the categorisation
+  // the PO sorts their roster by department, so the division is the categorisation
   // and it is required. A datalist rather than a select: the existing divisions
   // are the suggestion, but "the 17 folders a stranger happened to ship" is not
   // a closed set of the departments anyone could want.
@@ -2637,8 +2637,8 @@ async function openPersonaNew() {
 
   form.append(drop, file);
   form.append(blk("division", division, list,
-    el("div", "note", "becomes a folder. Pick one of yours, or type a new "
-      + "department and it gets created.")));
+    el("div", "note", "Each division becomes a folder. Pick one of yours, "
+      + "or type a new department and it gets created.")));
   form.append(field("name", "name", "Project Shepherd"));
   form.append(field("slug", "file name", "leave blank to use the name"));
   form.append(field("description", "description",
@@ -2670,8 +2670,8 @@ async function openPersonaNew() {
   bodyBox.placeholder = "# Who they are\n\nYou are …\n\n## How they work\n\n…";
   fields.body = bodyBox;
   form.append(blk("the persona itself", bodyBox,
-    el("div", "note", "markdown. Headings become the sections shown on the "
-      + "persona card. This is the part an agent is actually given — the "
+    el("div", "note", "Markdown. Headings become the sections shown on the "
+      + "persona card. This is the part an agent is actually given; the "
       + "frontmatter above is only how it gets found.")));
 
   const replace = el("input");
@@ -2862,7 +2862,7 @@ const CONSOLE_POLL_MS = 1500;
 
 async function openConsole() {
   const body = openDrawer("ordis \u00b7 console",
-                          "talking directly, with a shell",
+                          "Talking Directly, with a Shell",
                           { wide: true, nav: { kind: "console", arg: undefined,
                                                label: "console" } });
 
@@ -2903,7 +2903,7 @@ async function openConsole() {
   const compact = el("button", "act", "compact");
   compact.title = "summarise this conversation so far and keep going in less context";
   const clear = el("button", "act", "clear");
-  clear.title = "start a new conversation \u2014 he forgets everything above this line";
+  clear.title = "start a new conversation \u2014 they forget everything above this line";
   bar.append(cwd, model, effort, el("div", "sep"), meta, compact, clear);
   wrap.append(bar);
 
@@ -3054,7 +3054,7 @@ async function openConsole() {
     tape.replaceChildren();
     if (!st.turns.length) {
       tape.append(el("div", "empty",
-        "nothing yet. this is a fresh session \u2014 he has no memory of the last one."));
+        "nothing yet. this is a fresh session \u2014 they have no memory of the last one."));
     }
     for (const t of st.turns) {
       const turn = el("div", "turn");
@@ -3094,8 +3094,8 @@ async function openConsole() {
     cmds.disabled = !writable;
     send.textContent = busy ? "working\u2026" : "send";
     hint.textContent = busy
-      ? "he is running \u2014 shell commands can take minutes"
-      : (st.resuming ? "same session, he remembers everything above" : "new session");
+      ? "they are running \u2014 shell commands can take minutes"
+      : (st.resuming ? "same session, they remember everything above" : "new session");
     if (stuck) tape.scrollTop = tape.scrollHeight;
   }
 
@@ -3146,7 +3146,7 @@ async function openConsole() {
   clear.onclick = async () => {
     const st = await getJSON("/api/console").catch(() => null);
     if (st && st.turns.length && !confirm(
-        "clear the console? he keeps no memory of these " + st.turns.length
+        "clear the console? they keep no memory of these " + st.turns.length
         + " messages. the record of what they cost stays in the ledger.")) return;
     const res = await fetch("/api/console/clear", {
       method: "POST",
@@ -3201,7 +3201,7 @@ async function openStory(id) {
   // Replying used to require an Inbox item to reply *to*, which quietly made
   // every conversation the colony's to open. Most of what a PO wants to say
   // about a story — this is the wrong folder, that criterion is stale, look at
-  // this screenshot — arrives while he is reading the story, not while he is
+  // this screenshot — arrives while they are reading the story, not while they are
   // reading a question about it. It becomes a ticket the moment it is sent,
   // same as any other reply.
   const talk = el("button", "act go", "reply to ordis about this story");
@@ -3759,7 +3759,7 @@ async function openAgent(id) {
 // `job-search/assisted-apply` skipped half its criteria because the files it
 // needed sat in `job-search/job-radar`, and correctly said so rather than
 // writing outside its contract. The scope is the PO's decision, so it belongs
-// on the contract where he can see it and change it.
+// on the contract where they can see it and change it.
 //
 // The picker offers the folders the colony already knows about — every project
 // with a PROJECT.md, plus the top-level folders that contain them — so picking
@@ -3972,7 +3972,7 @@ async function openProject(name) {
 
 // "Projects that moved" was a list of names. It answered which folder and
 // nothing else — not what changed in it, not where, not when, and above all not
-// who, which is the question a PO asks first about a folder he never opened.
+// who, which is the question a PO asks first about a folder they never opened.
 // Everything below was already being measured; none of it was being shown.
 const KIND_WORD = { A: "added", M: "edited", D: "deleted", "??": "new", R: "renamed" };
 const KIND_CLS = { A: "a", M: "m", D: "d", "??": "u", R: "m" };
@@ -4071,7 +4071,7 @@ function paintDiff(pre, text) {
 }
 
 async function openPatch(e) {
-  const body = openDrawer("patch waiting", e.story_title || "write approval");
+  const body = openDrawer("patch waiting", e.story_title || "Write Approval");
   body.replaceChildren(el("div", "dim", "reading the patch..."));
 
   let p;
@@ -4352,7 +4352,7 @@ const TOKEN_GROUPS = [
       ["--mint-ground",  "mint bed",  "the bed a mint chip sits on",                 ["--mint", 3]],
       ["--coral",        "coral",     "anomaly: blocked, failed, halted, stop",      ["--panel", 3]],
       ["--coral-ground", "coral bed", "the bed a coral chip sits on",                ["--coral", 3]],
-      ["--violet",       "violet",    "Ordis himself, and every focus ring",         ["--panel", 3]],
+      ["--violet",       "violet",    "Ordis themselves, and every focus ring",         ["--panel", 3]],
     ] },
   { label: "panel titles",
     note: "One per panel, mixed from the accents above. Set one here and only that title moves.",
@@ -5025,7 +5025,7 @@ const MANUAL_AS_OF = "2026-08-22";
 const MANUAL = [
 
 { h: "What this program is",
-  p: ["Colony Dash runs a small team of Claude agents on the projects in D:\\ALL STUFF\\PROJECTS. You write the projects down in Notion. Once an hour this program reads Notion, looks at your disk and your token budget, and decides whether there is anything worth doing. If there is, it does one small piece of it and asks you to approve the result.",
+  p: ["Colony Dash runs a small team of Claude agents on the projects in your projects folder. You file the work as stories, either with the + Story button on the Board or from a Notion database if you keep one. Once an hour this program reads those stories, looks at your disk and your token budget, and decides whether there is anything worth doing. If there is, it does one small piece of it and asks you to approve the result.",
       "Everything it has ever done is written to one file: colony-dash/.colony/ledger.db. This page is a view of that file and nothing else. If something on screen looks wrong, the ledger is the thing to check, and the SQL console is the way to check it."],
   dl: [["You", "The Product Owner. You decide what gets built, when a project is finished, and whether any tokens are spent. Four things cannot happen without you clicking a button."],
        ["Ordis", "The Scrum Master. It reads your briefs, drafts acceptance criteria, proposes who to hire, and brings you questions. It never decides what to build and it never decides that something is finished."],
@@ -5071,7 +5071,7 @@ const MANUAL = [
 { h: "The words for places",
   dl: [["Notion", "Where you write projects. The colony reads every row once an hour. It only ever writes to Notion when you press a button that says it will."],
        ["ledger", "colony-dash/.colony/ledger.db. Every story, ticket, run, card, and pulse, forever. Nothing is deleted."],
-       ["project folder", "One directory under D:\\ALL STUFF\\PROJECTS. A story has to be matched to one before any writing can happen, and you confirm the match yourself."],
+       ["project folder", "One directory under your projects folder. A story has to be matched to one before any writing can happen, and you confirm the match yourself."],
        ["worktree", "A temporary git checkout where a build happens. Your real folder is untouched until you approve the patch."],
        ["patch", "The diff a build produced. Approving it copies the files into your working tree, uncommitted. The colony never commits and never pushes."]] },
 
@@ -5106,7 +5106,7 @@ const MANUAL = [
   note: "There is a fifth stop that is not a gate: if a job is going to cost more than its ceiling, you are asked to approve the spend." },
 
 { h: "What the colony may never do",
-  ul: ["Write outside D:\\ALL STUFF\\PROJECTS, ever.",
+  ul: ["Write outside your projects folder, ever.",
        "Write to any folder other than the one named by the ticket it is working on.",
        "Write to disk at all before you approve the patch.",
        "Touch .env files, credentials, or anything inside .git.",
@@ -5154,7 +5154,7 @@ function manualSection(sec, id) {
 }
 
 function openManual() {
-  const body = openDrawer("manual", "How the colony works", { wide: true });
+  const body = openDrawer("manual", "How the Colony Works", { wide: true });
   body.replaceChildren();
   body.append(el("p", "man-asof",
     "Written " + MANUAL_AS_OF + ". This is a snapshot, not a live view. Nothing here "
@@ -5263,6 +5263,86 @@ function openPhone() {
         .catch(() => toast("this browser would not copy it — select it instead", "bad"));
       warn.append(cmd);
       set.append(warn);
+    }
+
+    // The only fact in this panel that is about the phone rather than about
+    // this machine. Everything above can read healthy while the phone loads
+    // forever, because everything above is measured from here: the address
+    // binds, the probe answers, the firewall rule exists. What none of them
+    // can see is whether a packet from another device ever arrived. So the
+    // gate records it, and this says so in one sentence.
+    //
+    // It splits the failure cleanly. Nothing arrived means the packets die
+    // before the server, and every cause is on the network. Something arrived
+    // and was turned away means the network is fine and the token is stale,
+    // which is one button away.
+    if (on && info.serving) {
+      const seen = info.arrivals || [];
+      const reach = el("div", "blk");
+      reach.append(el("div", "lb", "has anything reached this"));
+
+      if (!seen.length) {
+        const started = info.since
+          ? new Date(info.since * 1000).toLocaleTimeString(
+              undefined, { hour: "numeric", minute: "2-digit" })
+          : "";
+        reach.append(el("div", "note",
+          "No device off this machine has reached the server"
+          + (started ? " since it started at " + started : "") + ". The "
+          + "address is bound and answering here, so the request is being "
+          + "dropped before it arrives. Four things cause that:"));
+        const list = el("ul", "note");
+        list.style.margin = "6px 0 0";
+        list.style.paddingLeft = "18px";
+        for (const line of [
+          "The phone is on a different network. It has to be on the same one "
+            + "as this machine"
+            + (info.neighbourhood
+                ? " — on most home routers that means its Wi-Fi address also "
+                  + "starts " + info.neighbourhood : "")
+            + ". Cellular data instead of Wi-Fi is the usual version of this.",
+          "A VPN or private-relay setting on the phone. Those send every "
+            + "address out to the internet, and this one only exists inside "
+            + "your house. Turn it off and reload.",
+          "The router keeps wireless clients away from wired ones. It is "
+            + "called client isolation or AP isolation, it is often on by "
+            + "default on a guest network, and a guest SSID is the common way "
+            + "to hit it by accident.",
+          "The phone is on the 5GHz band of a mesh network that routes "
+            + "separately from the wired side. Joining the same band this "
+            + "machine is on, or the main SSID rather than an extender, "
+            + "rules it out.",
+        ]) list.append(el("li", null, line));
+        reach.append(list);
+        reach.append(el("div", "note",
+          "To tell them apart in ten seconds: open the phone's Wi-Fi details "
+          + "and read its IP address. If it does not look like this machine's, "
+          + "it is the first one."));
+      } else {
+        for (const r of seen) {
+          const line = el("div", "row");
+          const secs = Math.max(0, (Date.now() / 1000) - r.at);
+          const rel = secs < 90 ? "just now"
+            : secs < 5400 ? Math.round(secs / 60) + "m ago"
+            : Math.round(secs / 3600) + "h ago";
+          line.append(el("span", "mono", r.host));
+          line.append(el("span", "val", r.ok ? "connected" : "turned away"));
+          line.append(el("span", "note", rel + " · " + r.hits
+            + (r.hits === 1 ? " request" : " requests")));
+          reach.append(line);
+        }
+        // A device that arrived and was refused is a token problem, and it is
+        // worth saying which button fixes it rather than leaving "turned away"
+        // to be interpreted.
+        if (seen.some((r) => !r.ok)) {
+          reach.append(el("div", "note",
+            "Turned away means the request arrived and the token did not "
+            + "match, so the network is working. The phone is holding an old "
+            + "token: scan the code below again, or paste the token into the "
+            + "unlock page it is showing."));
+        }
+      }
+      set.append(reach);
     }
 
     if (info.url) {

@@ -571,6 +571,19 @@ body.dense .story, body.dense .pulse { padding-top: 3px; padding-bottom: 3px; }
 .link[aria-pressed="true"] { color: var(--ink); background: var(--panel-sunk); }
 .link:focus-visible { outline: 2px solid var(--violet); outline-offset: 1px; }
 
+/* The one control on the board that makes something new. Every other `.link` is
+   a toggle or a filter, and drawn as one this button read as a seventh toggle
+   nobody pressed. Mint on mint-ground rather than a fixed green, so it stays
+   legible in all nine palettes instead of looking right in the default one. */
+.link.go {
+  color: var(--mint); background: var(--mint-ground);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--mint) 45%, transparent);
+}
+.link.go:hover {
+  color: var(--mint);
+  background: color-mix(in srgb, var(--mint) 20%, var(--mint-ground));
+}
+
 select.pick, input.field, textarea.field {
   background: var(--panel-sunk); color: var(--ink);
   border: 1px solid var(--rule); border-radius: 5px; padding: 4px 7px;
@@ -619,7 +632,7 @@ body.halted .halt-banner { display: flex; }
 
 /* ── the inbox strip ──────────────────────────────────────────────────────────
    Full width, above everything else. The Inbox is the only panel on this page
-   that is *about* Jordan, so it is not a column of leftovers in the corner —
+   that is *about* the PO, so it is not a column of leftovers in the corner —
    it is the first thing the eye lands on, and it disappears when it is empty. */
 
 /* The Inbox and what it set in motion share one row: the padding lives on the
@@ -681,7 +694,7 @@ body.halted .halt-banner { display: flex; }
 .tile[data-kind="run-request"] .rec .detail { font-family: var(--mono); }
 
 /* Ready to start. Amber across the rest of this panel means "this needs you",
-   and it does need him — but it needs a go, not an answer, and a tile that
+   and it does need them — but it needs a go, not an answer, and a tile that
    looks like every unanswered question is one more thing to feel behind on.
    Mint is live work everywhere else on the page; this is work that is one
    press from being live. */
@@ -1418,7 +1431,7 @@ button.pulse[disabled] { cursor: default; }
    the bottom, monospace throughout.
 
    The violet rail down the left of the whole thing is the tell: violet is Ordis
-   everywhere on this page, and this is the only place he is talking rather than
+   everywhere on this page, and this is the only place they are talking rather than
    being reported on. */
 .console { display: flex; flex-direction: column; gap: 10px; height: 100%; }
 .console .bar {
@@ -1505,7 +1518,7 @@ textarea.compose-box {
   font-family: var(--mono); font-size: var(--step-0); line-height: 1.55;
 }
 textarea.compose-box:focus-visible { outline: 2px solid var(--violet); outline-offset: -1px; }
-/* What he pasted, under the box he typed it into — and again under the message
+/* What they pasted, under the box they typed it into — and again under the message
    once it is sent. Thumbnails rather than filenames, because a pasted
    screenshot is always called `image.png` and the name tells you nothing while
    fifty pixels of the picture tells you which one it is. */

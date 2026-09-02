@@ -53,7 +53,7 @@ class Scanning(unittest.TestCase):
                                  "finance/analyst": "local"})
 
     def test_a_missing_agency_clone_is_not_an_error(self):
-        """The likely state for anyone who is not Jordan."""
+        """The likely state for anyone who is not the PO."""
         write(self.local / "finance" / "analyst.md")
         found = roster.scan(self.agency, self.local)
         self.assertEqual([p["slug"] for p in found], ["finance/analyst"])

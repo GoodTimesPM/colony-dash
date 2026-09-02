@@ -243,5 +243,73 @@ class TestGate(unittest.TestCase):
         self.assertEqual(response.body, b"PASSED")
 
 
+class TestArrivals(unittest.TestCase):
+    """The record that tells a dropped packet apart from a rejected token.
+
+    Both failures look identical from the desktop: the address is bound, the
+    probe answers, the firewall rule is there, and the phone shows nothing. The
+    only thing that separates them is whether a request arrived, so the gate
+    records that on both paths and the panel reads it.
+    """
+
+    def setUp(self):
+        access._ARRIVALS.clear()
+        self.addCleanup(access._ARRIVALS.clear)
+
+    def test_this_machine_is_never_recorded(self):
+        """Loopback reaching itself was never the question being asked."""
+        for host in ("127.0.0.1", "localhost", "::1", ""):
+            access.note_arrival(host, True)
+        self.assertEqual(access.arrivals(), [])
+
+    def test_a_refused_device_is_recorded_as_having_arrived(self):
+        access.note_arrival("10.0.0.31", False)
+        (seen,) = access.arrivals()
+        self.assertEqual(seen["host"], "10.0.0.31")
+        self.assertFalse(seen["ok"])
+        self.assertEqual((seen["hits"], seen["accepted"], seen["refused"]),
+                         (1, 0, 1))
+
+    def test_one_device_reloading_is_one_entry(self):
+        """Forty reloads is a count on one row, not forty rows."""
+        for _ in range(40):
+            access.note_arrival("10.0.0.31", False)
+        (seen,) = access.arrivals()
+        self.assertEqual(seen["hits"], 40)
+
+    def test_a_device_that_pairs_reads_as_connected_afterwards(self):
+        """The last answer wins, so scanning a fresh code clears the warning."""
+        access.note_arrival("10.0.0.31", False)
+        access.note_arrival("10.0.0.31", True)
+        (seen,) = access.arrivals()
+        self.assertTrue(seen["ok"])
+        self.assertEqual((seen["accepted"], seen["refused"]), (1, 1))
+
+    def test_the_record_is_bounded(self):
+        for n in range(access.ARRIVALS_MAX + 6):
+            access.note_arrival(f"10.0.0.{n}", True)
+        self.assertEqual(len(access.arrivals()), access.ARRIVALS_MAX)
+
+    def test_the_gate_records_both_answers(self):
+        """The point of the whole record: it is written by the live path."""
+        import asyncio
+
+        from fastapi.responses import PlainTextResponse
+
+        async def call_next(_request):
+            return PlainTextResponse("PASSED")
+
+        with mock.patch.object(server, "REQUIRE_TOKEN", True), with_token("s3cret"):
+            asyncio.run(server.gate(
+                TestGate._request("/api/state", accept="*/*", query="k=nope",
+                                     client="10.0.0.31"), call_next))
+            asyncio.run(server.gate(
+                TestGate._request("/api/state", accept="*/*", query="k=s3cret",
+                                     client="10.0.0.31"), call_next))
+
+        (seen,) = access.arrivals()
+        self.assertEqual((seen["accepted"], seen["refused"]), (1, 1))
+
+
 if __name__ == "__main__":
     unittest.main()

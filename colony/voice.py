@@ -1,51 +1,58 @@
-"""How a colonist writes the parts Jordan reads.
+"""How a colonist writes the parts the PO reads.
 
-Every prose field the colony produces ends up on a card in his Inbox: a
-recommendation, a report, an answer to something he asked. The agents were
+Every prose field the colony produces ends up on a card in the PO's Inbox: a
+recommendation, a report, an answer to something they asked. The agents were
 told what to decide and never told how to write it down, so the shape of the
-writing was whatever the model reached for — an opening line announcing what
-it was about to say, a closing line asking if he needed anything else, and the
-one sentence that mattered in the middle.
+writing was whatever the model reached for. An opening line announcing what it
+was about to say, a closing line asking if anything else was needed, and the one
+sentence that mattered buried between them.
 
-This is his own writing-style skill, `i-have-adhd`, aimed at the fields these
-prompts ask for rather than at a chat reply. The rules it keeps: the first line
-is something he can act on, steps are numbered, lists stop at five, an estimate
-is in real units, and nothing opens with a preamble or closes with a
-pleasantry. `STYLE` goes into every prompt that asks an agent for prose.
+`STYLE` is the `unslop` editing rules, aimed at these fields rather than at a
+chat reply. It cuts the vocabulary that marks text as machine-written, bans the
+preamble and the closer, and asks for a file, a number or an error in place of a
+judgement. `STYLE` goes into every prompt that asks an agent for prose.
 
 It is a paragraph of instruction, not a filter. Nothing here can stop a model
-writing badly; it can only tell it what good looks like, in the same words
-Jordan uses on himself.
+writing badly. It can only say what good looks like.
 """
 
 from __future__ import annotations
 
-# Roughly 1,400 characters, so about 350 tokens on every prompt that carries
-# it. That is the cost, and it is worth it: a report he does not read is the
-# whole run wasted, and the run costs four figures in tokens.
+# Roughly 1,700 characters, so about 425 tokens on every prompt that carries it.
+# That is the cost, and it is worth paying: a report nobody reads is the whole
+# run wasted, and the run costs four figures in tokens.
 STYLE = """--- how to write the prose fields below ---
-Jordan has ADHD. He reads the first line and the last line. Write so those two
-carry the answer.
+Write like a person who did the work, not like a model summarising it. The first
+line and the last line are the two that get read.
 
-  * Lead with the action or the finding. The first words say what to do or what
-    is true, never what you are about to say.
+  * Lead with the finding or the action. The first words say what is true or
+    what to do, never what you are about to say.
   * No preamble and no closer. Cut "Let me", "I'll", "Looking at", "Great
     question", "Hope this helps", "Let me know if you need anything else".
-  * Name the file, the line, the number, the error. "It's slow" tells him
-    nothing; "the sync takes 40 seconds" tells him something.
+  * Name the file, the line, the number, the error. "It's slow" says nothing.
+    "The sync takes 40 seconds" says something. If a sentence would read the
+    same on a different project, delete it.
+  * No em dashes. End the sentence or use a comma. Colons belong before a list,
+    not in the middle of a sentence.
+  * Plain words. Not additionally, crucial, delve, leverage, robust, seamless,
+    comprehensive, underscore, showcase, landscape, tapestry, testament,
+    ensuring, highlighting, utilize. Not "serves as" or "stands as" when "is"
+    works.
+  * Say who acts. "The compiler rejects the query", not "queries are
+    validated". Passive only when the actor is genuinely unknown.
+  * Skip "not just X, but Y". Say Y.
+  * One idea per sentence. If a reader has to go back to parse it, split it.
+  * Cut adverbs or pick a better verb. "Significantly improves" means you have
+    a number and did not write it down.
   * More than one step means a numbered list, one action per step, five steps
-    at most. Fold trivial steps into the one before them. A short path he
-    finishes beats a complete path he abandons.
-  * Any list stops at five items, ranked, most important first. If there are
-    more, split them into what to do now and what can wait.
+    at most. Any list stops at five, most important first. More than that,
+    split it into what to do now and what can wait.
   * State a failure flatly: what failed, where, the cause, the fix. Never "uh
     oh" or "there seems to be a problem".
-  * Estimates go in real units. "About 15 minutes", not "some work".
-  * No idioms. Write the literal action instead of "circle back" or "get the
-    ball rolling".
-  * Hedge only where you are actually unsure. Deleting a real hedge invents
-    confidence you do not have; keeping a decorative one wastes a line.
+  * Estimates in real units. "About 15 minutes", not "some work".
+  * Hedge only where you are actually unsure. A decorative hedge wastes a line
+    and deleting a real one invents confidence you do not have.
 
-End on one thing he can do in under two minutes. "Open `apply/config.py:31`"
-counts.
+End on one thing that can be done in under two minutes. "Open
+`apply/config.py:31`" counts.
 --- end ---"""

@@ -32,7 +32,7 @@ CREATE TABLE stories (
   title               TEXT NOT NULL,
   description         TEXT,                 -- the Notion page body: this is the brief
   acceptance_criteria TEXT,                 -- Ordis drafts, PO approves
-  project             TEXT,                 -- folder under D:\ALL STUFF\PROJECTS
+  project             TEXT,                 -- folder under the projects root
   project_source      TEXT NOT NULL DEFAULT 'inferred'
                       CHECK (project_source IN ('inferred','confirmed')),
   notion_status       TEXT,                 -- raw Notion Status, for audit
@@ -133,7 +133,7 @@ CREATE TABLE usage_samples (
 CREATE INDEX idx_usage_at ON usage_samples(sampled_at DESC);
 
 
--- Things that need Jordan. The only table that demands attention.
+-- Things that need the PO. The only table that demands attention.
 CREATE TABLE escalations (
   id             INTEGER PRIMARY KEY,
   ticket_id      INTEGER REFERENCES tickets(id),

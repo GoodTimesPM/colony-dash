@@ -3,12 +3,12 @@
 -- 1. "Basically any call/choice can be made a ticket to ensure that it has been
 --    understood." A decision was an `escalations` row that flipped to resolved
 --    and a line in `audit`. Neither is on the board. The Ticket Queue is where
---    the PO watches work exist, and approving criteria — the most consequential
---    thing he does all week — left nothing there at all.
+--    The PO watches work exist, and approving criteria — the most consequential
+--    thing they do all week — left nothing there at all.
 --
 --    So a decision gets a ticket, born closed, carrying the question on one side
---    and his answer on the other. It is not work to do; it is work that was
---    done, by him, and the Queue is the one place the colony keeps that kind of
+--    and their answer on the other. It is not work to do; it is work that was
+--    done, by them, and the Queue is the one place the colony keeps that kind of
 --    record where anyone will see it.
 --
 --    `intent` stays `chore` rather than growing a 'decide' value, and that is a
@@ -28,7 +28,7 @@ CREATE INDEX idx_tickets_decision ON tickets(decided_esc_id);
 
 -- The decisions already made, given the tickets they never got. Backfilled from
 -- the escalations themselves so the Queue does not open on a history that
--- starts today — the twelve calls Jordan has already made are the examples of
+-- starts today — the twelve calls the PO has already made are the examples of
 -- what this column is for, and they are the ones worth being able to re-read.
 INSERT INTO tickets (story_id, title, intent, status, work_order, findings,
                      requires_po, created_at, closed_at, decided_esc_id)

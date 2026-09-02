@@ -1,6 +1,6 @@
 r"""What changed in the project folders — the file manager the PO asked for.
 
-The colony's whole read scope is `D:\ALL STUFF\PROJECTS`, which is one git repo
+The colony's whole read scope is `db.PROJECTS_ROOT`, which is one git repo
 containing every project. So "what changed in job-radar this week" is a
 `git status`/`git log` question scoped to a path prefix, not a filesystem walk,
 and asking git is both faster and truer: git already knows what is tracked, what
@@ -101,7 +101,7 @@ def head() -> dict:
 # What each porcelain bucket is, in the words a person would use for it. `git`
 # says "untracked", which is a statement about git's index and reads like an
 # accusation; what it means to the PO is "a file that has never been committed"
-# — which is exactly the category his mod loader keeps filling with folders he
+# — which is exactly the category their mod loader keeps filling with folders they
 # never typed. Naming them properly is most of the fix for "modifications I
 # can't find".
 KIND_SHORT = {"modified": "edited", "added": "added", "deleted": "deleted",

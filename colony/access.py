@@ -27,7 +27,7 @@ accounts — one operator, one secret, and a rotation is a new line in `.env`.
 
 **What this is not.** This is not multi-tenancy. Every session that gets past
 this file is the same PO looking at the same ledger on the same machine; the
-token says "you are Jordan on his phone", not "you are some user". Real accounts
+token says "you are the PO on their phone", not "you are some user". Real accounts
 mean a per-user ledger, per-user projects on disk and a per-user `claude` login,
 which is a different program (see PROJECT.md).
 
@@ -118,3 +118,59 @@ def check(host: str) -> bool:
             "can — this token is a second lock, not the only one."
         )
     return True
+
+
+# ── who has actually arrived ────────────────────────────────────────────────
+#
+# The failure this exists for has no error message at either end. The server
+# binds a network address, answers on it from this machine, reports the
+# firewall rule as present, and the phone still sits on a blank tab until it
+# gives up. Every fact the panel had was a fact about the desktop, and the
+# desktop was fine. The one fact nobody was recording is the one that splits
+# the problem in half: has a request from another device reached this process
+# at all?
+#
+# If none has, the packets are dying before the server sees them and the causes
+# are all network-shaped: a phone on a different subnet, a router isolating
+# wireless clients from wired ones, a VPN on the phone routing every address
+# out to the internet. If one has and it was turned away, the network is fine
+# and the token is wrong, which is a different fix and a much smaller one.
+#
+# In memory, not the ledger. The question is always "since this server came
+# up", a restart is the natural way to clear it, and writing a row per request
+# would put the busiest path in the process into the database.
+
+_ARRIVALS: dict[str, dict] = {}
+ARRIVALS_MAX = 8
+
+
+def note_arrival(host: str, accepted: bool) -> None:
+    """Record that a request from off this machine reached the gate.
+
+    Keyed by address, so a phone reloading forty times is one entry that counts
+    to forty rather than forty entries. Loopback is not recorded: it is this
+    machine, and this machine reaching itself was never in question.
+    """
+    import time
+
+    if not host or is_loopback(host):
+        return
+    seen = _ARRIVALS.get(host)
+    if seen is None:
+        # Oldest out first, by the time it was last seen. Eight is enough to
+        # show a phone, a tablet and a laptop without becoming a log.
+        if len(_ARRIVALS) >= ARRIVALS_MAX:
+            oldest = min(_ARRIVALS, key=lambda k: _ARRIVALS[k]["at"])
+            _ARRIVALS.pop(oldest, None)
+        seen = _ARRIVALS[host] = {"host": host, "first": time.time(),
+                                  "at": 0.0, "hits": 0, "accepted": 0,
+                                  "refused": 0}
+    seen["at"] = time.time()
+    seen["hits"] += 1
+    seen["accepted" if accepted else "refused"] += 1
+    seen["ok"] = accepted
+
+
+def arrivals() -> list[dict]:
+    """Every device off this machine that has reached the gate, newest first."""
+    return sorted(_ARRIVALS.values(), key=lambda r: r["at"], reverse=True)

@@ -82,14 +82,14 @@ def for_story(conn, story_id: int | None) -> list[dict]:
     Attachments were reachable from exactly one prompt: the reply that carried
     them. That is the wrong scope by a long way. A conversation is scoped to the
     story (`control.thread` says why), and the evidence in it belongs to the
-    story too — the screenshot Jordan pasted on Tuesday is still the answer on
+    story too — the screenshot the PO pasted on Tuesday is still the answer on
     Thursday, to whichever agent is asking.
 
     The cost of getting that wrong is not theoretical. Story #1 carries three
-    screenshots of the Notion tracker Jordan was asked to describe, and the
+    screenshots of the Notion tracker the PO was asked to describe, and the
     groom that raised the blocker "the field list exists only as a screenshot,
     it was never transcribed into text anywhere" was, at that moment, holding a
-    prompt that did not mention the screenshots. It asked him for a picture he
+    prompt that did not mention the screenshots. It asked them for a picture they
     had already sent.
 
     Rows whose file has gone missing are dropped rather than listed: a path in a
@@ -133,10 +133,10 @@ def evidence(files: list[dict]) -> str:
         return ""
     lines = [
         "",
-        "--- what Jordan has attached to this story ---",
-        "He pasted these into the thread. READ EVERY ONE of them before you",
+        "--- what the PO has attached to this story ---",
+        "They pasted these into the thread. READ EVERY ONE of them before you",
         "conclude that anything is missing. A screenshot is usually the whole",
-        "message and the prose next to it is the caption, and asking him for",
+        "message and the prose next to it is the caption, and asking them for",
         "something already visible in one of these is the exact failure this",
         "section exists to prevent.",
     ]

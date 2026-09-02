@@ -13,7 +13,7 @@ scrum roles.
 
 ## 0. The one-paragraph version
 
-Jordan is the **Product Owner**. Ordis is the **Scrum Master** — a loop that wakes on a
+The PO is the **Product Owner**. Ordis is the **Scrum Master** — a loop that wakes on a
 heartbeat, reads the Notion board, breaks stories into tickets, staffs them to specialist
 agents drawn from a 270-persona roster, spends a bounded **token** budget, and escalates only
 what genuinely needs a human. Every fact about execution lives in a **SQLite ledger**, not
@@ -44,7 +44,7 @@ is the difference between a useful loop and a notification firehose. Ours is def
 
 The scrum mapping, from the Notion "Mimic Scrum Environment" idea.
 
-- **Product Owner — Jordan (human).** Owns the backlog and priority. Reviews escalations.
+- **Product Owner — the PO (human).** Owns the backlog and priority. Reviews escalations.
   Promotes skills. Accepts or rejects finished work. The only actor who can approve a
   write to a real repo or an outward-facing action.
 - **Scrum Master — Ordis (the loop).** Owns the pulse. Grooms, estimates, staffs,
@@ -75,7 +75,7 @@ model:           claude-sonnet-5      # cheap default; escalates to opus for har
 write_capable:   true                 # requires a PO-staffed ticket to actually use
 tools_allowed:   [Read, Grep, Glob, Edit, Write, Bash]
 tools_denied:    [WebFetch, Artifact] # no outward-facing actions
-read_scope:      ["D:/ALL STUFF/PROJECTS/**"]
+read_scope:      ["<projects root>/**"]
 write_scope:     ["<ticket project folder only>"]
 skills:          [repo-conventions, migration-checklist]
 max_tokens_run:  120_000              # hard per-run ceiling — the real currency
@@ -116,7 +116,7 @@ CREATE TABLE stories (
   title               TEXT NOT NULL,        -- Notion "Idea"
   description         TEXT,                 -- the Notion page body — this is the brief
   acceptance_criteria TEXT,                 -- Ordis drafts, PO approves
-  project             TEXT,                 -- which folder under D:\ALL STUFF\PROJECTS
+  project             TEXT,                 -- which folder under the projects root
   priority            INTEGER NOT NULL DEFAULT 3,   -- 1 High, 2 Medium, 3 Low (from Notion)
   est_tokens          INTEGER,              -- Ordis's estimate, in tokens
   est_cost_usd        REAL,                 -- shadow figure, derived from est_tokens
@@ -191,7 +191,7 @@ CREATE TABLE usage_samples (
   seven_day_resets_at TIMESTAMP
 );
 
--- Things that need Jordan. The only table that demands attention.
+-- Things that need the PO. The only table that demands attention.
 CREATE TABLE escalations (
   id            INTEGER PRIMARY KEY,
   ticket_id     INTEGER REFERENCES tickets(id),
@@ -488,7 +488,7 @@ hand work to the colony, and it's a gesture you'd make anyway.
 thin, the colony says so rather than guessing.
 
 **When there isn't enough to start** (your explicit ask): the story goes `needs-info`, and
-the PO Inbox shows a card naming the specific missing piece — *"#48 Dad Gig Scheduler: I
+The PO Inbox shows a card naming the specific missing piece — *"#48 Dad Gig Scheduler: I
 can't tell whether this schedules gigs for you or is a tool you're selling. Both are
 buildable; they're different products."* Ordis also posts that question as a **comment on
 the Notion page**, so the answer can be given from your phone without opening the dashboard.
@@ -627,16 +627,16 @@ apply it colony-wide. Promotion is a PO decision — the third human gate.
 
 ### 8.1 Blast radius
 
-You set it to the whole of `D:\ALL STUFF\PROJECTS`. Accepted, with a read/write split,
+You set it to the whole projects root. Accepted, with a read/write split,
 because "may look at" and "may change" are different permissions:
 
 | | Scope |
 | --- | --- |
-| **Read** | All of `D:\ALL STUFF\PROJECTS` — the colony needs cross-project context to be worth anything. |
+| **Read** | All of the projects root — the colony needs cross-project context to be worth anything. |
 | **Write** | **Only the one project folder named by the active ticket**, and only in a worktree, and only after PO approval. |
-| **Never, at any tier** | `.env` and any credential file; `.git/` internals; anything outside `D:\ALL STUFF\PROJECTS`; `git push`, `git commit --amend`, force-push, branch deletion. |
+| **Never, at any tier** | `.env` and any credential file; `.git/` internals; anything outside the projects root; `git push`, `git commit --amend`, force-push, branch deletion. |
 
-That root was a literal `Path("D:/ALL STUFF/PROJECTS")` in `db.py` until 2026-08-27, which
+That root was a hardcoded absolute path in `db.py` until 2026-08-27, which
 worked on exactly one machine. It now defaults to the folder *containing* this checkout —
 which resolves to the identical path here — and can be moved with `COLONY_PROJECTS_ROOT` in
 the environment or in `.env`. The one key is read by `db._env_value`, which reads a single
@@ -699,7 +699,7 @@ What still holds, because it was never about the agent's permissions:
 - **No scheduled code path may import `console`.** `pulse.py` and `wake.py` do not,
   and a change that makes them do it turns the whole of §8.1 into decoration.
 - Credentials still never get echoed or committed, and `git push`, `--amend`,
-  force-push and branch deletion still ask first. Those are rules about Jordan's
+  force-push and branch deletion still ask first. Those are rules about the PO's
   data and history, not about what the process is technically able to do — they
   are stated in the console's system prompt, and they are the only thing in this
   column that is a promise rather than a wall.
@@ -910,7 +910,7 @@ beside it reads as a layout that broke, not as an inbox that is nearly clear.
 
 **In Flight is the Ticket Queue.** "In flight" described the mechanism — work
 the colony has picked up — and the PO reads that panel to answer a different
-question: what did I press, and has it landed. The queue is what he queued.
+question: what did I press, and has it landed. The queue is what they queued.
 
 **The design rule:** an empty PO Inbox means the system is working and needs nothing.
 Everything else on the page is ambient. If the dashboard nags when the Inbox is empty, it's
@@ -1147,7 +1147,7 @@ inside one worktree and denies Bash outright. "The colony cannot push" stops bei
 we intend to follow and becomes a capability the process does not have.
 
 **The handoff is a patch, not a merge.** An approved build lands uncommitted in the real
-project folder. Jordan reads the diff in the drawer and commits it himself, in his own
+project folder. The PO reads the diff in the drawer and commits it themselves, in their own
 words. The colony never commits, never pushes, never rewrites history — which also means
 the recovery from a bad approval is `git checkout .`, not archaeology.
 
@@ -1407,7 +1407,7 @@ appears for someone who has been using the menu for months.
 **A heartbeat can die on its own command line.** Eight hours of no beat, and the scheduled task
 was firing every hour, on time, with `LastTaskResult 2` — which reads like `ERROR_FILE_NOT_FOUND`
 and is not. It was the pulse's own exit code: argparse exits 2 on a usage error. The task passed
-`--log D:\ALL STUFF\PROJECTS\...\pulse.log` unquoted, this machine's project root has two
+`--log <projects root>\...\pulse.log` unquoted, the project root on that machine had two
 spaces in it, and the pulse rejected the strays and quit before it reached any colony code. The
 lesson is not "quote your paths" — it is that **an exit code from a scheduler is the child's exit
 code**, so a silent loop should be diagnosed by running the exact registered command line by
@@ -1469,8 +1469,8 @@ worse, the local record of having done it is the part that gets erased.
 **Two lines of code made the colony invent obligations out of notes.** Intake mapped
 `status = "backlog" if notion_status == "In Progress" else "needs-criteria"`, so all six
 of the other Notion statuses became `needs-criteria` — which is inside
-`wake.GROOMABLE_WHERE`. An idea Jordan wrote down and left alone came back an hour later
-as a question in his PO Inbox asking which folder it belonged to. The other line is the
+`wake.GROOMABLE_WHERE`. An idea the PO wrote down and left alone came back an hour later
+as a question in their PO Inbox asking which folder it belonged to. The other line is the
 same mistake from the other end: the *update* path never touched `status` at all, so
 moving a row to Done in Notion changed nothing in the ledger and the story stayed on the
 board looking stale. **A default branch in a status mapping is a claim that every
@@ -1486,7 +1486,7 @@ answer to one of them the first time they disagree.
 
 **A groom ticket is a receipt with an expiry, and nothing was expiring it.** A groom that
 ends in a question leaves a `blocked` ticket behind. That ticket is useful exactly as
-long as the question is open. Jordan answered both Age of Fate questions by confirming
+long as the question is open. The PO answered both Age of Fate questions by confirming
 the project folder, and saw two identical `Groom: Age of Fate Pack · BLOCKED` tiles in
 the Ticket Queue — because `_flight` shows every ticket in
 `('open','staffed','running','blocked')` and nothing had closed them. The duplicate tiles
@@ -1504,7 +1504,7 @@ check; the rail said 4 while the pulse said 3. It imports `wake.GROOMABLE_WHERE`
 There is no version of this where two copies stay equal.
 
 **A number that stops moving because the colony is standing down reads exactly like a
-broken counter.** The sprint header sat at `172.3k tok` for days and Jordan asked if it
+broken counter.** The sprint header sat at `172.3k tok` for days and the PO asked if it
 was stale. It was correct — 172,258 chargeable across ten runs, and no run has ended
 since 2026-08-18 01:00. Likewise the forge: detection is free and runs in the tick, three
 candidates exist and two have drafts requested, but drafting runs in the wake behind
@@ -1584,7 +1584,7 @@ and a role written down an hour early is a guess wearing a fact's clothes.
 
 The tile carries the sentence the PO typed, clamped to two lines, and reads
 `reply · waiting for Ordis` rather than `research · unstaffed` — the mechanism
-was accurate and told him nothing. **This is the outbox lesson a second time:
+was accurate and told them nothing. **This is the outbox lesson a second time:
 the wait is the thing worth showing.**
 
 ### 10.11 A screenshot is the message, and the shell was eating the page
@@ -1606,7 +1606,7 @@ moving a row into its own intake filter and feeding itself work it invented.
 That is still the right rule, but the list was the wrong place to keep it: the
 only two callers of `queue_notion` are a button in the story drawer and the drop
 dialog, and both of them are the PO's hand on a control. No agent, wake or tick
-queues a status. What the omission actually prevented was *Jordan* starting work
+queues a status. What the omission actually prevented was *the PO* starting work
 from the dashboard, which was never the thing to prevent. **A guard placed one
 layer away from what it guards ends up forbidding the wrong party.**
 
@@ -1621,9 +1621,9 @@ opinions about a different page.**
 
 **A reply can carry a screenshot.** Everything the PO said before had to survive
 being retyped as prose first — "it destroyed the formatting of the title" is a
-lossy re-encoding of the picture, and he was doing the lossy part by hand.
+lossy re-encoding of the picture, and they were doing the lossy part by hand.
 Paste, drop or pick; the upload lands on `POST /api/upload` at the moment of the
-paste rather than at send, so a file that is too big fails while he is looking at
+paste rather than at send, so a file that is too big fails while they are looking at
 the composer instead of an hour later. Files live in `.colony/attachments/` under
 generated names — the label is kept for the chip, the filename never is, because
 a value that has been through the browser is an input again when it comes back.
@@ -1637,8 +1637,8 @@ still read in the ticket a week later.
 
 **And a story can be replied to.** Replying used to require an Inbox item to
 reply *to*, which made every conversation the colony's to open — the PO could
-answer questions and could not raise one. Most of what he wants to say about a
-story arrives while he is reading the story. The story drawer has the button now;
+answer questions and could not raise one. Most of what they want to say about a
+story arrives while they are reading the story. The story drawer has the button now;
 a story-only thread is a `po_message` with a NULL `escalation_id`, which
 `answer_po` already handled.
 
@@ -1654,14 +1654,14 @@ half an answer.
 
 **A thread scoped to the escalation was deleting the history.** `control.thread`
 keyed on `escalation_id`, and an escalation is an episode: Ordis closes one when
-he believes his answer resolved it, the next groom raises a fresh one about the
+they believe their answer resolved it, the next groom raises a fresh one about the
 same story an hour later, and the drawer opens *empty* on the new question with
-four messages sitting one row away in the ledger. Jordan opened "reply to
+four messages sitting one row away in the ledger. The PO opened "reply to
 Ordis" on story 1 and found nothing there — the three "15 Part Job Search cannot
 start yet" escalations (#6, #8, #13) are one conversation that the schema had
 cut into three, two of them already closed.
 
-Worse: the answer he never saw was written into escalation #8 at 20:07:25 and
+Worse: the answer they never saw was written into escalation #8 at 20:07:25 and
 the same wake closed #8 at 20:07:56. **The reply and the door closing on it were
 thirty-one seconds apart.** A tile that vanishes carries its own contents out of
 the room. The Inbox's `messages` / `last_reply` / `awaiting_ordis` subqueries had
@@ -1724,7 +1724,7 @@ size, so a mispress costs exactly one press to undo.
 way down and +25 on the way up, and the three buttons were all "up" — so the
 control could only climb, an overshoot could only be cleared to zero and rebuilt,
 and the ceiling on the ceiling was a guess made on the PO's behalf about a quota
-he shares with his own Claude Code sessions and knows more about than the code
+they share with their own Claude Code sessions and know more about than the code
 does. The delta is signed now, the only clamp left is 0–100% of the week (an
 allowance outside that is not a number, it is a typo), and there is a box to type
 the figure into — because "I need 80% this week" is a thing you know directly and
@@ -1882,7 +1882,7 @@ Three complaints about the same missing sentence, which is that a number on a
 dashboard is only information next to the thing it is a number *of*.
 
 **"What is modified relative to?"** One commit, the same one for every folder:
-the whole of `D:\ALL STUFF\PROJECTS` is a single git repo, so `modified` means
+the whole projects root is a single git repo, so `modified` means
 "different from HEAD" sixty times over. The panel had never said so. `head()`
 now carries the subject and date alongside the sha, `scan()` stamps the branch
 and sha on every row, and the drawer opens with **compared with** before it
@@ -1901,12 +1901,12 @@ repo's head.
 
 **"8 PO decision(s) to act on" over an Inbox holding one item.** The count was
 `WHERE resolved_at IS NOT NULL AND po_decision IS NOT NULL` — every escalation
-he had *ever* decided, with nothing to clear it. It only went up. From his first
+they had *ever* decided, with nothing to clear it. It only went up. From their first
 approval onward every tick had a standing reason to wake, forever. Two separate
 things were wrong. The count is now scoped to the window, so it decays like the
 other reasons. And the wording had the direction backwards: `control.decide`
-applies an approval at the moment it is made, so these are decisions *he made*,
-not decisions waiting on him — what the wake picks up afterwards is the
+applies an approval at the moment it is made, so these are decisions *they made*,
+not decisions waiting on them — what the wake picks up afterwards is the
 consequence, which already has its own reason in the list.
 
 **"Projects that moved" was a list of names.** `project_changes` stored a level
@@ -1933,7 +1933,7 @@ bugs, and none of them was in the logic. They were all in the assumption that
 there is only one machine.
 
 **A literal path is a bug that only fires on someone else's computer.** `db.py`
-held `Path("D:/ALL STUFF/PROJECTS")`, and fixing that one line felt like the
+held an absolute path to one machine, and fixing that one line felt like the
 whole job because every other module derives its root from it. It was not: a
 grep the next day found the same string spelled out again in `seed.READ_SCOPE`,
 in `control.DEFAULT_READ_SCOPE`, and inside the console's system prompt. The

@@ -49,6 +49,7 @@ not "forget everything".
 from __future__ import annotations
 
 import os
+import time
 
 from . import access, autostart, db, firewall, net, qr
 
@@ -59,6 +60,11 @@ from . import access, autostart, db, firewall, net, qr
 DEFAULT_PORT = 8787
 
 ENV_PATH = db.PROJECT_DIR / ".env"
+
+# When this process came up. `arrivals` is empty both when nothing has ever
+# connected and when the server restarted a second ago, and those two readings
+# call for opposite reactions -- so the panel is given the time to say which.
+SINCE = time.time()
 
 
 def url(port: int = DEFAULT_PORT) -> str | None:
@@ -156,6 +162,20 @@ def _reachable(address: str, port: int) -> bool:
         return False
 
 
+def _neighbourhood(address: str | None) -> str:
+    """The first three octets of an IPv4 address, as a prefix to compare against.
+
+    Deliberately not a subnet mask. Reading the real prefix length means asking
+    Windows, which is a PowerShell call this panel does not need, and getting it
+    wrong in the other direction is worse: telling someone their phone is on the
+    wrong network when it is not sends them to reconfigure a router that was
+    fine. Three octets is what a home router hands out and the panel says so as
+    a likelihood rather than a rule.
+    """
+    parts = (address or "").split(".")
+    return ".".join(parts[:3]) + "." if len(parts) == 4 else ""
+
+
 def state(port: int = DEFAULT_PORT) -> dict:
     """Everything the panel draws, in one call.
 
@@ -195,6 +215,13 @@ def state(port: int = DEFAULT_PORT) -> dict:
         "firewall": firewall.state(port),
         "firewall_fix": firewall.rule_command(port),
         "problem": problem,
+        # Every other field here is a fact about this machine, and this machine
+        # being healthy is exactly the state a phone that cannot connect leaves
+        # it in. This one is a fact about the phone: has anything off this
+        # machine reached the server at all. See `access.note_arrival`.
+        "arrivals": access.arrivals(),
+        "since": SINCE,
+        "neighbourhood": _neighbourhood(address),
     }
 
 

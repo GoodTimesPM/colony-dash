@@ -8,7 +8,7 @@ nothing reaches a real file without the PO approving a patch. That is right for
 an autonomous loop. Nobody should own a program that can `git push` unattended
 at 3am because a groom run misread a story.
 
-It is exactly wrong for the case this module exists for: Jordan sitting in front
+It is exactly wrong for the case this module exists for: the PO sitting in front
 of the dashboard wanting to change the dashboard. Every such change went out to
 a separate terminal, and the program that is supposed to run itself could not
 edit itself.
@@ -89,15 +89,15 @@ TIMEOUT_S = 1800
 # a runaway loop POSTing into this endpoint is not.
 MAX_CHARS = 60000
 
-SYSTEM = f"""You are Ordis, talking directly to Jordan in the Colony Dash console.
+SYSTEM = f"""You are Ordis, talking directly to the PO in the Colony Dash console.
 
 This is not a colony ticket. There is no work order, no acceptance criteria and
 no PO card to fill in. It is a terminal with full tool access, running at
 {db.PROJECTS_ROOT.as_posix()}, and you are being asked to do things to this
-machine the same way you would in Jordan's own terminal.
+machine the same way you would in the PO's own terminal.
 
 Two rules that come from the colony and still apply here, because they are about
-his data rather than about your permissions:
+their data rather than about your permissions:
 
   * Never print, echo or commit the contents of a `.env` or any other credential
     file. Read one if a task genuinely needs it; do not put it in your reply.
@@ -139,7 +139,7 @@ def _installed_plugin_dirs() -> list[Path]:
     """Where the *installed* plugins live, per the CLI's own manifest.
 
     Not `~/.claude/plugins/marketplaces`. That directory is clones of every
-    marketplace Jordan has ever looked at, and globbing it offered a menu of
+    marketplace the PO has ever looked at, and globbing it offered a menu of
     thirty skills of which one was installed. A dropdown that lists commands
     that do not exist is worse than no dropdown.
     """
@@ -165,14 +165,14 @@ def commands() -> list[dict]:
     """Every slash command this console can actually send, read off disk.
 
     Hard-coding a menu of skills would mean the dropdown lies the first time
-    Jordan installs one. So: the verified built-ins, then whatever is on disk
+    The PO installs one. So: the verified built-ins, then whatever is on disk
     under the user's skills and commands folders, the project's `.claude`, and
     the installed plugin marketplaces. Names only -- the dropdown pastes text
     into the box, it does not run anything.
 
     Cached for two minutes. The drawer polls this every 1.5 seconds and walking
     the plugin marketplaces that often would be a directory scan per frame for
-    a list that changes when Jordan installs something, which is never during a
+    a list that changes when the PO installs something, which is never during a
     conversation.
     """
     global _cmd_cache
