@@ -47,8 +47,8 @@ from fastapi.responses import (FileResponse, HTMLResponse, RedirectResponse,
 
 from . import (access, attachments as attach, console as console_mod, control, db,
                forge, net, notion as notion_mod, outbox as outbox_mod,
-               phone as phone_mod, projects as projects_mod, roster as roster_mod,
-               usage as usage_mod)
+               phone as phone_mod, projects as projects_mod, qr,
+               roster as roster_mod, tailscale, usage as usage_mod)
 
 UI_DIR = Path(__file__).resolve().parent / "ui"
 
@@ -1918,6 +1918,49 @@ def act_phone_token(request: Request, body: dict = Body(...),
                                  f"unchanged and paired devices still work: {exc}")
     out["svg"] = phone_mod.svg(port)
     return {"ok": True, **out}
+
+
+@app.post("/api/act/tailscale")
+def act_tailscale(request: Request, body: dict = Body(...),
+                  x_colony: str | None = Header(None)) -> dict[str, Any]:
+    """Run the Tailscale installer, or start a sign-in. Loopback only.
+
+    Both actions are about the machine rather than about the ledger, and both
+    are meaningless from the device they would be pressed on: an installer
+    launched from a phone opens a window on a desktop nobody is looking at, and
+    a sign-in URL is only useful to whoever can finish it. The stronger reason
+    is the shape of the action itself. This starts an executable off the disk
+    with a UAC prompt behind it, and that is not something a request arriving
+    over a network gets to do, however good its token is.
+
+    `do` is `install` or `login`. `login` comes back with a URL and the panel
+    draws it as a QR code, which is the nice accident in all of this: the phone
+    that needs Tailscale can point its camera at the screen and sign itself in.
+    """
+    _guard(x_colony)
+
+    peer = request.client.host if request.client else ""
+    if not access.is_loopback(peer):
+        raise HTTPException(403, "setting up Tailscale is only allowed from the "
+                                 "machine itself — it runs an installer and asks "
+                                 "for administrator. Open the dashboard on the "
+                                 "desktop, or run `py -m colony tailscale --install`.")
+
+    what = str(body.get("do") or "")
+    try:
+        if what == "install":
+            return {"ok": True, **tailscale.install()}
+        if what == "login":
+            out = tailscale.login()
+            # Drawn as a code as well as a link, because the device that most
+            # needs to be signed in to the tailnet is the one holding a camera.
+            out["svg"] = qr.svg(out["url"], ec="M") if out.get("url") else None
+            return {"ok": True, **out}
+    except tailscale.NotInstalled as exc:
+        raise HTTPException(409, str(exc))
+    except OSError as exc:
+        raise HTTPException(500, f"could not start Tailscale: {exc}")
+    raise HTTPException(400, "do must be 'install' or 'login'")
 
 
 @app.post("/api/act/halt")

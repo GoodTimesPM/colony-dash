@@ -524,6 +524,90 @@ def cmd_phone(conn: sqlite3.Connection, args) -> int:
     return 0
 
 
+def cmd_tailscale(conn: sqlite3.Connection, args) -> int:
+    """Report Tailscale, and offer the two steps that make cellular work.
+
+    The same two buttons the phone panel draws, for the case where the dashboard
+    is not the thing you are looking at. `--login` blocks on purpose here: a
+    terminal is a place where waiting for a URL and then waiting for you to
+    visit it is the normal shape of a command.
+    """
+    from . import net, qr, tailscale
+
+    if args.install:
+        try:
+            started = tailscale.install()
+        except tailscale.NotInstalled as exc:
+            print(exc)
+            return 1
+        print(f"started {started['installer']}")
+        print("  finish it, then run `py -m colony tailscale` again")
+        return 0
+
+    if args.login:
+        try:
+            out = tailscale.login()
+        except tailscale.NotInstalled as exc:
+            print(exc)
+            return 1
+        if out.get("url"):
+            print("open this to sign in, on this machine or by camera:")
+            print()
+            print(f"  {out['url']}")
+            print()
+            if _can_draw():
+                print(qr.text_art(out["url"], ec="M", quiet=2))
+            return 0
+        print("Tailscale did not ask for a sign-in, so it was already signed "
+              "in and has reconnected.")
+
+    state = tailscale.state()
+    rule("tailscale")
+    if not state["installed"]:
+        print(f"  {'installed':<12}no")
+        if state["installer"]:
+            print(f"  {'installer':<12}{state['installer']}")
+            print()
+            print("  There is one in your Downloads already. Run it with:")
+            print()
+            print("      py -m colony tailscale --install")
+        else:
+            print()
+            print(f"  Get it from {state['download']}, then run this again.")
+        return 1
+
+    print(f"  {'installed':<12}{state['exe']}")
+    print(f"  {'backend':<12}{state['backend'] or 'unknown'}")
+    if state["connected"]:
+        print(f"  {'address':<12}{state['address']}")
+        if state["name"]:
+            print(f"  {'name':<12}{state['name']}")
+    elif state["needs_login"]:
+        print()
+        print("  Signed out, so the dashboard will bind a local address and "
+              "the phone")
+        print("  will only reach it on the same wifi. Sign in with:")
+        print()
+        print("      py -m colony tailscale --login")
+        return 1
+
+    # Being on a tailnet and having the server bound to it are two different
+    # facts, and only the second one is what the phone experiences.
+    address, kind = None, ""
+    try:
+        address, kind = net.auto()
+    except net.NoAddress:
+        pass
+    print()
+    if kind == "tailnet":
+        print(f"  The dashboard binds {address}, which works over cellular.")
+    elif address:
+        print(f"  The dashboard would bind {address} ({kind}), not the tailnet "
+              f"address.")
+        print("  Restart it and it will prefer the tailnet one.")
+    return 0
+
+
 def cmd_autostart(conn: sqlite3.Connection, args) -> int:
     """Install, inspect or remove the logon server task."""
     from . import access, autostart, net
@@ -680,6 +764,15 @@ def build_parser() -> argparse.ArgumentParser:
                           "phone is logged out until it scans the new code")
     phn.add_argument("--port", type=int, default=8787)
     phn.set_defaults(func=cmd_phone)
+
+    tls = sub.add_parser("tailscale",
+                         help="the private network that makes phone access work "
+                              "off your wifi")
+    tls.add_argument("--install", action="store_true",
+                     help="run the installer from your Downloads folder")
+    tls.add_argument("--login", action="store_true",
+                     help="sign in, and print the URL and a QR code for it")
+    tls.set_defaults(func=cmd_tailscale)
 
     aut = sub.add_parser("autostart",
                          help="keep the dashboard served from logon, for the phone")

@@ -5184,6 +5184,114 @@ function openManual() {
 // panel. Neither is in `/api/state`: answering costs a PowerShell call and a
 // socket probe, and the live feed polls every few seconds.
 
+// The difference between "works on the sofa" and "works in the car park", said
+// out loud. A LAN address and a tailnet address look equally healthy in every
+// other line of this panel, and only one of them survives leaving the building —
+// so the state of Tailscale is drawn right under the address it decides.
+//
+// Both buttons are desk-only, matching the server (see `act_tailscale`). One
+// runs an installer with a UAC prompt behind it; the other is only useful to
+// whoever can finish the sign-in. Neither is something a request off the
+// network gets to start, however good its token is.
+function tailscaleBlock(where, info, reload) {
+  const ts = info.tailscale;
+  if (!ts) return;
+  const here = ["127.0.0.1", "::1", "localhost"].includes(location.hostname);
+
+  const note = (text) => where.append(el("div", "note", text));
+  const showCode = (svg) => {
+    if (!svg) return;
+    const doc = new DOMParser().parseFromString(svg, "image/svg+xml");
+    const node = doc.documentElement;
+    node.style.width = "min(220px, 55vw)";
+    node.style.height = "auto";
+    node.style.borderRadius = "6px";
+    node.style.marginTop = "8px";
+    where.append(node);
+  };
+
+  if (ts.connected && info.kind === "tailnet") {
+    note("Tailscale is connected" + (ts.name ? " as " + ts.name : "")
+         + ", which is why the address above is the one it is.");
+    return;
+  }
+
+  if (ts.connected) {
+    // Connected, but the server is not on it. Almost always a server that came
+    // up before Tailscale did, and the fix is a restart rather than anything in
+    // this panel — so say the fix rather than describing the state.
+    note("Tailscale is connected on " + (ts.address || "this machine")
+         + ", but the dashboard bound a local address instead, which means it "
+         + "started before Tailscale did. Restart the dashboard and it will "
+         + "pick the tailnet address up.");
+    return;
+  }
+
+  if (!ts.installed) {
+    note("Tailscale is not installed, so the phone can only reach this on the "
+         + "same wifi. Tailscale puts this machine and your phone on one "
+         + "private network, which makes cellular work and adds a second lock "
+         + "in front of the token. It is free for personal use.");
+    if (!here) {
+      note("Installing is only offered on the machine itself. Open the "
+           + "dashboard on the desktop, or run `py -m colony tailscale --install`.");
+      return;
+    }
+    if (ts.installer) {
+      note("There is already an installer in your Downloads folder.");
+      const go = el("button", "act", "run the installer");
+      go.title = ts.installer;
+      go.onclick = async () => {
+        go.disabled = true;
+        go.textContent = "starting…";
+        const out = await act("tailscale", { do: "install" });
+        if (out) toast("the installer is opening — press refresh when it is done");
+        reload();
+      };
+      where.append(go);
+    } else {
+      const link = el("a", "link", "download Tailscale");
+      link.href = ts.download;
+      link.target = "_blank";
+      link.rel = "noreferrer";
+      where.append(link);
+      note("Download it, run it, then press refresh above.");
+    }
+    return;
+  }
+
+  // Installed and not connected. Signing in is the only remaining step on this
+  // side; the phone still needs the Tailscale app signed in to the same account,
+  // and nothing here can check that, so it is stated rather than detected.
+  note("Tailscale is installed but not signed in, so the address above is a "
+       + "local one and the phone will only reach it on the same wifi.");
+  if (!here) {
+    note("Signing in is only offered on the machine itself. Open the dashboard "
+         + "on the desktop, or run `py -m colony tailscale --login`.");
+    return;
+  }
+  const go = el("button", "act", "sign in to Tailscale");
+  go.onclick = async () => {
+    go.disabled = true;
+    go.textContent = "asking…";
+    const out = await act("tailscale", { do: "login" });
+    go.remove();
+    if (out && out.url) {
+      note("Open this to sign in, or point the phone's camera at the code. "
+           + "Sign the phone's Tailscale app in to the same account, then "
+           + "restart the dashboard.");
+      const line = el("div", "mono", out.url);
+      line.style.wordBreak = "break-all";
+      where.append(line);
+      showCode(out.svg);
+    } else if (out) {
+      note("Tailscale did not ask for a sign-in, which usually means it was "
+           + "already signed in and has just reconnected. Press refresh.");
+    }
+  };
+  where.append(go);
+}
+
 function openPhone() {
   const body = openDrawer("phone", "Phone Access");   // a control panel, no `nav`
   const draw = (info) => {
@@ -5217,7 +5325,14 @@ function openPhone() {
     set.append(blk("phone access", row));
 
     if (info.problem) {
-      set.append(blk("no address", el("pre", "detail", info.problem)));
+      // The one state where Tailscale is not an improvement but the whole
+      // answer: no private network of any kind, so there is nothing to bind
+      // until one exists.
+      const none = el("div", "blk");
+      none.append(el("div", "lb", "no address"));
+      none.append(el("pre", "detail", info.problem));
+      tailscaleBlock(none, info, load);
+      set.append(none);
       body.append(set);
       return;
     }
@@ -5227,6 +5342,7 @@ function openPhone() {
     where.append(el("div", "mono", info.address + ":" + info.port
                                   + "  (" + (info.kind || "") + ")"));
     if (info.advice) where.append(el("div", "note", info.advice));
+    tailscaleBlock(where, info, load);
     if (on && !info.unlimited) {
       where.append(el("div", "note",
         "Task Scheduler will kill this task after three days. Re-run "
