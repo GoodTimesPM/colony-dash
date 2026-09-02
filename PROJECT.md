@@ -380,6 +380,78 @@ names the state and the next move.
       addition rather than a change to any existing path. Merge when it has been used from
       an actual phone for a few days.
 
+## Finished 2026-09-01, the phone works off the wifi
+
+The PO asked the obvious question after a week of using phone access: does this
+really not work over cellular. It really did not, and the reason is one line in
+`net.py` that has been correct since the day it was written.
+
+`net.auto()` prefers a tailnet address and falls back to a private LAN one. On
+this machine there was no tailnet, so it bound `192.168.x.x`, which is an address
+that stops existing at the front door. Everything else about the feature reported
+healthy: the task was installed, the port answered, the firewall rule was there,
+the QR code scanned. The panel had no way to say the one thing that was wrong,
+because the one thing that was wrong was the network the machine happened to be
+on.
+
+So the preference is now a thing you can act on rather than a thing you either
+have or do not.
+
+**`colony/tailscale.py`** answers four questions and has a button for two of
+them. `find()` looks in both install directories, because a machine upgraded
+rather than reinstalled keeps the CLI under `Tailscale IPN` in the 32-bit
+Program Files. `state()` runs `tailscale status --json` and deliberately ignores
+the exit code: a signed-out daemon exits non-zero and still prints the JSON that
+says so, and treating the code as authority would turn the most common state into
+"cannot tell". `installer()` looks for the newest `tailscale-setup-*.exe` in
+Downloads, by modification time rather than by the version in the name, since
+`1.99.0` sorts after `1.102.3` as a string and is the older build. It is there
+because the install path people actually take is "download it, get distracted,
+come back", and at that point the file they need is one they already have and
+cannot find.
+
+**`install()` is not silent, on purpose.** The Windows installer's quiet switch
+is not something this file can promise across versions, and an installer that
+runs invisibly and fails invisibly is worse than one you have to click. It
+launches with its normal window and returns immediately; the panel's job after
+that is to say "come back and press refresh", which is honest about what the call
+actually proved.
+
+**`login()` hands back the URL rather than waiting for it.** `tailscale up`
+prints an auth URL and then blocks until the visit completes, so it is started,
+read on a thread with `readline` rather than iteration (Windows buffers the
+iteration form until exit, and it does not exit until the URL is visited), and
+left running. The URL comes back to the panel, which draws it as a QR code as
+well as a link. That was the nice accident: the device that most needs to join
+the tailnet is the one holding a camera.
+
+**Both buttons are loopback only**, enforced in `server.act_tailscale` and not
+only in the panel that hides them. This starts an executable off the disk with a
+UAC prompt behind it, and that is not a thing a request arriving over a network
+gets to do however good its token is.
+
+**`net.advice("lan")` now says the part that matters.** It used to describe the
+security tradeoff and say nothing about range. It now leads with "this address
+only exists inside your building" and names cellular, because that is the
+sentence that would have answered the question a week earlier. `advice("tailnet")`
+stays empty: every caller prints this behind a `⚠`, and good news behind a warning
+sign is how a panel teaches people to stop reading it. The positive case is said
+by the Tailscale block instead, where it is not a warning.
+
+Fourteen tests in `tests/test_tailscale.py`, none of which run `tailscale` or
+touch the network. Suite is at 200.
+
+The README grew a **Tailscale makes it work off your wifi** section with the
+five panel states as a table, and the honesty section's "a tailnet fixes 1 and 3"
+line now points at a button rather than at homework.
+
+Also in this pass, from the same review: the `How it works` diagram gained an
+optional `Notion board` node beside `＋ Story` at the top, so both intakes are
+visible as the choice they are; the whole README was rewritten for the `unslop`
+style rather than only spot-edited, mostly splitting sentences that had to be
+read twice; and the 2026-08-24 journal entry now names `unslop` rather than the
+skill it replaced.
+
 ## Finished 2026-09-01, the repo stops naming its owner
 
 The push to GitHub was the forcing function. A sweep of every tracked file for the
@@ -1355,7 +1427,7 @@ in `ready` with its approved criteria, and a timeline note saying why.
 
 ## Finished 2026-08-24 — the colony writes the way the PO reads
 
-The PO enabled the `i-have-adhd` writing-style skill for their own sessions and
+The PO enabled the `unslop` writing-style skill for their own sessions and
 asked for the colony to use it too. The agents had always been told what to
 decide and never told how to write it down, so the shape of a recommendation
 was whatever the model reached for: an opening line announcing what it was

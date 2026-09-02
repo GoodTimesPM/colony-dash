@@ -148,9 +148,16 @@ def resolve(host: str | None) -> tuple[str, str]:
 
 def advice(kind: str) -> str:
     """One line about what the chosen network means. Empty when it means nothing."""
+    # A tailnet bind stays deliberately silent. Every caller prints this as a
+    # warning, and "this is working correctly" printed behind a warning sign is
+    # how a panel teaches people to stop reading it. The good news about a
+    # tailnet is said by the Tailscale block instead, where it is not a warning.
     if kind == "lan":
-        return ("this is your local network, not a private one — the token is "
-                "the only lock. Tailscale would make it the second.")
+        return ("this address only exists inside your building. The phone can "
+                "reach it on the same wifi and nowhere else — not on cellular, "
+                "not from work. It is also your local network rather than a "
+                "private one, so the token is the only lock. Tailscale fixes "
+                "both.")
     if kind == "every interface":
         return ("0.0.0.0 is every network this machine ever joins, including "
                 "ones you did not choose. Prefer a tailnet address.")

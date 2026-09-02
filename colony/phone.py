@@ -51,7 +51,7 @@ from __future__ import annotations
 import os
 import time
 
-from . import access, autostart, db, firewall, net, qr
+from . import access, autostart, db, firewall, net, qr, tailscale
 
 # The same default the server, the shortcut and the logon task all use. It is a
 # parameter everywhere rather than a constant because someone running two
@@ -222,6 +222,11 @@ def state(port: int = DEFAULT_PORT) -> dict:
         "arrivals": access.arrivals(),
         "since": SINCE,
         "neighbourhood": _neighbourhood(address),
+        # Which of the two networks the address above is on decides whether this
+        # feature works in the car park, and the address alone does not say so
+        # to anyone who does not already know what 100.x means. See
+        # `tailscale.py` for why that distinction is worth a whole panel.
+        "tailscale": tailscale.state(),
     }
 
 
