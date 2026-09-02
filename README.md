@@ -36,22 +36,23 @@ right.</em></p>
 ## How it works
 
 ```mermaid
+%%{init: {"flowchart": {"nodeSpacing": 70, "rankSpacing": 85, "curve": "basis", "padding": 18}}}%%
 flowchart TD
-    F["＋ Story, in the dashboard"] -->|"filed, nothing runs yet"| L[("SQLite ledger")]
-    N["Notion board, optional"] -->|"synced in on a pulse"| L
+    N["Notion board, optional"] -->|"synced in on a pulse"| L[("SQLite ledger")]
+    F["＋ Story, in the dashboard"] -->|"filed, nothing runs yet"| L
+    P{{"Pulse, once an hour"}} -->|"every beat"| T["Tick: read the ledger,<br>write a row"]
 
-    L -.->|"read on the next tick"| T["Tick: read the ledger, write a row"]
-    P{{"Pulse, once an hour"}} --> T
-
+    L -.->|"read on the next tick"| T
     T -->|"nothing to do"| L
     T -->|"something to do"| W["Wake: spend tokens"]
 
-    W --> G["Groom: story into tickets"]
-    W --> S["Staff: hire from the roster"]
+    W --> G["Groom:<br>story into tickets"]
+    W --> S["Staff:<br>hire from the roster"]
     W --> B["Build: work a ticket"]
 
     G --> L
     S --> L
+    L --> DASH["Dashboard,<br>read-only view"]
 
     B --> WT["Throwaway git worktree"]
     WT --> D["Diff"]
@@ -59,8 +60,6 @@ flowchart TD
     R --> I["PO inbox"]
     I -->|"approved"| REPO["The real repo"]
     I -->|"rejected"| L
-
-    L --> DASH["Dashboard, read-only view"]
 ```
 
 Three things in that diagram carry most of the weight.
@@ -87,10 +86,10 @@ in the `pulses` table is the alarm.
   <img src="docs/pulse-log.png" alt="The pulse log" width="330">
 </p>
 
-<p align="center"><em>`clean` is a real result, and `clean x13` is thirteen hours
-of nothing that were each checked. `forced` is a beat someone asked for by hand,
-and it does not move the scheduled one. A wake carries the tokens it
-cost.</em></p>
+<p align="center"><em><code>clean</code> is a real result, and <code>clean x13</code>
+is thirteen hours of nothing that were each checked. <code>forced</code> is a beat
+someone asked for by hand, and it does not move the scheduled one. A wake carries
+the tokens it cost.</em></p>
 
 ### Nothing reaches a real repo without you
 
@@ -751,3 +750,7 @@ multi-tenancy, auth is a single shared token over a private network, and the tes
 suite covers the safety model rather than everything. What it is instead is a
 real answer to the question at the top: a loop that has been left running against
 live repos without eating one.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
