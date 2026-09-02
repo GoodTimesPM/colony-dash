@@ -160,6 +160,20 @@ def _set_window_icon(title: str, tries: int = 40) -> None:
         pass
 
 
+def _idle() -> int:
+    """Hold the process open for the daemon server thread it owns.
+
+    The server runs on a daemon thread, so returning from `launch` would take it
+    down with the interpreter. Only a process that actually bound the port has a
+    reason to sit here.
+    """
+    try:
+        while True:
+            time.sleep(3600)
+    except KeyboardInterrupt:
+        return 0
+
+
 def launch(port: int = DEFAULT_PORT, *, host: str = HOST, window: bool = True) -> int:
     from . import server
 
@@ -167,6 +181,11 @@ def launch(port: int = DEFAULT_PORT, *, host: str = HOST, window: bool = True) -
     # `0.0.0.0` is an address to listen on, not one to connect to, and the
     # desktop shell is on the machine doing the listening either way.
     local = HOST if host in ("0.0.0.0", "::") else host
+
+    # Whether *this* process ended up owning the port. It decides what happens
+    # when there is no window to hold the process open: an owner has a server
+    # thread to keep alive, and a non-owner has nothing left to do.
+    serving = False
 
     live = _reusable(local, port)
     if live:
@@ -211,23 +230,29 @@ def launch(port: int = DEFAULT_PORT, *, host: str = HOST, window: bool = True) -
         if not thread.is_alive():
             log(f"another dashboard bound {local}:{port} first — reusing it")
         else:
+            serving = True
             log(f"serving http://{host}:{port}")
             if host != HOST:
                 log("this is reachable from the network — the access token is "
                     "required on every request that is not the login page")
 
     if not window:
-        try:
-            while True:
-                time.sleep(3600)
-        except KeyboardInterrupt:
+        if not serving:
+            # Losing the race is the correct outcome, but for a headless launch
+            # it used to be an outcome with no exit. The process logged "reusing
+            # it", fell into the sleep below and stayed there, holding a console
+            # and a Python interpreter for a server it did not own. Nine of them
+            # had piled up before anyone looked. There is nothing to keep alive
+            # here: the dashboard that answers on this port lives in another
+            # process, and this one is done.
             return 0
+        return _idle()
 
     try:
         import webview
     except ImportError:
         log("pywebview not installed — running headless; open the URL above")
-        return launch(port, host=host, window=False)
+        return _idle() if serving else 0
 
     webview.create_window(
         "Colony Dash",
@@ -259,5 +284,5 @@ def launch(port: int = DEFAULT_PORT, *, host: str = HOST, window: bool = True) -
     except Exception:  # no WebView2 runtime, no display, etc.
         log("could not open a window; falling back to the browser URL\n"
             + traceback.format_exc())
-        return launch(port, host=host, window=False)
+        return _idle() if serving else 0
     return 0
