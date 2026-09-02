@@ -7,6 +7,10 @@
 # Secrets. Never committed, never readable by an agent.
 .env
 
+# The environment `install.ps1` builds. Thousands of files, all of them
+# reproducible from requirements.txt, none of them ours.
+.venv/
+
 __pycache__/
 *.pyc
 
