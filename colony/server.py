@@ -327,7 +327,7 @@ def _board(conn: sqlite3.Connection) -> dict[str, Any]:
         """,
     )
     # Progress belongs on the card, not two clicks in. "4 of 11 done" is the
-    # answer to the question the PO actually has when he looks at the board —
+    # answer to the question the PO actually has when they look at the board —
     # and it is the same pair of columns that stops the loop re-raising finished
     # work, so the number on screen and the number in the prompt cannot drift.
     for s in stories:
@@ -340,7 +340,7 @@ def _board(conn: sqlite3.Connection) -> dict[str, Any]:
             ORDER BY dropped_at DESC LIMIT 20""",
     )
     # Filed, not dropped, and the difference is who decided. A dropped story is
-    # the PO overruling his own board from here; a settled one is the board
+    # The PO overruling their own board from here; a settled one is the board
     # itself saying the work is done, shelved or not begun. Both are hidden by
     # default and both keep a count in the header, because the count is the only
     # thing that tells you there is anything behind the toggle.
@@ -394,7 +394,7 @@ def _episode_window(conn: sqlite3.Connection, story_id: int | None,
     The obvious start is the moment the ticket was cut, and it is the wrong one.
     Most of what happened before a dispatch — the questions, the answers, the
     criteria being argued over — happened *before* the ticket existed, and those
-    are the part Jordan is looking for when he asks what took place. So an
+    are the part the PO is looking for when they ask what took place. So an
     episode runs from the previous delivery on the same story to this one.
     """
     if prev_at:
@@ -452,7 +452,7 @@ def _completed(conn: sqlite3.Connection, limit: int = 60) -> list[dict[str, Any]
     otherwise rebuild by hand next week.
 
     Nothing here is a status change and nothing here writes. It reads
-    `settled_as`, which is Jordan's word for a story, and `tickets.status`,
+    `settled_as`, which is the PO's word for a story, and `tickets.status`,
     which the ticket sets when its own run closes.
     """
     out: list[dict[str, Any]] = []
@@ -613,9 +613,9 @@ def _ready(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     It also carries what is still in the way. `control.dispatch` enforces three
     preconditions and the only way to discover which one you have failed was to
     press the button and read the refusal. Approving the criteria is the moment
-    the PO thinks the work has started; a tile that says "ready — except nobody
+    The PO thinks the work has started; a tile that says "ready — except nobody
     is hired to write in that folder" is the difference between a colony that is
-    waiting on him and a colony he believes is working.
+    waiting on them and a colony they believe is working.
     """
     out: list[dict[str, Any]] = []
     halted = control.is_halted()
@@ -642,7 +642,7 @@ def _ready(conn: sqlite3.Connection) -> list[dict[str, Any]]:
         if not s["writers"]:
             # Picking the person is the Scrum Master's job now (`wake.staff_stories`),
             # so this stopped being an instruction to the PO and became a status.
-            # The old text sent him to browse 270 personas he has never read, which
+            # The old text sent them to browse 270 personas they have never read, which
             # is the single reason a story that had cleared every gate sat still.
             pending_hire = one(conn, """SELECT e.id, e.reason FROM escalations e
                                          WHERE e.story_id = ? AND e.kind = 'hire'
@@ -1174,7 +1174,7 @@ def api_story(story_id: int) -> dict[str, Any]:
 @app.get("/api/spend")
 def api_spend(grain: str = Query("day"), span: int = Query(0),
               end: str = Query("")) -> dict[str, Any]:
-    """The spend chart, at whichever grain the PO picked, ending wherever he put it."""
+    """The spend chart, at whichever grain the PO picked, ending wherever they put it."""
     if grain not in SPAN:
         raise HTTPException(400, f"grain must be one of {', '.join(SPAN)}")
     # An out-of-range span is clamped rather than swapped for the default: a
@@ -1623,7 +1623,7 @@ def upload(body: dict = Body(...), x_colony: str | None = Header(None)) -> dict[
     Uploading is separate from replying so a paste can land the moment it
     happens: a screenshot appears in the composer as a thumbnail you can look at
     and remove, rather than as a promise that something got attached. An upload
-    the PO then abandons leaves a file in `.colony/attachments/` and nothing in
+    The PO then abandons leaves a file in `.colony/attachments/` and nothing in
     the ledger, which is the harmless direction for that trade to fail in.
     """
     _guard(x_colony)
@@ -1930,7 +1930,7 @@ def act_halt(body: dict = Body(...), x_colony: str | None = Header(None)) -> dic
 def act_allowance(body: dict = Body(...), x_colony: str | None = Header(None)) -> dict[str, Any]:
     _guard(x_colony)
     # Two ways to say the same thing: a step off the baseline, or the number the
-    # PO typed into the box. The box is the one that does not require him to
+    # PO typed into the box. The box is the one that does not require them to
     # know what the baseline is.
     if "allowance" in body:
         return _act(control.set_allowance_pct, float(body["allowance"]))
@@ -2233,7 +2233,7 @@ def act_rescan(x_colony: str | None = Header(None)) -> dict[str, Any]:
 
 # -- the console ---------------------------------------------------------------
 # The one part of this server that is not a window onto the colony. These four
-# routes are Jordan's own terminal, and `console.py` explains at length why they
+# routes are the PO's own terminal, and `console.py` explains at length why they
 # are allowed to do what every other route on this server is built to prevent.
 #
 # They do not go through `_act`. `_act` opens a transaction and holds it until
@@ -2553,7 +2553,15 @@ async def gate(request: Request, call_next):
                 # replaced client-side, because a token in an address bar is a
                 # token in the browser history.
                 or request.query_params.get("k"))
-    if access.matches(supplied):
+    ok = access.matches(supplied)
+
+    # Recorded before the answer goes out, and on both paths. The Phone panel
+    # reads this to say whether anything off this machine has arrived at all,
+    # which is the one fact that separates a network dropping the packet from a
+    # token being wrong. See `access.note_arrival`.
+    access.note_arrival(request.client.host if request.client else "", ok)
+
+    if ok:
         response = await call_next(request)
         if supplied != request.cookies.get(access.COOKIE):
             _set_cookie(response, supplied)

@@ -8,8 +8,8 @@ we are about to delete.
 
 The handoff back is a **patch, not a merge**. When the run finishes we take a
 diff, park it in `.colony/patches/`, and raise a `write-approval` escalation. If
-the PO approves, the patch is applied to the live tree and left **uncommitted** —
-Jordan reviews it in his own editor and commits it himself. The colony never
+The PO approves, the patch is applied to the live tree and left **uncommitted** —
+The PO reviews it in their own editor and commits it themselves. The colony never
 runs `git commit` on master, never pushes, and never rewrites history. That is
 not a policy the agents are asked to follow; it is a capability they were not
 given (ARCHITECTURE.md §8.3).
@@ -75,7 +75,7 @@ class PatchConflict(WorktreeError):
     other failure means nothing changed on disk; this one means most of the
     patch is already in the working tree and some files have conflict markers
     in them. Telling the PO "the patch would not apply" when this happens sends
-    him back to an editor full of files he thinks are untouched.
+    them back to an editor full of files they think are untouched.
     """
 
     def __init__(self, message: str, paths: list[str]):
@@ -323,9 +323,9 @@ def _drop_secrets(ticket_id: int) -> None:
 def diff(ticket_id: int) -> str:
     """Everything the run changed, as a patch against the seeded base.
 
-    Against the base and not HEAD: the checkout was brought up to Jordan's
+    Against the base and not HEAD: the checkout was brought up to the PO's
     uncommitted state before the agent started, so diffing against HEAD would
-    hand back his own edits as though the agent had written them.
+    hand back their own edits as though the agent had written them.
     """
     path = path_for(ticket_id)
     if not path.is_dir():
@@ -370,7 +370,7 @@ def apply_patch(ticket_id: int) -> dict:
 
     The strict `git apply --index` goes first. It is all-or-nothing: either
     every hunk lands exactly as written or nothing is touched. When it succeeds
-    the PO is looking at the patch he approved and nothing was guessed.
+    The PO is looking at the patch they approved and nothing was guessed.
 
     Only when strict refuses do we fall back to `--3way`, which merges a patch
     written against a slightly older tree. That fallback is not a safe retry,
@@ -380,10 +380,10 @@ def apply_patch(ticket_id: int) -> dict:
     stages 1/2/3 in the index, and a non-zero exit. The old code caught that
     exit and said "the patch would not apply", which was wrong twice — most of
     the patch had applied, and the PO was sent back to a tree with conflict
-    markers in it that nothing had told him about.
+    markers in it that nothing had told them about.
 
     Between the two sits a plain worktree apply, for the common case where the
-    only thing wrong is that the PO has staged work of his own on a file the
+    only thing wrong is that the PO has staged work of their own on a file the
     patch touches. See the comment on it below.
 
     So a conflict is now reported as a conflict, by name, and the caller keeps
@@ -409,7 +409,7 @@ def apply_patch(ticket_id: int) -> dict:
 
     # Both index-aware passes refuse with "does not match index" as soon as one
     # file the patch touches has staged work sitting on top of different
-    # worktree content — `MM` in `git status`. That is Jordan's ordinary state
+    # worktree content — `MM` in `git status`. That is the PO's ordinary state
     # in assisted-apply, and it says nothing about whether the patch fits: the
     # same patch that git called unappliable passed `git apply --check` against
     # the worktree on the first try.

@@ -4,7 +4,7 @@
 -- writes to a card, the pulse picks it up an hour later, an agent with a
 -- tool allowlist answers it. That is correct for the colony -- an autonomous
 -- loop that can run `rm -rf` unattended at 3am is not a loop anyone should
--- own -- and it is wrong for the one case where Jordan is sitting right there
+-- own -- and it is wrong for the one case where the PO is sitting right there
 -- watching, wanting to change the program itself.
 --
 -- So this is a second door, and it is deliberately a different door. It is

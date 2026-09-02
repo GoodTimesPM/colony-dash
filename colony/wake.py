@@ -102,14 +102,14 @@ MAX_ATTEMPTS = 2
 # changes under an open question, M5 marks that story's old groom tickets
 # wontfix — they answered a question about a version of the story that no longer
 # exists — and the count drops back to zero. Without it, a story groomed twice
-# early on could never be re-read no matter how much Jordan rewrote it, which is
+# early on could never be re-read no matter how much the PO rewrote it, which is
 # the same stale-prose failure the rest of M5 exists to fix, one layer down.
 GROOMABLE_WHERE = """
     status IN ('backlog','needs-criteria')
     AND dropped_at IS NULL
-    -- Filed by the PO: Done, Shipped, Shelved, New or Not started. A row he has
-    -- not started is not a row he is waiting on, and grooming it produces a
-    -- question about a decision he has deliberately not made yet.
+    -- Filed by the PO: Done, Shipped, Shelved, New or Not started. A row the
+    -- PO has not started is not a row they are waiting on, and grooming it
+    -- produces a question about a decision they have deliberately not made.
     AND settled_as IS NULL
     AND (acceptance_criteria IS NULL OR acceptance_criteria = '')
     AND (SELECT COUNT(*) FROM tickets t
@@ -150,7 +150,7 @@ def _progress_section(story: sqlite3.Row) -> str:
     """What is already inside the story, stated before what is left of it.
 
     The single most expensive mistake this loop made in its first week was
-    re-raising work Jordan had already finished, because the brief and the
+    re-raising work the PO had already finished, because the brief and the
     checkboxes were flattened into the same wall of text. Naming the finished
     items separately, and telling the agent in one blunt sentence that they are
     closed, costs about forty tokens and buys back a whole class of stale Inbox
@@ -172,7 +172,7 @@ def _progress_section(story: sqlite3.Row) -> str:
 
 
 def _settled_section(story: sqlite3.Row) -> str:
-    """Decisions Jordan has already made in a thread, stated as standing fact.
+    """Decisions the PO has already made in a thread, stated as standing fact.
 
     These came out of the Inbox rather than out of Notion, and before 013 they
     lived only in `po_messages` — a transcript nothing grooms from. An agent
@@ -185,7 +185,7 @@ def _settled_section(story: sqlite3.Row) -> str:
         return ""
     if not raw:
         return ""
-    return ("\n--- what Jordan has already settled, in the Inbox ---\n"
+    return ("\n--- what the PO has already settled, in the Inbox ---\n"
             "These are decisions, not suggestions. Do not ask about them again.\n"
             + raw[:4000] + "\n--- end settled ---")
 
@@ -195,7 +195,7 @@ def groom_prompt(story: sqlite3.Row, projects: list[str],
     """The work order. Explicit about the gate, so the agent can't overstep it."""
     body = (story["description"] or "").strip() or "(the Notion page body is empty)"
     return f"""You are Ordis, Scrum Master of a colony of Claude agents. You are grooming one
-backlog story for Jordan, who is the Product Owner. You are READ-ONLY: you have
+backlog story for the Product Owner. You are READ-ONLY: you have
 Read, Grep and Glob and nothing else. Do not attempt to modify anything.
 
 STORY #{story['id']}: {story['title']}
@@ -209,11 +209,11 @@ Current guess at project folder: {story['project'] or 'none — unknown'}
 {_settled_section(story)}
 {attach.evidence(attached or [])}
 
-Project folders that exist under D:\\ALL STUFF\\PROJECTS (a story belongs to one
+Project folders that exist under {db.PROJECTS_ROOT} (a story belongs to one
 of these, or to none if it is new work):
 {chr(10).join('  ' + p for p in projects)}
 
-You may read files under D:\\ALL STUFF\\PROJECTS to understand context. Each
+You may read files under {db.PROJECTS_ROOT} to understand context. Each
 project has a PROJECT.md at its root that states its current status — read the
 relevant one before deciding anything. Be frugal: a few targeted reads, not a
 survey.
@@ -221,14 +221,14 @@ survey.
 Your job is to answer one question: **is there enough here to build?**
 
 - If NO, say precisely what decision is missing. Not "needs more detail" — name
-  the specific thing only Jordan can decide (a target platform, a scope
+  the specific thing only the PO can decide (a target platform, a scope
   boundary, which of two approaches). One missing decision is enough.
 - If YES, draft acceptance criteria: 3-6 concrete, checkable statements. Each
   one must be something you could later verify as done or not done. No vague
   quality words.
 
-You do NOT decide that this story is ready to work on. Jordan does. You are
-drafting for his approval.
+You do NOT decide that this story is ready to work on. The PO does. You are
+drafting for their approval.
 
 {voice.STYLE}
 
@@ -236,7 +236,7 @@ Reply with ONLY a JSON object, no prose around it:
 
 {{
   "enough_info": true or false,
-  "missing": "the specific decision Jordan must make, or null if enough_info",
+  "missing": "the specific decision the PO must make, or null if enough_info",
   "project": "one folder from the list above, or null if you cannot tell",
   "project_confidence": "high" or "low",
   "criteria": ["...", "..."],
@@ -439,7 +439,7 @@ def groom_story(conn: sqlite3.Connection, story: sqlite3.Row, terms: dict,
 # ── answering the PO ──────────────────────────────────────────────────────────
 #
 # The Inbox got a reply box, so the wake got a job that runs before every other
-# job: read what Jordan typed and answer it. It goes first for the same reason a
+# job: read what the PO typed and answer it. It goes first for the same reason a
 # standup starts with blockers — an hour spent grooming a story the PO has just
 # redefined is an hour spent on the wrong story.
 #
@@ -458,14 +458,14 @@ def reply_prompt(msg: sqlite3.Row, esc: sqlite3.Row | None, story: sqlite3.Row |
                  attached: list[dict] | None = None) -> str:
     """The work order for one PO reply."""
     lines = [
-        "You are Ordis, Scrum Master of a colony of Claude agents. Jordan is the",
-        "Product Owner. He has written to you about one item in his PO Inbox, and",
-        "you are answering him directly. You are READ-ONLY: Read, Grep and Glob.",
+        "You are Ordis, Scrum Master of a colony of Claude agents. The Product",
+        "Owner has written to you about one item in their PO Inbox, and you are",
+        "answering them directly. You are READ-ONLY: Read, Grep and Glob.",
         "",
     ]
     if esc is not None:
         lines += [
-            "--- the Inbox item he is replying to ---",
+            "--- the Inbox item they are replying to ---",
             f"kind: {esc['kind']}",
             f"raised: {esc['raised_at']}",
             f"reason: {esc['reason']}",
@@ -486,12 +486,12 @@ def reply_prompt(msg: sqlite3.Row, esc: sqlite3.Row | None, story: sqlite3.Row |
     if history:
         lines.append("--- the conversation so far ---")
         for h in history[-8:]:
-            who = "JORDAN" if h["author"] == "po" else "YOU"
+            who = "THE PO" if h["author"] == "po" else "YOU"
             lines.append(f"{who} ({h['at']}): {h['body'][:1200]}")
         lines += ["--- end conversation ---", ""]
 
     lines += [
-        "--- what he just said ---",
+        "--- what they just said ---",
         msg["body"][:6000] or "(nothing written — see the attachments)",
         "--- end ---",
         "",
@@ -503,10 +503,10 @@ def reply_prompt(msg: sqlite3.Row, esc: sqlite3.Row | None, story: sqlite3.Row |
         lines += [attach.evidence(attached), ""]
 
     lines += [
-        "Project folders that exist under D:\\ALL STUFF\\PROJECTS:",
+        f"Project folders that exist under {db.PROJECTS_ROOT}:",
         *(f"  {p}" for p in projects),
         "",
-        "You may read files under D:\\ALL STUFF\\PROJECTS to check anything he",
+        f"You may read files under {db.PROJECTS_ROOT} to check anything the PO",
         "refers to. Be frugal — a few targeted reads, not a survey.",
         "",
         "What you can establish, and what you cannot. Your tools are Read, Grep",
@@ -525,10 +525,10 @@ def reply_prompt(msg: sqlite3.Row, esc: sqlite3.Row | None, story: sqlite3.Row |
         "    under it. That is also you. The result line is written when the beat",
         "    finishes, which cannot have happened yet.",
         "Never report the newest pulse as stuck, crashed, hung or silently failed,",
-        "and never ask Jordan to kill it. If you want to say something about the",
+        "and never ask the PO to kill it. If you want to say something about the",
         "heartbeat, read the entries BEFORE the last one.",
         "",
-        "When he tells you he has done something, check it and name the file you",
+        "When they tell you they have done something, check it and name the file",
         "checked. A `.env` file is outside your read scope and always will be. A",
         "`.env.example` is a committed template: a value in it says nothing about",
         "the `.env` sitting next to it, and reporting one as the other is how this",
@@ -541,39 +541,39 @@ def reply_prompt(msg: sqlite3.Row, esc: sqlite3.Row | None, story: sqlite3.Row |
         "the two of you talk about it is the failure this loop exists to prevent.",
         "Every reply must move the ledger, and there are only two ways to do that:",
         "",
-        "  settled          — he told you something the work needed. Write it down",
+        "  settled          — they told you something the work needed. Write it",
         "                     as standing fact and the story goes back in the groom",
         "                     queue, where an agent turns it into build tasks.",
         "  still_blocked_on — something is STILL missing. Name the one decision,",
-        "                     as a direct question, and it becomes a card in his",
-        "                     Inbox rather than a sentence in a thread he has to",
+        "                     as a direct question, and it becomes a card in",
+        "                     their Inbox rather than a sentence in a thread",
         "                     remember to re-read.",
         "",
-        "Both at once is normal and is the most useful answer you can give: he",
+        "Both at once is normal and is the most useful answer you can give: the",
         "answered part of it, and here is precisely the next thing you need.",
-        "Neither is a last resort — use it only when he asked you a question that",
+        "Neither is a last resort — use it only when they asked a question that",
         "was purely informational and nothing about the work changed.",
         "",
         "Do not write \"next step is scoping this as a real build task\" and stop.",
         "Putting it in `settled` IS how you scope it: the next wake grooms it.",
         "",
         "Still yours to refuse: approving, rejecting and confirming a project are",
-        "his decisions, and this reply makes none of them.",
+        "their decisions, and this reply makes none of them.",
         "",
         voice.STYLE,
         "",
         "Reply with ONLY a JSON object:",
         "",
         "{",
-        '  "answer": "what you are saying back to Jordan, under 1200 characters",',
-        '  "settled": "what he decided, written as fact for an agent who was not in',
+        '  "answer": "what you are saying back to the PO, under 1200 characters",',
+        '  "settled": "what they decided, written as fact for an agent not in',
         '              this conversation and will read only this line. If you could not',
-        '              check it yourself, begin the line with `Jordan says` — or null",',
+        '              check it yourself, begin the line with `the PO says` — or null",',
         '  "still_blocked_on": "the ONE specific decision that now blocks this work,',
-        '              phrased as a question only he can answer — or null if nothing',
+        '              phrased as a question only they can answer — or null if nothing',
         '              is blocking and the work can proceed",',
-        '  "project": "a folder from the list if his message settled which one, else null",',
-        '  "new_project": "a folder name he asked you to treat as new work, else null",',
+        '  "project": "a folder from the list if their message settled which one, else null",',
+        '  "new_project": "a folder name they asked you to treat as new work, else null",',
         '  "recommendation": "a revised one-line recommendation for the Inbox tile, or null",',
         '  "learned": "one durable thing worth keeping, or null",',
         '  "checked": ["the files you actually opened to support `settled`, by path.',
@@ -692,16 +692,16 @@ def answer_po(conn: sqlite3.Connection, terms: dict, projects: list[str]) -> lis
         # observe a running program, and the reply that forced this said
         # "NOTION_OG_TRACKER_DB is set in .env.example — it's live now, not just
         # logging 'not set'", having read a committed template and nothing else.
-        # The key really is set, but in `.env`, which he cannot read; and "live
-        # now" was something he had no way to observe and which was not true. The
-        # next groom wrote acceptance criteria on top of both. So if he names no
-        # file he actually opened, the line goes down as Jordan's word.
+        # The key really is set, but in `.env`, which Ordis cannot read; and
+        # "live now" was something it had no way to observe and which was not
+        # true. The next groom wrote acceptance criteria on top of both. So if
+        # no file was actually opened, the line goes down as the PO's word.
         raw_checked = answer.get("checked") or []
         if isinstance(raw_checked, str):
             raw_checked = [raw_checked]
         checked = [str(p).strip() for p in raw_checked if str(p).strip()]
-        if settled and not checked and not settled.lower().startswith("jordan says"):
-            settled = f"Jordan says: {settled} (Ordis opened no file to check this.)"
+        if settled and not checked and not settled.lower().startswith("the po says"):
+            settled = f"The PO says: {settled} (Ordis opened no file to check this.)"
         acted: list[str] = []
 
         # Closed first, and only on action. The fresh card below checks for an
@@ -731,12 +731,12 @@ def answer_po(conn: sqlite3.Connection, terms: dict, projects: list[str]) -> lis
                 # are empty (GROOMABLE_WHERE), so a story that was groomed,
                 # blocked, and then unblocked landed in `backlog` WITH criteria
                 # — not groomable, not dispatched, read by nothing. It sat there
-                # until Jordan noticed, which is the failure this loop exists to
+                # until the PO noticed, which is the failure this loop exists to
                 # prevent.
                 #
                 # There are three lanes, and which one is right turns on whether
                 # the criteria were ever approved. Approved criteria go back to
-                # `ready`, because the answer he just gave does not un-approve
+                # `ready`, because the answer just given does not un-approve
                 # them. Unapproved criteria are cleared, because they were
                 # drafted without that answer. No criteria at all means the
                 # story has never been groomed, and `backlog` is where grooming
@@ -746,11 +746,11 @@ def answer_po(conn: sqlite3.Connection, terms: dict, projects: list[str]) -> lis
                     "SELECT 1 FROM escalations WHERE story_id = ? AND kind = 'decision' "
                     "AND po_decision = 'approve' LIMIT 1", (story["id"],)).fetchone()
                 if has_criteria and approved:
-                    # He approved these criteria himself, and then a question
+                    # The PO approved these criteria, and then a question
                     # parked the story. The answer does not un-approve them, so
                     # the story goes back to the lane the question interrupted:
                     # `ready`, where the build picks it up. Clearing them here
-                    # would make him approve the same list a second time.
+                    # would make them approve the same list a second time.
                     conn.execute(
                         """UPDATE stories SET status = 'ready', blocked_reason = NULL,
                                   updated_at = datetime('now','localtime')
@@ -760,7 +760,7 @@ def answer_po(conn: sqlite3.Connection, terms: dict, projects: list[str]) -> lis
                     lane = "unblocked " + ARROW + " back to ready, dispatchable"
                 elif has_criteria:
                     # Groomed but never approved. The criteria were drafted
-                    # without the answer he just gave, so they are cleared and
+                    # without the answer just given, so they are cleared and
                     # the next wake re-reads the whole brief — the same
                     # treatment a brief that grew after delivery gets.
                     conn.execute(
@@ -789,7 +789,7 @@ def answer_po(conn: sqlite3.Connection, terms: dict, projects: list[str]) -> lis
                 # of the story that is gone; without this the story re-enters
                 # the queue already at its attempt ceiling and never groomed.
                 control.regroom_budget(conn, story["id"])
-                # Every card that said it could not start, not just the one he
+                # Every card that said it could not start, not just the one the PO
                 # happened to reply to.
                 control.clear_needs_info(conn, story["id"])
                 acted.append(lane)
@@ -853,10 +853,10 @@ def unanswered_count(conn: sqlite3.Connection) -> int:
 # What stood there before was an Inbox tile reading "nobody is hired to write in
 # personal-desktop-projects - open Standby, pick a persona and hire them with
 # write scope on it". Every word of that is the PO doing the Scrum Master's job,
-# on a roster of 270 people he has never read, and it is why a story that had
+# on a roster of hundreds nobody has read, and it is why a story that had
 # cleared every other gate still had not started.
 #
-# So the colony proposes the name and he answers yes or no. `propose_hire` and
+# So the colony proposes the name and the PO answers yes or no. `propose_hire` and
 # the `hire` escalation kind have both existed since M3 and nothing had ever
 # called them; this is the caller they were waiting for.
 
@@ -895,13 +895,13 @@ def staff_prompt(story: sqlite3.Row, digest: str, attached: list[dict] | None = 
     """The work order for one hiring decision."""
     criteria = (story["acceptance_criteria"] or "").strip() or "(none recorded)"
     brief = (story["description"] or "").strip() or "(the Notion page body is empty)"
-    return f"""You are Ordis, Scrum Master of a colony of Claude agents. Jordan is the Product
+    return f"""You are Ordis, Scrum Master of a colony of Claude agents. The Product
 Owner. You are READ-ONLY: Read, Grep and Glob.
 
-One of his stories has cleared the criteria gate and has a confirmed project
+One of their stories has cleared the criteria gate and has a confirmed project
 folder, so the only thing between it and real work is that nobody is hired to do
-it. Choosing who does the work is YOUR job. He picks nobody here; he reads the
-name you bring him and says yes or no.
+it. Choosing who does the work is YOUR job. The PO picks nobody here; they
+read the name you bring and say yes or no.
 
 STORY #{story['id']}: {story['title']}
 project: {story['project']}   (the write scope will be {story['project']}/ and nothing else)
@@ -910,12 +910,12 @@ project: {story['project']}   (the write scope will be {story['project']}/ and n
 {brief[:4000]}
 --- end brief ---
 
---- acceptance criteria, which Jordan has already approved ---
+--- acceptance criteria, which the PO has already approved ---
 {criteria[:3000]}
 --- end criteria ---
 {attach.evidence(attached or [])}
 
-Read D:\\ALL STUFF\\PROJECTS\\{story['project']}\\PROJECT.md and enough of that
+Read {db.PROJECTS_ROOT / story['project']}\\PROJECT.md and enough of that
 tree to know what the work actually is. You cannot choose who should do a job
 you have not looked at. Be frugal - a few targeted reads.
 
@@ -934,7 +934,7 @@ How to choose. These are rules, not advice:
     and a story about a scanner is not automatically a security one.
   * "<<hired Nx>>" means that persona already holds N contracts in this colony.
     Treat it as a reason to look harder at everybody else. It is never on its
-    own a reason to pick someone. In Jordan's words: "I do not want to only see
+    own a reason to pick someone. In the PO's words: "I do not want to only see
     one agent being chosen over and over again just because we found one that
     works. This environment needs to be diverse."
   * Consider candidates from more than one division, genuinely. If your three
@@ -949,7 +949,7 @@ How to choose. These are rules, not advice:
     roster has never been picked once.
 
 Show your work: name the two finalists you did NOT choose and what separated
-them. A choice you cannot account for is one Jordan has no way to check.
+them. A choice you cannot account for is one the PO has no way to check.
 
 {voice.STYLE}
 
@@ -1131,7 +1131,7 @@ def run(conn: sqlite3.Connection, usage: dict | None) -> dict:
     if terms is None:
         report["skipped"] = "no active investigator contract — run `python -m colony init`"
     else:
-        # Before anything else: whatever the PO said. Working a backlog he has
+        # Before anything else: whatever the PO said. Working a backlog they have
         # just re-scoped is the most expensive kind of wrong.
         projects = pulse_mod.candidate_projects()
         for outcome in answer_po(conn, terms, projects):
@@ -1161,7 +1161,7 @@ def run(conn: sqlite3.Connection, usage: dict | None) -> dict:
     # Staffing goes after grooming and before building, because grooming is what
     # produces the stories that need staffing and the PO has to approve a name
     # before a build can use it. A hire proposed this hour is approvable the
-    # moment he looks at the Inbox, and dispatchable the hour after.
+    # moment the PO looks at the Inbox, and dispatchable the hour after.
     if terms is not None:
         for outcome in staff_stories(conn, terms):
             report["staffed"].append(outcome)

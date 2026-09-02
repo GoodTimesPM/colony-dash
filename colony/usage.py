@@ -2,7 +2,7 @@
 
 Anthropic's 7-day allowance does not reset on Monday, or at midnight, or on any
 boundary the calendar knows about. It resets on **Friday at 05:00 local**, and
-the tray app's cache reports the exact instant it will next do so. Jordan's
+the tray app's cache reports the exact instant it will next do so. The PO's
 sprints run on that clock or they are measuring a week that does not exist:
 
     "my weekly token usage resets every friday at 5:00 AM. The weekly sprints

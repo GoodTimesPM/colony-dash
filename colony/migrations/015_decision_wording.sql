@@ -1,6 +1,6 @@
 -- The four decisions, past-tensed properly.
 --
--- 014 backfilled a ticket for every call Jordan has ever made, and wrote the
+-- 014 backfilled a ticket for every call the PO has ever made, and wrote the
 -- answer as 'PO ' || po_decision || 'd.' — which is right for exactly one of the
 -- four values that column allows. The rows already said "PO amendd." and
 -- "PO rejectd.", and a decision ticket exists to be read years later, so the

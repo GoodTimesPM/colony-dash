@@ -8,7 +8,7 @@
 -- reject, and routing it through Notion means the answer lands nowhere near the
 -- question.
 --
--- So: a message table. Jordan writes into the tile; the next wake reads the
+-- So: a message table. The PO writes into the tile; the next wake reads the
 -- unread rows, answers them, and writes the answer back into the same row. The
 -- escalation stays open the whole time, because a question that has been
 -- *replied to* is not a question that has been *resolved*.
@@ -20,7 +20,7 @@ CREATE TABLE po_messages (
   at            TEXT NOT NULL DEFAULT (datetime('now','localtime')),
   escalation_id INTEGER REFERENCES escalations(id),
   story_id      INTEGER REFERENCES stories(id),
-  -- 'po' is Jordan writing to Ordis. Kept as a column rather than implied by
+  -- 'po' is the PO writing to Ordis. Kept as a column rather than implied by
   -- which fields are null, because the thread is going to be read in order and
   -- a reader should never have to infer who is speaking.
   author        TEXT NOT NULL DEFAULT 'po' CHECK (author IN ('po','ordis')),

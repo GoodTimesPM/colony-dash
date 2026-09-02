@@ -256,7 +256,7 @@ def ensure_blocked_visible(conn: sqlite3.Connection) -> int:
         # A story parked with no recorded reason is the older shape of this bug:
         # it was blocked on naming its folder, that got answered elsewhere, and
         # the status never followed. Say the honest version rather than invent a
-        # question — the card asks him to point it at a folder, which is the
+        # question — the card asks them to point it at a folder, which is the
         # only thing it can still be waiting on.
         ask = (r["blocked_reason"] or "").strip() or (
             "This is parked and no longer says why. Confirm the project folder "
@@ -276,7 +276,7 @@ def ensure_blocked_visible(conn: sqlite3.Connection) -> int:
 # typo would be expensive and wrong.
 #
 # The consequence nobody designed: editing such a story does nothing at all. The
-# tick sees "1 changed", says so in the log, and drops it. Jordan added a chunk
+# tick sees "1 changed", says so in the log, and drops it. The PO added a chunk
 # of new scope to "15 Part Job Search" and the next two beats reported a story
 # edit and then stood down, because the queue that would have picked it up
 # excludes exactly this story.
@@ -427,7 +427,7 @@ def stale_escalations(conn: sqlite3.Connection, story_id: int, new_hash: str) ->
 
     This is the fix for the Inbox's worst habit. An escalation is prose written
     at a moment — "this cannot start until you decide X" — and it stays on the
-    page unchanged while Jordan goes away and decides X. The card kept asking
+    page unchanged while the PO goes away and decides X. The card kept asking
     for things that were already done, which teaches you to stop reading the
     Inbox, which is the only failure mode that actually matters here.
 
@@ -529,7 +529,7 @@ def sync_notion(conn: sqlite3.Connection) -> dict:
             # Filing is the one thing an hourly sync may change about a story's
             # standing. It deliberately does not touch `status`: the working
             # status is the colony's own, and an hourly sync must not reset
-            # `po-review` to `backlog` every time Jordan edits a sentence.
+            # `po-review` to `backlog` every time the PO edits a sentence.
             was_filed = prev["settled_as"]
             if settled:
                 if was_filed != settled:
@@ -545,7 +545,7 @@ def sync_notion(conn: sqlite3.Connection) -> dict:
                 result["revived"].append(row["title"])
 
             # Boxes ticked in Notion since the last sync. Worth naming in the
-            # log on their own: "Jordan finished three things" is the single
+            # log on their own: "the PO finished three things" is the single
             # most useful sentence an idle hour can produce.
             was = set(json.loads(prev["done_items"] or "[]"))
             newly = ([i for i in json.loads(row["done_items"] or "[]") if i not in was]
@@ -562,7 +562,7 @@ def sync_notion(conn: sqlite3.Connection) -> dict:
             result["staled"] += stale_escalations(conn, story_id, row["hash"])
         elif settled:
             # A row that arrives already filed and has never been seen is not
-            # news. Importing it would fill the board with every idea Jordan has
+            # news. Importing it would fill the board with every idea the PO has
             # ever written down, and — worse — the insert path below raises a
             # "which folder is this?" escalation, which is precisely the
             # question a not-started row must never produce.
@@ -604,7 +604,7 @@ def sync_notion(conn: sqlite3.Connection) -> dict:
                     """,
                     (story_id,
                      f'"{row["title"]}" — I cannot tell which project folder this belongs to.',
-                     "Name the folder under D:\\ALL STUFF\\PROJECTS, or say it is a new project.",
+                     f"Name the folder under {db.PROJECTS_ROOT}, or say it is a new project.",
                      row["hash"]),
                 )
 
@@ -623,12 +623,12 @@ KINDS = ("added", "modified", "deleted", "untracked")
 def _colony_writes(conn: sqlite3.Connection, start: str, end: str) -> set[str]:
     """Project folders the colony itself wrote into during this window.
 
-    The colony has exactly one route into Jordan's working tree — a patch he
+    The colony has exactly one route into the PO's working tree — a patch they
     read and approved — so this set is normally empty, and that emptiness is the
     useful part. Everything moving outside it moved for a reason that is not the
     colony: an application rewriting its own config, a build step, an editor,
-    him. A log that reports movement without saying that much invites the reading
-    Jordan actually had, which was that the colony had been in his folders.
+    them. A log that reports movement without saying that much invites the reading
+    The PO actually had, which was that the colony had been in their folders.
     """
     return {
         r["project"] for r in conn.execute(
@@ -748,15 +748,15 @@ def reap_orphaned_runs(conn: sqlite3.Connection) -> list[sqlite3.Row]:
 def decisions_since(conn: sqlite3.Connection, since: str) -> int:
     """Decisions the PO made since the last beat.
 
-    This used to count every escalation he had *ever* decided, with nothing to
-    clear it — so from his first approval onward the number only went up, every
+    This used to count every escalation they had *ever* decided, with nothing to
+    clear it — so from their first approval onward the number only went up, every
     tick had a standing reason to wake, and the pulse reported "8 PO decision(s)
     to act on" at a PO whose Inbox held one item.
 
     Two separate things were wrong with that sentence. The count was unbounded,
     which the window fixes. And the wording had the direction backwards: these
-    are decisions he already made, applied by `control.decide` at the moment he
-    made them — an approval is not a thing waiting for him, it is a thing that
+    are decisions they already made, applied by `control.decide` at the moment they
+    made them — an approval is not a thing waiting for them, it is a thing that
     already happened. What the wake picks up afterwards is the consequence.
     """
     return conn.execute(
@@ -832,7 +832,7 @@ def _tick(conn: sqlite3.Connection) -> dict:
     board = sync_notion(conn)
 
     # Push before pull would be tidier, but sync first is deliberate: a status
-    # the PO set on his phone should land in the ledger before the colony
+    # The PO set on their phone should land in the ledger before the colony
     # overwrites it with one queued yesterday. The outbox drains after the read
     # for the same reason a merge takes the newer side.
     #
@@ -953,7 +953,7 @@ def _tick(conn: sqlite3.Connection) -> dict:
                      + (f", {outside} not by the colony" if outside else ""))
 
     # The two halves of M5, both free, both worth a line. Ticked boxes and
-    # staled questions are the colony noticing that Jordan moved ahead of it.
+    # staled questions are the colony noticing that the PO moved ahead of it.
     if resumed:
         notes.append(f"board: {len(resumed)} delivered story(s) grew — back in the groom queue")
     if outrun:

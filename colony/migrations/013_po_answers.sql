@@ -2,8 +2,8 @@
 --
 -- The loop had a hole big enough to park the whole board in. A story that could
 -- not start went to `needs-info` and raised an Inbox card naming what was
--- missing. Jordan answered — in the thread, which is where the reply box put
--- him — and the reply path wrote his answer into `po_messages`, closed the card
+-- missing. The PO answered — in the thread, which is where the reply box put
+-- them — and the reply path wrote their answer into `po_messages`, closed the card
 -- as 'amend', and stopped. `po_messages` is a transcript; nothing grooms from
 -- it. GROOMABLE_WHERE excludes `needs-info` on purpose, so the story stayed
 -- parked, and with the card closed it was also invisible.
@@ -13,7 +13,7 @@
 -- symptom the PO reported was the honest one — "there is nothing in my inbox to
 -- change, just a reply in chat."
 --
--- So a story gets a place to hold decisions that came from Jordan rather than
+-- So a story gets a place to hold decisions that came from the PO rather than
 -- from Notion. It is deliberately NOT `description`: the Notion sync overwrites
 -- that column on every edit, and an answer that a page edit can erase is not an
 -- answer the loop can build on. This column is append-only and the sync never
@@ -45,7 +45,7 @@ UPDATE stories
    AND dropped_at IS NULL AND settled_as IS NULL;
 
 -- Giving back the grooming attempts those runs spent. They asked a question
--- Jordan has since answered; counting them against the answered version would
+-- The PO has since answered; counting them against the answered version would
 -- park the story at two attempts forever, which is the same permanent-block
 -- failure one layer down.
 UPDATE tickets

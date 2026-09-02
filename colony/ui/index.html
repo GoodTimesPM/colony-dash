@@ -27,7 +27,7 @@
   counts, timestamps, roles, ids and statuses are machine facts; story titles,
   findings and escalation reasons are prose. And colour is rationed: amber
   belongs to the PO Inbox and nothing else, so a page with amber on it means
-  something wants Jordan. Mint means live work. Coral means an anomaly.
+  something wants the PO. Mint means live work. Coral means an anomaly.
 
   Since M3 the page can also write. Every control that does routes through
   POST /api/act/*, which is a thin skin over control.py — the module that
@@ -178,7 +178,7 @@
   <div class="col">
     <section class="panel" data-panel="board">
       <h2>Board <span class="count" id="board-count"></span>
-        <button class="link" id="board-new" title="file a story straight into the ledger, without Notion">&#65291; story</button>
+        <button class="link go" id="board-new" title="File a story straight into the ledger">&#65291; Story</button>
         <button class="link" id="board-filed" style="display:none" title="done, shipped, shelved or not started — the colony asks nothing about these">filed</button>
         <button class="link" id="board-dropped" style="display:none" title="stories you have dropped">dropped</button>
       </h2>

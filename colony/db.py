@@ -138,6 +138,44 @@ def connect(path: Path | str = LEDGER_PATH, *, read_only: bool = False) -> sqlit
     return conn
 
 
+# Hashes of earlier versions of applied migrations, accepted once and then
+# replaced by the current hash.
+#
+# Every entry here is a comment rewrite. Preparing this repo to be published
+# meant removing one person's name and gendered pronouns from every comment in
+# it, and ten of those comments sit in migrations that had already run on a live
+# ledger. The schema those files produce did not change; only the prose above it
+# did. The check in `migrate` compares bytes, so it saw a schema fork that was
+# not there.
+#
+# This forgives specific bytes, not a class of edit. A migration altered in any
+# way that is not one of these exact earlier versions still stops the process,
+# which is the behaviour worth keeping: two installs quietly disagreeing about
+# what a table looks like is a much worse failure than a refusal to boot.
+SUPERSEDED: dict[str, tuple[str, ...]] = {
+    "001_initial.sql": (
+        "69d9abf93aef4795a310082067bfba836f00c8a87ff5b8e890c7c0a5011f8626",),
+    "005_po_replies.sql": (
+        "822b29c40e68f5847809ca0e4ccf894bea937cbc7d4d5dbc1616e5f102078a4b",),
+    "012_project_movement.sql": (
+        "3bc61649b94741e0fb6d0784a4f4f3f48323dd0b09e4c10d5fd25184902fce80",),
+    "013_po_answers.sql": (
+        "17e9d2c1c3087c1b52a92407331ea32042f6b1bef515ca0d78087a99e98a6bbc",),
+    "014_decisions_and_bias.sql": (
+        "3d2eeea0bb00f27bd10e442907099a115320b0de027e8554c049c62649110d5e",),
+    "015_decision_wording.sql": (
+        "46d7bafc2f4a3f64f37076e482ca55d9105263f7de58e7dd6c034989abfcfff4",),
+    "017_dismiss.sql": (
+        "7cbd78bad502098ef9214384e14167c29b8f3d13d045bc48e139b76716e0d27d",),
+    "022_agent_secrets.sql": (
+        "c988fb5e989a2883c39b61135b7318ec3becc3f9d0a69efa2c3e006f0ff490d5",),
+    "023_run_requests.sql": (
+        "163aafba1ebce7f224769c2f9d29cbdd9b8fd2e7812814660f383cb4e6796d95",),
+    "024_console.sql": (
+        "889e04c9e6cdca93b27b878ff8c08d0c78c8c6a0a72eb0168abd3256db56378a",),
+}
+
+
 def _ensure_migrations_table(conn: sqlite3.Connection) -> None:
     conn.execute(
         """
@@ -166,10 +204,15 @@ def migrate(conn: sqlite3.Connection, *, verbose: bool = True) -> list[str]:
 
         if sql_file.name in applied:
             if applied[sql_file.name] != digest:
-                raise RuntimeError(
-                    f"{sql_file.name} changed after it was applied. Migrations are "
-                    f"append-only — add a new file instead of editing this one."
-                )
+                if applied[sql_file.name] not in SUPERSEDED.get(sql_file.name, ()):
+                    raise RuntimeError(
+                        f"{sql_file.name} changed after it was applied. Migrations are "
+                        f"append-only — add a new file instead of editing this one."
+                    )
+                # A comment-only rewrite this file vouches for. Record the new
+                # hash so the check is exact again from the next start onwards.
+                conn.execute("UPDATE _migrations SET sha256 = ? WHERE filename = ?",
+                             (digest, sql_file.name))
             continue
 
         # Foreign keys off for the duration. A migration that widens a CHECK

@@ -12,7 +12,7 @@
 --
 -- A column rather than a fifth `po_decision`, and not to dodge the rebuild: a
 -- dismissal is not an answer. `po_decision` records which of the four answers
--- the PO gave, and this file's whole point is that he gave none of them. The
+-- The PO gave, and this file's whole point is that they gave none of them. The
 -- ledger already spells that state — `resolved_at` set with `po_decision`
 -- NULL is how a filed story's questions are closed as moot (`control.settle`),
 -- and everything downstream already knows not to read those as instructions.

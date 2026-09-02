@@ -11,7 +11,7 @@
 --
 -- So the agent stops guessing and hands the command over. `needs_run` in its
 -- reply becomes a `run-request` card: the command as written, the reason, and
--- what the agent expects to see. Jordan reads it and either runs it or does
+-- what the agent expects to see. The PO reads it and either runs it or does
 -- not. The output goes back on the story as an event, so the next build reads
 -- what happened rather than asking again.
 --
