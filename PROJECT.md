@@ -380,6 +380,34 @@ names the state and the next move.
       addition rather than a change to any existing path. Merge when it has been used from
       an actual phone for a few days.
 
+## Finished 2026-09-04 — the console locked out the desktop it was running on
+
+- [x] **The console refused every message, on the desktop and on the phone.** The textarea
+      was disabled everywhere, and the panel's advice was to turn the boundary off "in the
+      console on the desktop", which is where the person already was. Two separate defects
+      lined up behind it.
+      - **`--host auto` binds one address and nothing else.** The logon task runs
+        `--serve --host auto`, which resolved to the tailnet address and bound only that;
+        `netstat` showed a single socket on `100.126.11.89:8787` and nothing on loopback. So
+        the desktop window had to open the tailnet address, and a connection made on this
+        machine to this machine's own address arrives with *that* address as its peer rather
+        than `127.0.0.1`. `desktop.launch` now calls `server.serve_extra(HOST, port)` after
+        any network bind, so the machine can always reach its own dashboard by the name that
+        means "here", and re-records `dash.url` as loopback because the marker is what the
+        next launch reuses. A failed second bind is logged and carried on from: the network
+        dashboard is up and working, and losing the extra socket is not worth an exit.
+      - **`_at_the_desk` asked "is this loopback" when it meant "is this the machine".**
+        Widened to `net.is_this_machine`, which also accepts an address this machine actually
+        answers to. Not a weaker check: a peer address is where the handshake's replies go, so
+        a device across the network cannot present this machine's own address and still
+        complete a connection. Cached for a minute, because the console polls it every 1.5s.
+      - **The test that hid it.** `ConsoleIsDeskOnly` hard-coded `10.0.0.57` as its example of
+        "somewhere else", and that is this machine's own LAN address, so the case asserted the
+        opposite of the truth on the one machine it ran on. The address list is stubbed now,
+        and every case names an address relative to the stub. 207 tests.
+      - Still true, and still the point: the phone stays read-only until someone presses
+        **answer from anywhere** at the desk. That button is now reachable, which it was not.
+
 ## Finished 2026-09-02 — the launch that lost the race, and the screenshots that named real work
 
 - [x] **`install.ps1`, and the README section that stops assuming Python literacy.** The old
