@@ -221,20 +221,46 @@ class ConsoleIsDeskOnly(unittest.TestCase):
         def __init__(self, host):
             self.client = type("C", (), {"host": host})() if host is not None else None
 
+    # What counts as "this machine" is a property of the machine running the
+    # tests, and an earlier version of this class hard-coded 10.0.0.57 as an
+    # example of somewhere else. That is this developer's own LAN address, so
+    # the test asserted the opposite of the truth on the one machine it ran on.
+    # The address list is stubbed instead, and every case below names an
+    # address relative to that stub rather than to whatever interface happens
+    # to be up.
+    MINE = frozenset({"10.0.0.57", "100.126.11.89"})
+
     def setUp(self):
-        from colony import server
+        from colony import net, server
         self.server = server
         self.addCleanup(setattr, server, "CONSOLE_REMOTE", server.CONSOLE_REMOTE)
         server.CONSOLE_REMOTE = False
+        self.addCleanup(setattr, net, "local_addresses", net.local_addresses)
+        net.local_addresses = lambda: self.MINE
 
     def test_loopback_is_allowed(self):
         for host in ("127.0.0.1", "::1", "localhost"):
             with self.subTest(host=host):
                 self.server._desk_only(self.Req(host))       # does not raise
 
-    def test_the_lan_is_refused_with_a_reason_a_person_can_act_on(self):
-        for host in ("10.0.0.57", "192.168.1.9", "100.101.102.103"):
+    def test_this_machines_own_network_address_is_the_desk(self):
+        """The logon task binds one network address, so the window uses it too.
+
+        A connection opened here to this machine's own tailnet address arrives
+        with that address as its peer rather than 127.0.0.1. Reading that as a
+        stranger is what locked the console out of the desktop it ran on.
+        """
+        for host in sorted(self.MINE):
             with self.subTest(host=host):
+                self.server._desk_only(self.Req(host))       # does not raise
+
+    def test_another_device_is_refused_with_a_reason_a_person_can_act_on(self):
+        # Addresses in the same ranges as the two above, and deliberately close
+        # to them: a phone on the same wifi and another node on the same
+        # tailnet are exactly what this has to keep out.
+        for host in ("10.0.0.58", "192.168.1.9", "100.126.11.90"):
+            with self.subTest(host=host):
+                self.assertNotIn(host, self.MINE)
                 with self.assertRaises(HTTPException) as caught:
                     self.server._desk_only(self.Req(host))
                 self.assertEqual(caught.exception.status_code, 403)
@@ -247,7 +273,7 @@ class ConsoleIsDeskOnly(unittest.TestCase):
 
     def test_the_escape_hatch_lifts_it(self):
         self.server.CONSOLE_REMOTE = True
-        self.server._desk_only(self.Req("10.0.0.57"))        # does not raise
+        self.server._desk_only(self.Req("10.0.0.58"))        # does not raise
 
     def test_every_console_write_route_is_behind_it(self):
         """A fifth console route added later must not quietly skip the guard."""

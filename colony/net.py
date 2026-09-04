@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import ipaddress
 import socket
+import time
 
 TAILNET = ipaddress.ip_network("100.64.0.0/10")
 
@@ -107,6 +108,57 @@ def lan() -> str | None:
         if address.version == 4 and any(address in net for net in RFC1918):
             return value
     return None
+
+
+# `_candidates` opens a socket and asks DNS, and `is_this_machine` is called
+# from a route the console polls every 1.5 seconds. What it answers changes only
+# when an interface comes or goes, so it is cached for a minute rather than
+# recomputed per request.
+_LOCAL_CACHE: tuple[float, frozenset[str]] | None = None
+_LOCAL_TTL_S = 60.0
+
+
+def local_addresses() -> frozenset[str]:
+    """Every address this machine answers to, cached for a minute."""
+    global _LOCAL_CACHE
+    now = time.monotonic()
+    if _LOCAL_CACHE is not None and now - _LOCAL_CACHE[0] < _LOCAL_TTL_S:
+        return _LOCAL_CACHE[1]
+    found = frozenset(_candidates())
+    _LOCAL_CACHE = (now, found)
+    return found
+
+
+def is_this_machine(host: str) -> bool:
+    """True when an inbound peer address belongs to the machine we run on.
+
+    Loopback is the obvious case and not the only one. When the server binds a
+    tailnet or LAN address, a connection opened *on this machine* to that
+    address gets that same address as its source — the kernel picks the
+    interface it is routing out of — so the peer the server sees is its own
+    address, not `127.0.0.1`. A check that only knows about loopback reads that
+    as a stranger, which is how the console managed to lock out the desktop it
+    was running on.
+
+    This does not widen what a remote device can claim. A peer address is where
+    the TCP handshake's replies go, so a machine across the network cannot
+    present this machine's own address and still complete a connection: the
+    replies would be delivered here rather than to it.
+
+    An address that will not parse is not this machine, same as everywhere else
+    in this module — the unknown case fails towards asking for a token.
+    """
+    host = (host or "").strip().strip("[]")
+    if not host:
+        return False
+    if host.lower() == "localhost":
+        return True
+    try:
+        if ipaddress.ip_address(host).is_loopback:
+            return True
+    except ValueError:
+        return False
+    return host in local_addresses()
 
 
 def auto() -> tuple[str, str]:

@@ -118,5 +118,71 @@ class HeadlessLaunchExits(unittest.TestCase):
         self.assertEqual(self.idled, [True])
 
 
+class ANetworkBindKeepsLoopback(unittest.TestCase):
+    """Binding the network must not cost this machine its own address.
+
+    `--host auto` resolves to one address and binds that alone, which is what
+    the logon task runs. Nothing was left on 127.0.0.1, so the desktop window
+    had to open the tailnet address, every request from it arrived looking like
+    it came off the network, and the console -- which is scoped to the machine
+    rather than to the token -- refused to take a message from the desktop it
+    was running on. It then advised turning the boundary off from the desktop,
+    which is where the person already was.
+    """
+
+    def setUp(self):
+        self.marks = []
+        self.released = threading.Event()
+        self.addCleanup(self.released.set)
+        for name, value in (("_wait_for_port", lambda h, p: True),
+                            ("_mark", lambda h, p: self.marks.append(h)),
+                            ("_idle", lambda: 0),
+                            ("_reusable", lambda h, p: None),
+                            ("log", lambda *a, **k: None)):
+            patch = mock.patch.object(desktop, name, value)
+            patch.start()
+            self.addCleanup(patch.stop)
+
+    def serve(self, extra):
+        """`server.serve` holds its thread; `serve_extra` does whatever `extra` does."""
+        def _serve(host=None, port=None):
+            self.released.wait(10)
+
+        # `serve_extra` has to stay a Mock rather than the bare callable, or the
+        # call assertions below have nothing to read.
+        stub = mock.Mock(serve=_serve, serve_extra=mock.Mock(side_effect=extra))
+        stack = contextlib.ExitStack()
+        stack.enter_context(mock.patch.dict("sys.modules",
+                                            {"colony.server": stub}))
+        stack.enter_context(mock.patch.object(colony, "server", stub, create=True))
+        return stack, stub
+
+    def test_loopback_is_bound_too_and_becomes_the_recorded_address(self):
+        stack, stub = self.serve(extra=lambda h, p: None)
+        with stack:
+            self.assertEqual(desktop.launch(8787, host=LAN, window=False), 0)
+        stub.serve_extra.assert_called_once_with(desktop.HOST, 8787)
+        # The marker is what the next launch reuses, so it has to end up
+        # pointing at loopback rather than at the address bound first.
+        self.assertEqual(self.marks, [LAN, desktop.HOST])
+
+    def test_a_loopback_bind_that_fails_does_not_take_the_dashboard_down(self):
+        """The network server is up and works. Losing the second socket costs
+        the shortcut a nicer address, and that is not worth an exit."""
+        def boom(h, p):
+            raise OSError("something else is on 8787")
+
+        stack, _ = self.serve(extra=boom)
+        with stack:
+            self.assertEqual(desktop.launch(8787, host=LAN, window=False), 0)
+        self.assertEqual(self.marks, [LAN])
+
+    def test_a_loopback_launch_does_not_bind_a_second_socket(self):
+        stack, stub = self.serve(extra=lambda h, p: None)
+        with stack:
+            self.assertEqual(desktop.launch(8787, window=False), 0)
+        stub.serve_extra.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -236,6 +236,32 @@ def launch(port: int = DEFAULT_PORT, *, host: str = HOST, window: bool = True) -
                 log("this is reachable from the network — the access token is "
                     "required on every request that is not the login page")
 
+                # And loopback as well, so this machine can always reach its own
+                # dashboard by the name that means "here". `--host auto` binds
+                # one address and one only, which left the logon task serving a
+                # tailnet address with nothing on 127.0.0.1: the window then had
+                # to open the tailnet address, every request from it arrived
+                # looking like it came off the network, and the console -- which
+                # is scoped to the machine rather than to the token -- refused
+                # the desktop it was running on.
+                #
+                # A failure here is not fatal. The dashboard on the network
+                # address is up and works; what is lost is the shortcut being
+                # able to point at loopback, so it is logged and carried on
+                # from rather than raised.
+                try:
+                    server.serve_extra(HOST, port)
+                    local = HOST
+                    # Re-recorded, because `_mark` ran a few lines up with the
+                    # network address and the marker is what the *next* launch
+                    # reuses. Leaving it would point tomorrow's window back at
+                    # the tailnet address and undo this on the next restart.
+                    _mark(local, port)
+                    log(f"also serving http://{HOST}:{port} for this machine")
+                except Exception as exc:
+                    log(f"could not also bind {HOST}:{port} ({exc}) — the "
+                        f"dashboard is still up on {host}")
+
     if not window:
         if not serving:
             # Losing the race is the correct outcome, but for a headless launch

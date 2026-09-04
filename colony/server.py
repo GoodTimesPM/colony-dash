@@ -2306,13 +2306,22 @@ def _console_conn() -> sqlite3.Connection:
 def _at_the_desk(request: Request) -> bool:
     """True when the request came from the machine the colony runs on.
 
+    Not the same question as "is this loopback", which is what it used to ask.
+    The logon task binds `--host auto`, a tailnet or LAN address and nothing
+    else, so the desktop window opens that address too -- and a connection made
+    on this machine to this machine's own address arrives with that address as
+    its peer, not `127.0.0.1`. The console then refused to take a message from
+    the desktop it was running on, and told the person to go and turn it on
+    from the desktop, which is where they were. `net.is_this_machine` carries
+    the argument for why answering the wider question is not a weaker check.
+
     `access.is_loopback("")` is True by design -- for the token gate, a peer the
     server cannot identify should fall back to *asking for a token*, which is
     the safe side there. Every caller here wants the other side, so the empty
     case is spelled out once rather than borrowed four times.
     """
     peer = request.client.host if request.client else ""
-    return bool(peer) and access.is_loopback(peer)
+    return bool(peer) and net.is_this_machine(peer)
 
 
 def _desk_only(request: Request) -> None:
@@ -2534,6 +2543,11 @@ REQUIRE_TOKEN = False
 # It stays False for a plain `serve()`, where no loopback socket exists and a
 # loopback peer therefore cannot arrive. That is not a technicality: it means a
 # server bound only to the network never trusts an address, only the token.
+#
+# `desktop.launch` now calls `serve_extra(HOST, port)` after any network bind,
+# so the headless logon task reaches this too. Same argument, same conclusion:
+# the loopback socket it opens is reachable only by something already running
+# on the machine that holds `.env`.
 TRUST_LOOPBACK = False
 
 LOGIN_PAGE = """<!doctype html>
