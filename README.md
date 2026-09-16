@@ -417,7 +417,13 @@ a wake is not, and most hours only need a tick.
 
 ## Installing it
 
-Windows, and Python 3.12 or newer. Three lines:
+Windows, and Python 3.12 or newer.
+
+Download the zip, extract it anywhere, and double-click **`Install.cmd`**. That
+is the whole thing. The window stays open when it finishes so you can read what
+it did.
+
+Or from a terminal, if you would rather:
 
 ```powershell
 git clone https://github.com/<you>/colony-dash.git
@@ -425,15 +431,20 @@ cd colony-dash
 powershell -ExecutionPolicy Bypass -File .\install.ps1
 ```
 
-That builds a `.venv` inside the checkout, installs the four dependencies into
-it, copies `.env.example` to `.env`, creates the ledger, and puts a Colony Dash
-shortcut on your Desktop. It prints what it is doing at each step and stops with
-an explanation if something is missing, so a failure tells you which thing to go
-fix. Running it twice is fine: every step checks for its own result first, which
-makes it a repair as much as an install.
+Either way it builds a `.venv` inside the checkout, installs the four
+dependencies into it, copies `.env.example` to `.env`, creates the ledger, and
+puts a Colony Dash shortcut on your Desktop. It prints what it is doing at each
+step and stops with an explanation if something is missing, so a failure tells
+you which thing to go fix. Running it twice is fine: every step checks for its
+own result first, which makes it a repair as much as an install.
 
-The `-ExecutionPolicy Bypass` is there because Windows blocks downloaded scripts
-by default. It applies to that one run and changes nothing on your machine.
+`Install.cmd` exists because Windows will not let you double-click a `.ps1` at
+all, and marks every file that came out of a downloaded zip as blocked, which
+makes PowerShell refuse to run the script even if you do reach it. The wrapper
+clears the block on the extracted files and runs the installer with
+`-ExecutionPolicy Bypass`, which applies to that one run and changes nothing on
+your machine. Arguments pass straight through, so `Install.cmd -Port 9000` and
+`Install.cmd -NoShortcut` work.
 
 Then:
 
@@ -475,6 +486,8 @@ says "roster skipped" if you do not. The colony runs either way. Without a roste
 it just cannot hire beyond the two structural agents.
 
 ### Removing it
+
+Double-click **`Uninstall.cmd`**, or:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\install.ps1 -Uninstall
@@ -776,6 +789,8 @@ colony/
                   manifest.webmanifest, sw.js, icons, installable on a phone
 tests/            stdlib unittest, no install step
 install.ps1       clone to working dashboard, and -Uninstall back out again
+Install.cmd       double-clickable wrapper for it, unblocks the zip first
+Uninstall.cmd     the same wrapper, pointed at -Uninstall
 colony-dash.cmd   runs the CLI against the .venv the installer built
 ```
 
