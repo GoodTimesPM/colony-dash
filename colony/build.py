@@ -74,7 +74,12 @@ def history_note(events: list[dict] | None) -> str:
     out = ["--- what the colony already found out on this story ---",
            "Earlier runs and decisions, oldest first. Take these as established.",
            "If one of them is wrong, say so in your report rather than quietly "
-           "working around it.", ""]
+           "working around it.",
+           "A `decided` entry is the PO speaking. Where one waives a check or "
+           "settles a criterion, it settles it: read the criterion as met and "
+           "move on. Do not reason about what they must have meant more "
+           "narrowly, and do not ask for the same thing again in `needs_run` "
+           "under a different justification.", ""]
     for e in events:
         out.append(f"[{e['at']}] {e['kind']}: {e['summary']}")
         detail = (e.get("detail") or "").strip()
@@ -179,9 +184,13 @@ WRITE SCOPE — you may create and edit files ONLY under:
 Everywhere else in this checkout is READ-ONLY to you. You have no shell: no
 git commands, no package installs, no network.
 
-Your command runs inside the project folder already. Do not begin it with
-`cd` — the folder is the write scope, and a command that starts by leaving it
-is refused.
+Your command starts in {project}/, the top of the write scope. If the thing it
+runs lives deeper — a package in a subfolder, a test suite next to its own
+`requirements.txt` — begin the command with `cd <that subfolder>` and the colony
+will start it there. Check where the entry point actually is before you write
+the line: `py -m apply.main auto` from a folder with no `apply` package in it
+dies on `No module named 'apply'` and answers nothing. A `cd` that leaves the
+write scope is refused.
 
 You are not the only one working on this. When a criterion needs a command run
 — a script, a test, a real API call — do not skip it and do not fake it. Put
@@ -371,7 +380,8 @@ def run_one(conn: sqlite3.Connection, ticket: sqlite3.Row) -> dict:
         if answer.get("learned"):
             _event(conn, sid, "learning", clip(str(answer["learned"]), 400),
                    str(answer["learned"]), tid, 0)
-        handed = _raise_run_requests(conn, ticket, answer)
+        handed = _raise_run_requests(conn, ticket, answer,
+                                     wrote_nothing=True)
         _park_no_change(conn, ticket, answer, handed)
         worktree.remove(tid)
         outcome["verdict"] = (f"handed off {handed} command(s)" if handed
@@ -479,8 +489,60 @@ def _park_no_change(conn: sqlite3.Connection, ticket: sqlite3.Row,
          control.card_text("\n\n".join(body)), story["notion_hash"]))
 
 
+def _same_command(a: str, b: str) -> bool:
+    """Is this the command the story has been asked about before?
+
+    Whitespace only. Two spellings that differ by an argument are two different
+    questions and both deserve asking; two that differ by a space are one
+    question asked twice.
+    """
+    return " ".join((a or "").split()) == " ".join((b or "").split())
+
+
+def _already_asked(conn: sqlite3.Connection, story_id: int, command: str,
+                   wrote_nothing: bool) -> str | None:
+    """Why this run-request must not go in front of the PO again, or None.
+
+    Twelve cards on story #1 carried `py -m apply.main auto`, and the PO ran it,
+    rejected it and finally waived it. Every one of those answers landed on the
+    story and none of them stopped the next build asking, because nothing looked
+    at the earlier cards before raising a new one. The Inbox is where the colony
+    asks for a person's attention, and spending it on a question already
+    answered is how it stops being worth reading.
+    """
+    if not story_id:
+        return None
+    rows = conn.execute(
+        "SELECT proposal, resolved_at, po_decision, dismissed_at FROM escalations "
+        "WHERE story_id = ? AND kind = 'run-request' ORDER BY id DESC",
+        (story_id,)).fetchall()
+    ran_before = False
+    for row in rows:
+        try:
+            earlier = json.loads(row["proposal"] or "{}").get("command") or ""
+        except ValueError:
+            continue
+        if not _same_command(earlier, command):
+            continue
+        if not row["resolved_at"]:
+            return "it is already in the PO's Inbox, unanswered"
+        if row["dismissed_at"] or row["po_decision"] in ("reject", "defer"):
+            # A no is an answer. Re-raising it reads to the PO as the colony not
+            # listening, which is exactly what it is.
+            return "the PO has already declined to run it on this story"
+        if row["po_decision"] == "approve":
+            ran_before = True
+    if ran_before and wrote_nothing:
+        # It ran, and this build wrote nothing. Same tree, same command, same
+        # output: there is no version of running it again that tells anyone
+        # something the story does not already record.
+        return ("it has already been run on this story and this build changed "
+                "nothing, so running it again would print the same thing")
+    return None
+
+
 def _raise_run_requests(conn: sqlite3.Connection, ticket: sqlite3.Row,
-                        answer: dict) -> int:
+                        answer: dict, wrote_nothing: bool = False) -> int:
     """Turn the agent's `needs_run` list into cards the PO can act on.
 
     A build agent has no shell, so a criterion phrased "run X and confirm Y"
@@ -508,17 +570,33 @@ def _raise_run_requests(conn: sqlite3.Connection, ticket: sqlite3.Row,
         expect = str(item.get("expect") or "").strip()
         try:
             command = runner.check(command)
-            # Cleaned here rather than at run time so the card shows the line
-            # that will actually be run, and so a `cd` out of the project folder
-            # is refused before it is ever put in front of the PO.
-            command = runner._drop_leading_cd(
+            # Resolved here rather than at run time so the card shows the line
+            # that will actually be run and the folder it will run in, and so a
+            # `cd` out of the project folder is refused before it is ever put in
+            # front of the PO.
+            command, where = runner.resolve_cd(
                 command, runner.check_folder(ticket["project"]))
+            where = where.relative_to(runner.ROOT).as_posix()
         except runner.RunRefused as exc:
             _event(conn, ticket["sid"], "note",
                    f"{ticket['role']} asked to run a command the colony will not run",
                    f"$ {command}\n\n{exc}", ticket["id"], 0)
             continue
-        body = [f"$ {command}", f"  in {ticket['project']}/"]
+        settled = _already_asked(conn, ticket["sid"], command, wrote_nothing)
+        if settled:
+            # On the story rather than in the Inbox. The next agent reads the
+            # story, so this is where the answer has to be for it to stop
+            # asking, and the PO has already spent their attention on this one.
+            _event(conn, ticket["sid"], "note",
+                   f"{ticket['role']} asked again for `{command}` — not raised",
+                   f"$ {command}\n\nNot put in front of the PO: {settled}."
+                   "\n\nThe earlier answer is on this story. Read it. If it "
+                   "does not settle the criterion, say so in your report and say "
+                   "what would settle it, rather than asking for the same "
+                   "command again.",
+                   ticket["id"], 0)
+            continue
+        body = [f"$ {command}", f"  in {where}/"]
         if why:
             body.append("Why it is needed:\n" + why)
         if expect:
@@ -532,7 +610,11 @@ def _raise_run_requests(conn: sqlite3.Connection, ticket: sqlite3.Row,
             (ticket["sid"], ticket["id"],
              f'{ticket["role"]} needs a command run: `{command}`',
              "\n\n".join(body),
-             json.dumps({"command": command, "project": ticket["project"],
+             # `where`, not the ticket's project. The `cd` has been stripped
+             # off the command by now, so recording the project root here would
+             # send the run back to the folder the agent had just said was the
+             # wrong one.
+             json.dumps({"command": command, "project": where,
                          "ticket_id": ticket["id"], "why": why,
                          "expect": expect})),
         )

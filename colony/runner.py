@@ -90,36 +90,50 @@ def check_folder(project: str) -> Path:
 
 
 # `cd job-search/assisted-apply; py -m apply.main auto` — written by an agent
-# that had no way to know the colony was going to put it in that folder already.
-# The cd then resolves against the project folder, finds no
-# assisted-apply/job-search/assisted-apply, and the whole run dies with "The
-# system cannot find the path specified" before the real command is reached.
+# that had no way to know which of those two folders the colony was going to
+# start it in. Both spellings have to work, because both are things a person
+# would type and the agent cannot tell them apart from where it sits.
 _LEADING_CD = re.compile(
     r"""^\s*cd\s+(?P<path>"[^"]+"|'[^']+'|[^\s;&|]+)\s*(?:;|&&)\s*""")
 
 
-def _drop_leading_cd(command: str, cwd: Path) -> str:
-    """Strip a leading `cd` that only asks for the folder we are already in.
+def resolve_cd(command: str, cwd: Path) -> tuple[str, Path]:
+    """Strip a leading `cd` and say which folder the rest should run in.
 
-    A cd somewhere else is a different thing and is refused: the folder a
-    command runs in is the write scope the PO approved, and a command that
-    starts by leaving it has not been approved for wherever it lands.
+    A `cd` deeper into the project folder is honoured rather than refused. The
+    write scope is a folder and everything under it, so a subfolder of it is
+    already approved, and refusing to descend was costing real runs: with the
+    scope on `job-search/`, `py -m apply.main auto` has to start in
+    `job-search/assisted-apply/` or there is no `apply` package to find, and
+    every attempt died on `No module named 'apply'` before it ran a line.
+
+    A `cd` that leaves the project folder is still refused. That one is not a
+    detail of where the code sits, it is a request to run somewhere nobody
+    approved.
     """
+    here = Path(str(cwd)).resolve(strict=False)
+    landing = here
     while True:
         found = _LEADING_CD.match(command)
         if not found:
-            return command
+            return command, landing
         raw = found.group("path").strip("\"'").replace("\\", "/")
-        here = Path(str(cwd)).resolve(strict=False)
         # Relative to the folder we are in, and relative to the projects root,
-        # because an agent writing `cd job-search/assisted-apply` means the
-        # second one and has no idea it is already there.
-        landings = {(cwd / raw).resolve(strict=False),
-                    (ROOT / raw.lstrip("/")).resolve(strict=False)}
-        if here not in landings:
+        # because an agent writing `cd job-search/assisted-apply` may mean
+        # either and has no way to know which. Both readings are usually inside
+        # the scope -- `proj/proj/inner` has `proj` for a parent as surely as
+        # `proj/inner` does -- so existing on disk is what picks between them.
+        inside = [c for c in ((landing / raw).resolve(strict=False),
+                              (ROOT / raw.lstrip("/")).resolve(strict=False))
+                  if c == here or here in c.parents]
+        if not inside:
             raise RunRefused(
                 f"the command starts by changing directory to {raw!r}, which is "
-                "not the folder this run is scoped to")
+                "outside the folder this run is scoped to")
+        real = [c for c in inside if c.is_dir()]
+        if not real:
+            raise RunRefused(f"there is no folder {raw!r} to run this in")
+        landing = real[0]
         command = command[found.end():].strip()
         if not command:
             raise RunRefused("that command is a `cd` and nothing else")
@@ -133,8 +147,7 @@ def execute(command: str, project: str) -> dict:
     streams come back and the caller writes them down.
     """
     command = check(command)
-    cwd = check_folder(project)
-    command = _drop_leading_cd(command, cwd)
+    command, cwd = resolve_cd(command, check_folder(project))
 
     try:
         # shell=True: the commands on these cards are written the way the PO
