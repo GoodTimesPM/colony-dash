@@ -1169,6 +1169,15 @@ function inboxTile(e) {
     rec.classList.add("rec");
     card.append(rec);
   }
+  // The second opinion sits under the reasoning it is about, never beside the
+  // buttons. It is evidence for the decision, not one of the answers to it, and
+  // putting it in the row of controls would make it look like a third choice.
+  if (e.second_opinion) {
+    const box = el("div", "second");
+    box.append(el("div", "who", "second opinion \u2014 agents-orchestrator, read-only"));
+    box.append(longText(e.second_opinion, 520));
+    card.append(box);
+  }
   if (e.snoozed) {
     card.append(el("div", "snooze-note", "snoozed · back " + until(e.snoozed_until)));
   }
@@ -1298,6 +1307,46 @@ function inboxTile(e) {
     no.title = "records that the edit did not change the work; the card returns only if you edit the page again";
     no.onclick = () => act("decide", { escalation_id: e.id, decision: "reject" });
     acts.append(yes, no);
+  } else if (e.kind === "hire" && e.id) {
+    const yes = el("button", "act go", "approve");
+    yes.title = "cuts the contract \u2014 write scope is that one project folder and nothing else";
+    yes.onclick = () => act("decide", { escalation_id: e.id, decision: "approve" });
+    const no = el("button", "act no", "reject");
+    no.title = "records that this was the wrong person; the next pulse proposes someone else";
+    no.onclick = () => act("decide", { escalation_id: e.id, decision: "reject" });
+    acts.append(yes, no);
+
+    // Ask somebody else. `agents-orchestrator` is a persona whose subject is
+    // picking agents, and it is the one persona this colony deliberately never
+    // hires \u2014 two things choosing who works is worse than one. Read here it
+    // audits a pick already made: it cannot hire, cannot reject, and cannot
+    // close this card. It writes a paragraph and the answer is still yours.
+    //
+    // Not automatic. It reads the whole 270-persona roster, so it costs roughly
+    // a third of a grooming run every time, and most hires do not need it. The
+    // ones that do are the hire you are unsure about and the fourth contract in
+    // a row for the same name.
+    if (!e.second_opinion) {
+      const ask = el("button", "act", "second opinion");
+      ask.title = "asks agents-orchestrator to audit this pick, read-only. It cannot hire "
+                + "or refuse anything \u2014 it writes its view onto this card and you still decide. "
+                + "Costs one run against the full roster and takes a few minutes.";
+      ask.onclick = () => confirmThen(
+        "Ask agents-orchestrator to audit this hire?\n\n" +
+        "It reads the story, the picked persona's file and the whole roster, then writes " +
+        "its view onto this card. It decides nothing \u2014 approve and reject stay yours.\n\n" +
+        "This costs one read-only run of about 20k tokens and takes a few minutes. The card " +
+        "does not change until it comes back.",
+        async () => {
+          ask.disabled = true;
+          ask.textContent = "reading the roster\u2026";
+          const out = await act("second-opinion", { escalation_id: e.id });
+          if (out && out.ok) toast("second opinion: " + out.verdict, "good");
+          else if (out) toast(out.verdict || "no usable answer came back", "bad");
+          else { ask.disabled = false; ask.textContent = "second opinion"; }
+        });
+      acts.append(ask);
+    }
   } else if (!asksForProject && e.id) {
     const yes = el("button", "act go", "approve");
     yes.onclick = () => act("decide", { escalation_id: e.id, decision: "approve" });
@@ -1599,6 +1648,18 @@ async function openCompose(e, opts) {
     // Last, so it reads as where the conversation has got to, and so it sits
     // directly above the box.
     thread.append(state);
+
+    // Land on the newest message, not the oldest. The thread runs oldest to
+    // newest with the composer under it, so opening at the top means scrolling
+    // past every exchange to reach the box you came here to type in. Twice
+    // through rAF because the first frame is before layout has run, and once
+    // more per image because an attachment that decodes late grows the thread
+    // under a scroll position already taken.
+    const toEnd = () => { box.scrollTop = box.scrollHeight; };
+    requestAnimationFrame(() => requestAnimationFrame(toEnd));
+    for (const img of thread.querySelectorAll("img")) {
+      if (!img.complete) img.addEventListener("load", toEnd, { once: true });
+    }
   };
   load();
 
@@ -3332,6 +3393,36 @@ async function openStory(id) {
 
   if (s.description) body.append(sectionBlock("brief", s.description));
   if (s.acceptance_criteria) body.append(sectionBlock("acceptance criteria", s.acceptance_criteria));
+
+  // Who is on this story. Before seats existed the drawer could only say how
+  // many writers the folder had, which is why a second specialist hired onto a
+  // story stayed invisible and nobody hired one. Lead first, because the lead
+  // is the seat that receives the implement ticket and the rest do not.
+  if (data.crew && data.crew.length) {
+    const rows = el("div", "rows");
+    for (const a of data.crew) {
+      const r = el("div", "kv");
+      const who = a.seat === 0 ? "lead" : "seat " + a.seat;
+      const dt = el("dt", null, a.role);
+      dt.append(el("div", "stamp", who + (a.story_id ? "" : "  ·  hired to the folder")));
+      const dd = el("dd", null, (a.name || a.roster_slug || "hand-written contract")
+                                + "  ·  " + a.status
+                                + "  ·  " + (a.model || "").replace("claude-", ""));
+      // An agent with no `story_id` predates seats or was hired by hand. It
+      // works on this story because nobody else is on it, not because anyone
+      // put it there, and the drawer should not pretend otherwise.
+      if (!a.story_id) {
+        dd.append(el("div", "stamp",
+          "cut for the project, not for this story — it takes the ticket only "
+          + "while this story has no crew of its own"));
+      }
+      r.append(dt, dd);
+      rows.append(r);
+    }
+    const label = data.crew.length === 1 ? "crew  ·  1 person"
+                                         : "crew  ·  " + data.crew.length + " people";
+    body.append(blk(label, rows));
+  }
 
   if (data.tickets.length) {
     // `.rows` rather than `.blk`: the list scrolls inside itself, capped at the

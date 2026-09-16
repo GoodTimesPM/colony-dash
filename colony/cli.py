@@ -250,7 +250,8 @@ def cmd_dash(conn: sqlite3.Connection, args) -> int:
     if warning:
         print(f"  ⚠ {warning}")
 
-    return desktop.launch(port=args.port, host=host, window=not args.serve)
+    return desktop.launch(port=args.port, host=host, window=not args.serve,
+                          replace=args.restart)
 
 
 def cmd_halt(conn: sqlite3.Connection, args) -> int:
@@ -709,6 +710,11 @@ def build_parser() -> argparse.ArgumentParser:
                            "this machine's tailnet address, or its private LAN "
                            "address if there is no tailnet. Anything but "
                            "loopback requires COLONY_ACCESS_TOKEN in .env")
+    dash.add_argument("--restart", action="store_true",
+                      help="stop the dashboard already on this port and take it "
+                           "over. Happens on its own when the running one is "
+                           "older than the code on disk; this forces it when "
+                           "they match")
     dash.set_defaults(func=cmd_dash)
 
     hlt = sub.add_parser("halt", help="stop all dispatch colony-wide")

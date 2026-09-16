@@ -912,6 +912,13 @@ def unanswered_count(conn: sqlite3.Connection) -> int:
 STAFF_LIMIT = int(os.environ.get("COLONY_STAFF_LIMIT", "1"))
 STAFF_TIMEOUT_S = int(os.environ.get("COLONY_STAFF_TIMEOUT", "420"))
 
+# The most seats one staffing run may propose for one story. Three is a ceiling
+# rather than a target — the prompt argues hard for one — and it exists because
+# an unbounded list is an unbounded number of approval cards for the PO, each
+# carrying its own token ceiling. Lower it to 1 to get the old behaviour back
+# exactly.
+STAFF_TEAM_MAX = max(1, int(os.environ.get("COLONY_STAFF_TEAM_MAX", "3")))
+
 # Where the persona files themselves live. The digest carries a one-line
 # description; the file is the resume, and reading two or three of them is the
 # "digging deeper" half of what the PO asked for.
@@ -1017,21 +1024,45 @@ How to choose. These are rules, not advice:
 Show your work: name the two finalists you did NOT choose and what separated
 them. A choice you cannot account for is one the PO has no way to check.
 
+How many to hire. You may propose up to {STAFF_TEAM_MAX}. The default is one and
+one is very often right, so read these before proposing more:
+
+  * Propose a second seat only when the criteria contain work the first person
+    is genuinely the wrong hire for. Not work they would find harder - work
+    outside what they do. A backend engineer who also has to write the release
+    note does not need a technical writer beside them.
+  * Every seat costs the PO an approval and a token ceiling of its own, and
+    they can approve some and refuse others. A seat you cannot justify on its
+    own is a seat that gets refused on its own.
+  * Seat 0 is the LEAD and is listed first. The implement ticket goes to the
+    lead and nobody else writes on it. The other seats are on the story for the
+    work that comes after: the review pass, the follow-up ticket, the second
+    story in the same folder. Hiring a specialist parks them on this story so
+    the next piece of work has them already contracted.
+  * Every seat needs a distinct `role`. Two people cannot hold the same role
+    name on one project.
+  * Do not pad the crew to look thorough. One right hire beats three defensible
+    ones, and the PO reads all of them.
+
 {voice.STYLE}
 
-Reply with ONLY a JSON object:
+Reply with ONLY a JSON object. `team` is ordered - first entry is the lead:
 
 {{
-  "roster_slug": "exactly one slug from the roster above",
-  "role": "short-kebab-case name for how the colony refers to them on this project",
-  "why": "what in the acceptance criteria this persona is for, under 400 characters",
+  "team": [
+    {{
+      "roster_slug": "exactly one slug from the roster above",
+      "role": "short-kebab-case name for how the colony refers to them here",
+      "why": "what in the acceptance criteria this persona is for, under 400 characters",
+      "model": "claude-sonnet-5",
+      "max_tokens_run": 400000
+    }}
+  ],
   "finalists": [
     {{"slug": "...", "why_not": "what separated them from your pick"}},
     {{"slug": "...", "why_not": "..."}}
   ],
-  "read": ["persona files you actually opened"],
-  "model": "claude-sonnet-5",
-  "max_tokens_run": 400000
+  "read": ["persona files you actually opened"]
 }}"""
 
 
@@ -1075,8 +1106,238 @@ def _diversity_note(conn: sqlite3.Connection, pick: sqlite3.Row,
     return " - ".join(bits)
 
 
+# -- the second opinion -------------------------------------------------------
+#
+# `_diversity_note` exists because the chooser cannot audit its own choice, and
+# it does what Python can do: count. It cannot say "this is the wrong person and
+# here is who I would have taken instead", because that is a judgement and only
+# a model makes those.
+#
+# So this is the same idea one level up. `specialized/agents-orchestrator` is a
+# persona whose whole subject is picking and sequencing agents, and ROSTER.md's
+# position on it stands unchanged: we do not hire it, because two things picking
+# agents is worse than one. Read on demand, against a pick already made, it
+# audits without deciding. It cannot hire, cannot reject, and cannot raise a
+# card. It writes one paragraph next to the pick and the PO still answers.
+#
+# The PO presses the button. Never the pulse. It costs a full roster digest and
+# most hires do not need one — the ones worth spending it on are the hire you
+# are unsure about and the fourth contract in a row for the same persona.
+
+SECOND_OPINION_SLUG = "specialized/agents-orchestrator"
+SECOND_OPINION_TIMEOUT_S = int(os.environ.get("COLONY_SECOND_OPINION_TIMEOUT", "420"))
+
+
+def second_opinion_prompt(story: sqlite3.Row, esc: sqlite3.Row, pick: sqlite3.Row,
+                          persona_path: str, digest: str) -> str:
+    """The work order for auditing one hire that has already been proposed."""
+    criteria = (story["acceptance_criteria"] or "").strip() or "(none recorded)"
+    brief = (story["description"] or "").strip() or "(the Notion page body is empty)"
+    return f"""Read {persona_path} and answer as that persona.
+
+You are being asked for a SECOND OPINION on a hiring decision somebody else has
+already made. You are READ-ONLY: Read, Grep and Glob. You are not the Scrum
+Master here and you are not hiring anyone. Ordis made this pick; the Product
+Owner is about to approve or refuse it; your paragraph is the only other thing
+they will have in front of them when they do.
+
+What that means in practice:
+
+  * You cannot hire, reject, or change anything. Nothing you write is executed.
+  * Agreeing is a real answer and a common one. Do not manufacture a
+    disagreement to look useful. "This is the right pick, and here is the one
+    thing I would watch" is worth more than a contrarian alternative.
+  * If you do disagree, name a specific slug from the roster below and say what
+    that persona would do differently on THIS story. "Consider a specialist" is
+    not an answer.
+
+STORY #{story['id']}: {story['title']}
+project: {story['project']}   (write scope would be {story['project']}/ and nothing else)
+
+--- brief ---
+{brief[:3000]}
+--- end brief ---
+
+--- acceptance criteria, already approved by the PO ---
+{criteria[:3000]}
+--- end criteria ---
+
+--- the proposal you are auditing ---
+{esc['reason']}
+
+Ordis's reasoning:
+{(esc['recommendation'] or '(none recorded)')[:2000]}
+
+The persona picked: {pick['name']} ({pick['slug']}), division {pick['division']},
+hired {pick['times_hired']}x in this colony{f", last {pick['last_hired_at']}" if pick['last_hired_at'] else ""}.
+Their file is {PERSONA_ROOT / (pick['slug'] + '.md')}
+--- end proposal ---
+
+Read the picked persona's file and enough of
+{db.PROJECTS_ROOT / story['project']} to know what the work is. Be frugal - a
+few targeted reads. Then read the roster below before you agree, because
+agreeing without having looked at the alternatives is not a second opinion.
+
+--- the roster: every persona available, by division ---
+{digest}
+--- end roster ---
+
+{voice.STYLE}
+
+Reply with ONLY a JSON object:
+
+{{
+  "verdict": "agree" | "agree-with-caveat" | "disagree",
+  "opinion": "your reasoning, under 900 characters, addressed to the PO",
+  "instead": "a slug from the roster, or null if you agree",
+  "watch": "the one thing most likely to go wrong with this hire, under 200 characters",
+  "read": ["files you actually opened"]
+}}"""
+
+
+def second_opinion(conn: sqlite3.Connection, esc_id: int, terms: dict) -> dict:
+    """Audit one pending hire. Decides nothing and changes no status.
+
+    Returns a dict the endpoint hands straight back, so a failure reads as a
+    sentence on screen rather than a stack trace. The only row this writes to
+    outside its own ticket is `escalations.second_opinion` on the card that was
+    audited - never the story, never the agent, never the decision.
+    """
+    esc = conn.execute("SELECT * FROM escalations WHERE id = ?", (esc_id,)).fetchone()
+    if not esc:
+        raise control.Refused("no such escalation")
+    if esc["kind"] != "hire":
+        raise control.Refused("a second opinion is about a hire — this card is a "
+                              f"{esc['kind']}")
+    if esc["resolved_at"]:
+        raise control.Refused("this hire is already decided — a second opinion now "
+                              "would cost a run and change nothing")
+    if esc["second_opinion"]:
+        raise control.Refused("this hire already has a second opinion. Reading it "
+                              "again would cost another full roster digest for the "
+                              "same answer")
+
+    story = conn.execute("SELECT * FROM stories WHERE id = ?", (esc["story_id"],)).fetchone()
+    if not story:
+        raise control.Refused("this hire is not attached to a story, so there is no "
+                              "work to judge the pick against")
+
+    proposal = json.loads(esc["proposal"] or "{}")
+    pick = conn.execute(
+        "SELECT slug, name, division, times_hired, last_hired_at FROM roster WHERE slug = ?",
+        (proposal.get("roster_slug"),),
+    ).fetchone()
+    if not pick:
+        raise control.Refused(f"the proposed persona {proposal.get('roster_slug')!r} is "
+                              f"no longer in the roster — refuse this card and let the "
+                              f"next pulse propose someone who is")
+
+    persona_file = PERSONA_ROOT / f"{SECOND_OPINION_SLUG}.md"
+    if not persona_file.exists():
+        raise control.Refused(
+            f"{SECOND_OPINION_SLUG} is not on disk at {persona_file}. It ships with the "
+            f"agency roster clone — without the file there is no second opinion to give, "
+            f"only a generic one")
+
+    digest = roster_mod.digest(conn)
+    prompt = second_opinion_prompt(story, esc, pick, str(persona_file), digest)
+    cur = conn.execute(
+        """INSERT INTO tickets (story_id, title, intent, role, status, work_order,
+                                requires_po)
+           VALUES (?,?,'research',?,'staffed',?,0)""",
+        (story["id"], f"Second opinion: {esc['reason']}"[:200], terms["role"], prompt),
+    )
+    ticket_id = cur.lastrowid
+
+    result = agent.run_ticket(
+        conn, ticket_id=ticket_id, role=terms["role"], prompt=prompt,
+        model=terms["model"], tools_allowed=terms["tools_allowed"],
+        tools_denied=terms.get("tools_denied"), cwd=db.PROJECTS_ROOT,
+        timeout_s=SECOND_OPINION_TIMEOUT_S, max_tokens=terms.get("max_tokens_run"),
+    )
+    answer = result.json_payload() if result.status in ("ok", "killed-over-budget") else None
+    if not answer or not str(answer.get("opinion") or "").strip():
+        conn.execute(
+            "UPDATE tickets SET status = 'blocked', findings = ?, "
+            "closed_at = datetime('now','localtime') WHERE id = ?",
+            ((result.error or result.text or "no usable answer")[:2000], ticket_id),
+        )
+        return {"ok": False, "escalation_id": esc_id, "tokens": result.chargeable_tokens,
+                "verdict": "the second opinion came back unreadable — the hire card is "
+                           "unchanged and you can ask again"}
+
+    verdict = str(answer.get("verdict") or "").strip().lower()
+    if verdict not in ("agree", "agree-with-caveat", "disagree"):
+        verdict = "unclear"
+    opinion = " ".join(str(answer.get("opinion") or "").split())[:900]
+    watch = " ".join(str(answer.get("watch") or "").split())[:200]
+
+    # An alternative only goes on the card if it is real. A slug the auditor
+    # invented would read to the PO exactly like one they could act on.
+    instead = str(answer.get("instead") or "").strip()
+    alt = conn.execute("SELECT name, division FROM roster WHERE slug = ?",
+                       (instead,)).fetchone() if instead else None
+
+    text = f"[{verdict}] {opinion}"
+    if alt:
+        text += f"\n\nWould take instead: {alt['name']} ({instead}, {alt['division']})."
+    elif instead:
+        text += f"\n\nNamed {instead!r} as an alternative, which is not a slug in the "
+        text += "roster — treat that half of the answer as noise."
+    if watch:
+        text += f"\n\nWatch: {watch}"
+
+    conn.execute(
+        "UPDATE escalations SET second_opinion = ?, "
+        "second_opinion_at = datetime('now','localtime') WHERE id = ?",
+        (text, esc_id),
+    )
+    conn.execute(
+        "UPDATE tickets SET status = 'done', findings = ?, "
+        "closed_at = datetime('now','localtime') WHERE id = ?",
+        (f"second opinion on hire #{esc_id}: {verdict}"[:2000], ticket_id),
+    )
+    conn.execute(
+        """INSERT INTO story_events (story_id, kind, summary, detail, ticket_id, tokens)
+           VALUES (?,'staffed',?,?,?,?)""",
+        (story["id"],
+         f"Second opinion on {pick['name']}: {verdict}"[:400],
+         text[:2000], ticket_id, result.chargeable_tokens),
+    )
+    return {"ok": True, "escalation_id": esc_id, "verdict": verdict,
+            "second_opinion": text, "tokens": result.chargeable_tokens}
+
+
+def _crew_from(answer: dict) -> list[dict]:
+    """The proposed seats, whatever shape the model replied in.
+
+    `team` is what the prompt asks for now. A bare `roster_slug` at the top level
+    is what it asked for before, and a model that has read a lot of this project
+    will sometimes still answer that way - so it stays understood rather than
+    rejected. Losing a whole staffing run to a schema preference would be an
+    expensive way to be right.
+    """
+    raw = answer.get("team")
+    if not isinstance(raw, list) or not raw:
+        if answer.get("roster_slug"):
+            raw = [answer]
+        else:
+            return []
+    seats: list[dict] = []
+    for m in raw:
+        if isinstance(m, dict) and str(m.get("roster_slug") or "").strip():
+            seats.append(m)
+    return seats[:STAFF_TEAM_MAX]
+
+
 def staff_stories(conn: sqlite3.Connection, terms: dict) -> list[dict]:
-    """Propose one hire per ready-but-unstaffed story. Hires nothing."""
+    """Propose a crew per ready-but-unstaffed story. Hires nothing.
+
+    One escalation per seat, so the PO can take the lead and refuse the
+    specialist, or the other way round. Bundling a crew into a single yes/no
+    would make the cheapest answer to a three-person proposal "no", which is the
+    opposite of what having seats is for.
+    """
     out: list[dict] = []
     stories = stories_to_staff(conn, STAFF_LIMIT)
     if not stories:
@@ -1102,7 +1363,8 @@ def staff_stories(conn: sqlite3.Connection, terms: dict) -> list[dict]:
             timeout_s=STAFF_TIMEOUT_S, max_tokens=terms.get("max_tokens_run"),
         )
         answer = result.json_payload() if result.status in ("ok", "killed-over-budget") else None
-        if not answer or not answer.get("roster_slug"):
+        seats = _crew_from(answer or {})
+        if not seats:
             conn.execute(
                 "UPDATE tickets SET status = 'blocked', findings = ?, "
                 "closed_at = datetime('now','localtime') WHERE id = ?",
@@ -1112,65 +1374,109 @@ def staff_stories(conn: sqlite3.Connection, terms: dict) -> list[dict]:
                         "verdict": "no pick returned"})
             continue
 
-        slug = str(answer["roster_slug"]).strip()
-        pick = conn.execute(
-            "SELECT slug, name, division, times_hired, last_hired_at FROM roster WHERE slug = ?",
-            (slug,),
-        ).fetchone()
-        if not pick:
+        finalists = [f for f in (answer.get("finalists") or []) if isinstance(f, dict)][:3]
+
+        # Resolve every seat before raising anything. A crew half of whose slugs
+        # are invented should tell the PO which ones, on one blocked ticket,
+        # rather than half-filling their Inbox and leaving them to notice the gap.
+        picks: list[tuple[dict, sqlite3.Row]] = []
+        bad: list[str] = []
+        for member in seats:
+            slug = str(member.get("roster_slug")).strip()
+            row = conn.execute(
+                "SELECT slug, name, division, times_hired, last_hired_at "
+                "FROM roster WHERE slug = ?", (slug,),
+            ).fetchone()
+            if row is None:
+                bad.append(slug)
+            elif any(r["slug"] == slug for _, r in picks):
+                bad.append(f"{slug} (proposed twice)")
+            else:
+                picks.append((member, row))
+
+        if not picks:
             conn.execute(
                 "UPDATE tickets SET status = 'blocked', findings = ?, "
                 "closed_at = datetime('now','localtime') WHERE id = ?",
-                (f"picked {slug!r}, which is not a slug in the roster", ticket_id),
+                (f"picked {', '.join(repr(b) for b in bad)}, which is not a slug "
+                 f"in the roster", ticket_id),
             )
             out.append({"story_id": story["id"], "tokens": result.chargeable_tokens,
-                        "verdict": f"invalid pick {slug!r}"})
+                        "verdict": f"invalid pick {bad[0]!r}"})
             continue
 
-        finalists = [f for f in (answer.get("finalists") or []) if isinstance(f, dict)][:3]
-        role = _role_name(str(answer.get("role") or ""), slug)
-        # A role name already taken on this project would be refused at approval
-        # time, which is the worst possible moment to find out.
-        taken = conn.execute(
-            "SELECT 1 FROM agents WHERE role = ? AND project IS ?", (role, story["project"])
-        ).fetchone()
-        if taken:
-            role = f"{role}-2"[:60]
-
-        why = " ".join(str(answer.get("why") or "").split())[:400]
-        note = _diversity_note(conn, pick, finalists)
+        # The diversity note is about the lead. It is the seat that receives the
+        # implement ticket, so it is the one the concentration rule is about.
+        note = _diversity_note(conn, picks[0][1], finalists)
         losers = "; ".join(
             f"{f.get('slug')}: {' '.join(str(f.get('why_not') or '').split())[:140]}"
             for f in finalists if f.get("slug")
         )
-        recommendation = f"{why}\n\n{note}."
-        if losers:
-            recommendation += f"\nAlso considered - {losers}"
 
-        esc_id = control.propose_hire(
-            conn, roster_slug=slug, role=role, project=story["project"],
-            reason=control.card_text(recommendation),
-            model=str(answer.get("model") or terms["model"]),
-            write_capable=True,
-            max_tokens_run=int(answer.get("max_tokens_run") or 400000),
-            story_id=story["id"],
-        )
+        # Role names have to be unique per project, and `hire` refuses a clash at
+        # approval time - the worst possible moment to find out. Two seats
+        # proposed in the same breath can collide with each other as easily as
+        # with something already in the table, so the batch checks both.
+        claimed: set[str] = set()
+        raised: list[dict] = []
+        for seat_no, (member, pick) in enumerate(picks):
+            role = _role_name(str(member.get("role") or ""), pick["slug"])
+            base, n = role, 2
+            while role in claimed or conn.execute(
+                    "SELECT 1 FROM agents WHERE role = ? AND project IS ?",
+                    (role, story["project"])).fetchone():
+                role = f"{base}-{n}"[:60]
+                n += 1
+            claimed.add(role)
+
+            why = " ".join(str(member.get("why") or "").split())[:400]
+            if seat_no == 0:
+                seat_line = "lead - receives the implement ticket"
+            else:
+                seat_line = (f"seat {seat_no} - hired onto this story alongside "
+                             f"{raised[0]['role']}, does not receive the implement ticket")
+            recommendation = f"{why}\n\n{seat_line}."
+            if seat_no == 0:
+                recommendation += f"\n{note}."
+                if losers:
+                    recommendation += f"\nAlso considered - {losers}"
+
+            esc_id = control.propose_hire(
+                conn, roster_slug=pick["slug"], role=role, project=story["project"],
+                reason=control.card_text(recommendation),
+                model=str(member.get("model") or terms["model"]),
+                write_capable=True,
+                max_tokens_run=int(member.get("max_tokens_run") or 400000),
+                story_id=story["id"], seat=seat_no,
+            )
+            raised.append({"escalation_id": esc_id, "slug": pick["slug"],
+                           "name": pick["name"], "division": pick["division"],
+                           "role": role, "seat": seat_no})
+
+        crew = ", ".join(f"{r['name']} as {r['role']}" for r in raised)
+        blocked = f" Ignored {', '.join(bad)} - not in the roster." if bad else ""
         conn.execute(
             "UPDATE tickets SET status = 'done', findings = ?, "
             "closed_at = datetime('now','localtime') WHERE id = ?",
-            (f"proposed {pick['name']} ({slug}) as {role}. {note}."[:2000], ticket_id),
+            (f"proposed {crew}. {note}.{blocked}"[:2000], ticket_id),
         )
         conn.execute(
             """INSERT INTO story_events (story_id, kind, summary, detail, ticket_id, tokens)
                VALUES (?,'staffed',?,?,?,?)""",
             (story["id"],
-             f"Ordis proposed {pick['name']} ({pick['division']}) as {role}"[:400],
-             recommendation[:2000], ticket_id, result.chargeable_tokens),
+             (f"Ordis proposed {len(raised)} for this story: {crew}" if len(raised) > 1
+              else f"Ordis proposed {raised[0]['name']} ({raised[0]['division']}) "
+                   f"as {raised[0]['role']}")[:400],
+             f"{note}.{blocked}"[:2000], ticket_id, result.chargeable_tokens),
         )
-        out.append({"story_id": story["id"], "escalation_id": esc_id,
-                    "tokens": result.chargeable_tokens, "slug": slug,
-                    "name": pick["name"], "division": pick["division"], "role": role,
-                    "verdict": f"proposed {pick['name']} as {role} - waiting on you"})
+        lead = raised[0]
+        out.append({"story_id": story["id"], "escalation_id": lead["escalation_id"],
+                    "tokens": result.chargeable_tokens, "slug": lead["slug"],
+                    "name": lead["name"], "division": lead["division"],
+                    "role": lead["role"], "crew": raised,
+                    "verdict": (f"proposed {crew} - waiting on you" if len(raised) > 1
+                                else f"proposed {lead['name']} as {lead['role']} "
+                                     f"- waiting on you")})
     return out
 
 
