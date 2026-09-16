@@ -15,11 +15,16 @@ and the network has to be asked for out loud.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import socket
 import threading
 import time
 import traceback
+import urllib.error
+import urllib.request
 from datetime import datetime
+from pathlib import Path
 
 from . import db, icon as icon_mod
 
@@ -49,6 +54,120 @@ def log(message: str) -> None:
     except OSError:
         pass
     print(message)
+
+
+# What counts as source for the purpose of "is the running dashboard this
+# build". Python because it is the server, and the three web types because the
+# page is served off disk and a change to `app.js` alone is a change a person
+# would absolutely expect a restart to pick up.
+SOURCE_SUFFIXES = (".py", ".js", ".css", ".html")
+
+
+def stamp() -> str:
+    """A short hash of the code this process would run right now.
+
+    Path, size and mtime of every source file in the package. Contents are not
+    read: this runs on every launch, and no editor writes a change that leaves
+    both the size and the mtime alone.
+
+    The server captures this once, at import, and answers with the captured
+    value forever. That is the entire trick. Computing it per request would read
+    the files as they are now and every server would always look current, which
+    is the bug this exists to catch.
+    """
+    root = Path(__file__).resolve().parent
+    h = hashlib.sha256()
+    for f in sorted(root.rglob("*")):
+        if f.suffix not in SOURCE_SUFFIXES or not f.is_file():
+            continue
+        try:
+            st = f.stat()
+        except OSError:
+            continue
+        rec = f"{f.relative_to(root).as_posix()}:{st.st_size}:{int(st.st_mtime)}"
+        h.update(rec.encode("utf-8"))
+    return h.hexdigest()[:16]
+
+
+def _ask(address: str, port: int, path: str, method: str = "GET",
+         timeout_s: float = 3.0) -> dict | None:
+    """One local API call, or None if the server would not answer it.
+
+    None is deliberately the answer to every failure, including a 403 and a
+    machine that has no such route. A dashboard that cannot be identified is one
+    this process must not stop, so every unknown collapses to "leave it alone".
+    """
+    req = urllib.request.Request(f"http://{address}:{port}{path}", method=method)
+    req.add_header("x-colony", "1")
+    if method != "GET":
+        req.add_header("content-type", "application/json")
+        req.data = b"{}"
+    try:
+        with urllib.request.urlopen(req, timeout=timeout_s) as r:
+            return json.loads(r.read().decode("utf-8") or "{}")
+    except urllib.error.HTTPError as exc:
+        try:
+            detail = json.loads(exc.read().decode("utf-8")).get("detail")
+        except Exception:
+            detail = f"HTTP {exc.code}"
+        return {"status": exc.code, "error": detail}
+    except Exception:
+        return None
+
+
+def _stale(address: str, port: int) -> bool:
+    """Is the dashboard on this port running code that is no longer on disk?
+
+    A server older than the checkout is the reason "I restarted it" and "it
+    picked up my change" stopped being the same sentence. The window is a shell
+    around whatever process owns the port, `app.js` is read off disk on every
+    request, and Python is not — so a stale server serves a new page wired to
+    routes it has never heard of, and the only symptom is a 404 on a button that
+    visibly exists.
+
+    Unreachable, unauthenticated or too old to have the route all answer False.
+    Not knowing is not the same as knowing it is stale, and the cost of guessing
+    wrong here is killing a working dashboard.
+    """
+    got = _ask(address, port, "/api/build")
+    if not got:
+        return False
+    # No such route. Every build that can answer this question has one, so a
+    # dashboard that 404s here is by definition older than the build asking --
+    # and this is the only signal available for exactly the upgrade that
+    # introduces the route. Without it the first restart after installing this
+    # change is the one restart that still silently does nothing.
+    if got.get("status") == 404:
+        return True
+    if not got.get("stamp"):
+        return False
+    return got["stamp"] != stamp()
+
+
+def _stop(address: str, port: int, timeout_s: float = 12.0) -> bool:
+    """Ask the dashboard on this port to exit, and wait until the port frees.
+
+    Asking rather than killing. The server knows its own pid for certain and
+    this process would be guessing at one, and a guess that lands on a recycled
+    pid kills something that has nothing to do with the colony. It also lets the
+    server refuse: an agent run in flight is a write in progress, and dropping
+    the interpreter under it is exactly the sort of thing a restart should not
+    quietly do.
+    """
+    got = _ask(address, port, "/api/act/quit", method="POST", timeout_s=6.0)
+    if got is None:
+        log(f"the dashboard on {address}:{port} did not answer a request to stop")
+        return False
+    if got.get("error"):
+        log(f"the dashboard on {address}:{port} would not stop: {got['error']}")
+        return False
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        if _port_is_free(address, port):
+            return True
+        time.sleep(0.2)
+    log(f"the dashboard on {address}:{port} said it would stop and did not")
+    return False
 
 
 def _wait_for_port(host: str, port: int, timeout_s: float = 15.0) -> bool:
@@ -174,7 +293,8 @@ def _idle() -> int:
         return 0
 
 
-def launch(port: int = DEFAULT_PORT, *, host: str = HOST, window: bool = True) -> int:
+def launch(port: int = DEFAULT_PORT, *, host: str = HOST, window: bool = True,
+           replace: bool = False) -> int:
     from . import server
 
     # The window always points at loopback even when the server is bound wider.
@@ -188,6 +308,33 @@ def launch(port: int = DEFAULT_PORT, *, host: str = HOST, window: bool = True) -
     serving = False
 
     live = _reusable(local, port)
+
+    # Reuse is right when the server on the port is this build. It is wrong when
+    # it is not, and it was wrong silently: launching the app found a live
+    # dashboard, pointed a window at it and reported success, so the one thing a
+    # person means by "restart it" -- run the code I just changed -- was the one
+    # thing a restart could not do. Stopping the old process and taking the port
+    # is what that sentence has to mean.
+    if live and (replace or _stale(live, port)):
+        why = "asked to restart" if replace else "running code older than this checkout"
+        log(f"the dashboard on {live}:{port} is {why} — stopping it")
+        if _stop(live, port):
+            live = None
+        else:
+            # It would not go, and it still answers. Attaching to it is better
+            # than leaving nothing up, but the log has to say which build is
+            # actually being served or the next hour is spent debugging a fix
+            # that is on disk and not in the process.
+            #
+            # The usual reason is a dashboard started before `/api/act/quit`
+            # existed, which is a one-time problem per machine and worth naming
+            # precisely: "it will not stop" sends someone reading logs, and
+            # "close the window, then start it again" ends it.
+            log("could not stop it — the dashboard now up is NOT running your "
+                "latest changes. Close the Colony Dash window (or end the "
+                f"pythonw.exe serving port {port}) and start it again; from then "
+                "on a restart replaces it on its own.")
+
     if live:
         # Someone already has it — almost always a dashboard you forgot was open,
         # or the one the logon task started on a network address. Opening a
