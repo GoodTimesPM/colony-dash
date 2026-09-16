@@ -1694,15 +1694,55 @@ def set_secrets(conn: sqlite3.Connection, agent_id: int, on: bool) -> dict[str, 
 
 
 
+def team(conn: sqlite3.Connection, story_id: int) -> list[sqlite3.Row]:
+    """Everyone hired to write on one story, lead first.
+
+    Two kinds of row qualify and the order between them is the whole point.
+    An agent carrying this story's id was hired for this piece of work, and the
+    lowest seat among them is the lead. An agent carrying no story at all was
+    hired by hand from Standby before seats existed, or by someone who wanted a
+    writer on the folder rather than on a story; those still count, and they
+    sort last, so a deliberate hire always outranks an inherited one.
+
+    An agent hired for a *different* story on the same project is not on this
+    list. That is the change teams are made of: the folder no longer decides who
+    writes in it, the story does. It is also why the guard in
+    `wake.stories_to_staff` can stop skipping projects that already have
+    somebody without the colony re-hiring for work that is already covered.
+
+    The project still has to match. A story that was moved to another folder
+    after its team was hired must not carry the old contract with it — the write
+    scope on those rows names the old folder, and honouring them would be
+    writing outside the story's project.
+    """
+    story = conn.execute("SELECT project FROM stories WHERE id = ?", (story_id,)).fetchone()
+    if not story or not story["project"]:
+        return []
+    return list(conn.execute(
+        """SELECT * FROM agents
+            WHERE project = ? AND write_capable = 1 AND status != 'retired'
+              AND (story_id = ? OR story_id IS NULL)
+            ORDER BY (story_id IS NULL), seat, id""",
+        (story["project"], story_id),
+    ))
+
+
 def propose_hire(conn: sqlite3.Connection, *, roster_slug: str, role: str,
                  project: str | None, reason: str, model: str = "claude-sonnet-5",
                  write_capable: bool = False, max_tokens_run: int = 400000,
-                 story_id: int | None = None) -> int:
+                 story_id: int | None = None, seat: int = 0) -> int:
     """Raise a hire for approval. Does not hire anything.
 
     The proposal is written down on the escalation rather than reconstructed at
     approval time. An approval that has to re-derive what it is approving is an
     approval of something else — the roster can change between the two clicks.
+
+    `story_id` goes in the proposal as well as on the escalation row. They look
+    redundant and are not: the escalation column says which card this question
+    belongs to, and the proposal is the exact set of arguments `hire` will be
+    called with when the PO says yes. An escalation raised before teams existed
+    has no `story_id` in its proposal, `hire` defaults it to None, and that
+    hire lands project-scoped exactly as it would have.
     """
     persona = conn.execute("SELECT * FROM roster WHERE slug = ?", (roster_slug,)).fetchone()
     if not persona:
@@ -1711,12 +1751,15 @@ def propose_hire(conn: sqlite3.Connection, *, roster_slug: str, role: str,
     proposal = {
         "roster_slug": roster_slug, "role": role, "project": project, "model": model,
         "write_capable": write_capable, "max_tokens_run": max_tokens_run,
+        "story_id": story_id, "seat": int(seat),
     }
+    seat_note = "" if not seat else f" (seat {seat})"
     cur = conn.execute(
         """INSERT INTO escalations (story_id, kind, reason, recommendation, proposal, est_tokens)
            VALUES (?, 'hire', ?, ?, ?, ?)""",
         (story_id,
-         f"Hire {persona['name']} as {role}" + (f" on {project}" if project else "") + "?",
+         f"Hire {persona['name']} as {role}" + (f" on {project}" if project else "")
+         + seat_note + "?",
          reason, json.dumps(proposal), max_tokens_run),
     )
     return cur.lastrowid
@@ -1725,7 +1768,8 @@ def propose_hire(conn: sqlite3.Connection, *, roster_slug: str, role: str,
 def hire(conn: sqlite3.Connection, *, roster_slug: str | None, role: str,
          project: str | None = None, model: str = "claude-sonnet-5",
          write_capable: bool = False, max_tokens_run: int = 400000,
-         notes: str | None = None, _skip_record: bool = False) -> int:
+         notes: str | None = None, story_id: int | None = None, seat: int = 0,
+         _skip_record: bool = False) -> int:
     """Turn a persona into an agent with a contract.
 
     The persona says how to think; the contract says what may be touched
@@ -1734,6 +1778,13 @@ def hire(conn: sqlite3.Connection, *, roster_slug: str | None, role: str,
 
     A write-capable contract without a project is refused. "Write, somewhere"
     is not a scope; it is the absence of one.
+
+    `story_id` and `seat` are what make a team possible. The contract is still
+    scoped to one project folder and nothing else — that has not changed and
+    must not — but it now also records the piece of work it was cut for, and
+    which seat on it. Seat 0 is the lead and receives the implement ticket;
+    higher seats are specialists hired alongside them. Both are optional, so a
+    hire made by hand from Standby behaves exactly as it did before.
     """
     if write_capable and not project:
         raise Refused("a write-capable contract needs a project — 'write anywhere' is not a scope")
@@ -1759,22 +1810,22 @@ def hire(conn: sqlite3.Connection, *, roster_slug: str | None, role: str,
             """UPDATE agents SET roster_slug=?, model=?, write_capable=?, tools_allowed=?,
                       read_scope=?, write_scope=?, max_tokens_run=?, status='standby',
                       hired_at=datetime('now','localtime'), retired_at=NULL, notes=?,
-                      hired_from='dashboard'
+                      hired_from='dashboard', story_id=?, seat=?
                 WHERE id = ?""",
             (roster_slug, model, int(write_capable), json.dumps(tools),
              json.dumps(DEFAULT_READ_SCOPE), json.dumps(write_scope) if write_scope else None,
-             max_tokens_run, notes, existing["id"]),
+             max_tokens_run, notes, story_id, int(seat), existing["id"]),
         )
         agent_id = existing["id"]
     else:
         cur = conn.execute(
             """INSERT INTO agents (role, project, roster_slug, model, write_capable,
                                    tools_allowed, read_scope, write_scope, max_tokens_run,
-                                   avatar_seed, status, notes, hired_from)
-               VALUES (?,?,?,?,?,?,?,?,?,?,'standby',?, 'dashboard')""",
+                                   avatar_seed, status, notes, hired_from, story_id, seat)
+               VALUES (?,?,?,?,?,?,?,?,?,?,'standby',?, 'dashboard',?,?)""",
             (role, project, roster_slug, model, int(write_capable), json.dumps(tools),
              json.dumps(DEFAULT_READ_SCOPE), json.dumps(write_scope) if write_scope else None,
-             max_tokens_run, seed, notes),
+             max_tokens_run, seed, notes, story_id, int(seat)),
         )
         agent_id = cur.lastrowid
 
@@ -1799,7 +1850,7 @@ def hire(conn: sqlite3.Connection, *, roster_slug: str | None, role: str,
     # A dict, like every other control here, so the caller never has to know
     # which of these returns an id and which returns a verdict.
     return {"ok": True, "agent_id": agent_id, "role": role, "project": project,
-            "write_capable": bool(write_capable)}
+            "write_capable": bool(write_capable), "story_id": story_id, "seat": int(seat)}
 
 
 def retire(conn: sqlite3.Connection, agent_id: int) -> dict[str, Any]:
@@ -1854,11 +1905,8 @@ def dispatch(conn: sqlite3.Connection, story_id: int) -> dict[str, Any]:
             "inference cannot authorise a write."
         )
 
-    agent = conn.execute(
-        "SELECT * FROM agents WHERE project = ? AND write_capable = 1 AND status != 'retired' "
-        "ORDER BY id LIMIT 1",
-        (story["project"],),
-    ).fetchone()
+    crew = team(conn, story_id)
+    agent = crew[0] if crew else None
     if not agent:
         raise Refused(
             f"nobody is hired to write in {story['project']}. Hire someone from Standby "

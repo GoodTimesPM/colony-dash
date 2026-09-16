@@ -707,6 +707,20 @@ body.halted .halt-banner { display: flex; }
   border-left: 2px solid var(--coral); padding: 3px 0 3px 8px;
 }
 
+/* The second opinion. Indented and outlined rather than styled like the tile's
+   own text, because it is a quotation: somebody other than Ordis wrote it, it
+   is advisory, and nothing on the card acts on it. The label says who, every
+   time, so it can never be mistaken for the colony's own recommendation. */
+.tile .second {
+  border: 1px dashed var(--rule); border-radius: 4px;
+  padding: 6px 8px; margin-top: 2px; background: var(--panel-sunk);
+}
+.tile .second .who {
+  font-family: var(--mono); font-size: var(--step--2); letter-spacing: .08em;
+  text-transform: uppercase; color: var(--ink-dim); margin-bottom: 4px;
+}
+.tile .second .long .detail { color: var(--ink-soft); }
+
 /* A stale tile is drained of the amber that means "this needs you", because it
    does not: it needs re-asking. It keeps the border so it still reads as a
    card and not as a note, and the flag says which of the two it is. */

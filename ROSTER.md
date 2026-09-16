@@ -175,8 +175,15 @@ mechanism as skill retirement — the colony prunes what isn't earning its token
 - **`investigator`** and **`reviewer`** are written by us, not hired. They're structural — the
   read-only default and the independent check. They must never depend on a third-party file
   that could change.
-- **`specialized/agents-orchestrator`** is a persona for *doing Ordis's job*. We don't hire it;
-  Ordis is Ordis. But it's worth reading during M1 as a second opinion on the pulse checklist.
+- **`specialized/agents-orchestrator`** is a persona for *doing Ordis's job*. We don't hire it,
+  because two things picking agents is worse than one. It does have a second-opinion button on
+  every pending hire card. Pressed, it reads the story, the picked persona's file and the whole
+  roster, then writes one paragraph next to Ordis's reasoning. It cannot hire, cannot reject and
+  cannot close the card. The PO still answers.
+
+  It runs when the PO presses it and never on a pulse: a full roster digest is about 18k tokens,
+  and most hires don't need one. The two that do are the hire you're unsure about, and the fourth
+  contract in a row for the same persona.
 
 ## 6. Division → work mapping
 
@@ -191,5 +198,5 @@ Notion `Category` gives a routing hint for which shelf to shop:
 | Gaming | game-development, design |
 | Personal | specialized, support |
 
-The Career gap is expected — a 265-agent agency roster has no "help me get an analyst job"
+The Career gap is expected — a 270-persona agency roster has no "help me get an analyst job"
 specialist. That work stays on purpose-built roles.

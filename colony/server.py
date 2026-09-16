@@ -33,6 +33,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import os
 import sqlite3
 import threading
 import urllib.parse
@@ -46,11 +47,19 @@ from fastapi.responses import (FileResponse, HTMLResponse, RedirectResponse,
                                Response, StreamingResponse)
 
 from . import (access, attachments as attach, console as console_mod, control, db,
-               forge, net, notion as notion_mod, outbox as outbox_mod,
-               phone as phone_mod, projects as projects_mod, qr,
-               roster as roster_mod, tailscale, usage as usage_mod)
+               desktop as desktop_mod, forge, net, notion as notion_mod,
+               outbox as outbox_mod, phone as phone_mod, projects as projects_mod,
+               qr, roster as roster_mod, tailscale, usage as usage_mod)
 
 UI_DIR = Path(__file__).resolve().parent / "ui"
+
+# Which build this process is. Read once, here, while the module is being
+# imported -- which is the only moment it is true. `desktop.stamp()` reads the
+# files as they are on disk, so asking it again later would answer for the
+# checkout rather than for the interpreter, and a server three days out of date
+# would report itself current. See `desktop._stale`.
+BUILD_STAMP = desktop_mod.stamp()
+STARTED_AT = datetime.now().isoformat(timespec="seconds")
 
 # The scrum lifecycle, in order. The board renders these columns even when a
 # column is empty — a board that hides its empty columns hides where work isn't.
@@ -581,7 +590,8 @@ def _inbox(conn: sqlite3.Connection) -> list[dict[str, Any]]:
                CASE WHEN e.snoozed_until IS NOT NULL
                      AND e.snoozed_until > datetime('now','localtime')
                     THEN 1 ELSE 0 END                                             AS snoozed,
-               CASE WHEN e.stale_at IS NOT NULL THEN 1 ELSE 0 END                 AS stale
+               CASE WHEN e.stale_at IS NOT NULL THEN 1 ELSE 0 END                 AS stale,
+               e.second_opinion, e.second_opinion_at
           FROM escalations e
           LEFT JOIN stories s ON s.id = e.story_id
           LEFT JOIN tickets t ON t.id = e.ticket_id
@@ -623,7 +633,8 @@ def _ready(conn: sqlite3.Connection) -> list[dict[str, Any]]:
         SELECT s.id, s.title, s.project, s.project_source, s.updated_at,
                (SELECT COUNT(*) FROM agents a
                  WHERE a.project = s.project AND a.write_capable = 1
-                   AND a.status <> 'retired')                            AS writers,
+                   AND a.status <> 'retired'
+                   AND (a.story_id = s.id OR a.story_id IS NULL))        AS writers,
                (SELECT COUNT(*) FROM tickets t
                  WHERE t.story_id = s.id AND t.intent = 'implement'
                    AND t.status IN ('open','staffed','running'))         AS queued,
@@ -644,13 +655,18 @@ def _ready(conn: sqlite3.Connection) -> list[dict[str, Any]]:
             # so this stopped being an instruction to the PO and became a status.
             # The old text sent them to browse 270 personas they have never read, which
             # is the single reason a story that had cleared every gate sat still.
-            pending_hire = one(conn, """SELECT e.id, e.reason FROM escalations e
-                                         WHERE e.story_id = ? AND e.kind = 'hire'
-                                           AND e.resolved_at IS NULL LIMIT 1""", (s["id"],))
+            pending = rows(conn, """SELECT e.id, e.reason FROM escalations e
+                                      WHERE e.story_id = ? AND e.kind = 'hire'
+                                        AND e.resolved_at IS NULL
+                                      ORDER BY e.id""", (s["id"],))
             blockers.append(
-                (f"Ordis has proposed someone — {pending_hire['reason']} It is waiting "
+                (f"Ordis has proposed {len(pending)} people for this story. Each is "
+                 f"waiting in this Inbox as its own card and you can take some and "
+                 f"refuse others — the first one you approve is the lead.")
+                if len(pending) > 1 else
+                (f"Ordis has proposed someone — {pending[0]['reason']} It is waiting "
                  f"in this Inbox as its own card.")
-                if pending_hire else
+                if pending else
                 (f"nobody is hired to write in {s['project'] or 'that folder'} yet — "
                  f"Ordis picks a persona on the next pulse and brings you the name "
                  f"to approve. You can still hire someone yourself from Standby."))
@@ -1166,6 +1182,19 @@ def api_story(story_id: int) -> dict[str, Any]:
                 """,
                 (story_id,),
             ),
+            # Who is actually on this story, lead first. The dashboard could
+            # only ever render a count of writers before, so a second specialist
+            # hired onto a story was real in the ledger and invisible on screen —
+            # which is most of the reason nobody hired one.
+            "crew": [
+                {"id": a["id"], "role": a["role"], "roster_slug": a["roster_slug"],
+                 "seat": a["seat"], "status": a["status"], "model": a["model"],
+                 "story_id": a["story_id"], "max_tokens_run": a["max_tokens_run"],
+                 "name": (one(conn, "SELECT name FROM roster WHERE slug = ?",
+                              (a["roster_slug"],)) or {}).get("name") if a["roster_slug"]
+                         else None}
+                for a in control.team(conn, story_id)
+            ],
         }
     finally:
         conn.close()
@@ -1680,7 +1709,9 @@ def _thread_state(conn: sqlite3.Connection, escalation_id: int | None,
     if s["project"]:
         writers = one(conn, """SELECT COUNT(*) AS n FROM agents
                                 WHERE project = ? AND write_capable = 1
-                                  AND status <> 'retired'""", (s["project"],))["n"]
+                                  AND status <> 'retired'
+                                  AND (story_id = ? OR story_id IS NULL)""",
+                      (s["project"], story_id))["n"]
 
     # Worst first, because a colour has to mean the same thing every time it
     # appears. `blocked` is "nothing moves until you answer this". `waiting` is
@@ -2011,6 +2042,108 @@ def act_hire(body: dict = Body(...), x_colony: str | None = Header(None)) -> dic
         max_tokens_run=int(body.get("max_tokens_run") or 400000),
         notes=body.get("notes") or None,
     )
+
+
+@app.get("/api/build")
+def api_build(request: Request) -> dict[str, Any]:
+    """Which build is answering, and from which process.
+
+    Read by a second launch deciding whether the dashboard already on the port
+    is worth attaching to. Outside `/api/act/*` because it changes nothing.
+
+    Behind the ordinary token gate, not on the public allowlist, because that
+    allowlist is what a phone gets before it has proved anything and every path
+    on it is a static file. This one costs nothing to gate: any bind that is not
+    loopback goes through `desktop.launch`, which binds loopback as well and
+    sets `TRUST_LOOPBACK` -- so the launch asking this question is always a
+    caller the gate already waves through.
+    """
+    out: dict[str, Any] = {"stamp": BUILD_STAMP}
+    peer = request.client.host if request.client else ""
+    if access.is_loopback(peer):
+        out.update(pid=os.getpid(), started_at=STARTED_AT,
+                   on_disk=desktop_mod.stamp())
+    return out
+
+
+@app.post("/api/act/quit")
+def act_quit(request: Request, x_colony: str | None = Header(None)) -> dict[str, Any]:
+    """Stop this dashboard, so a newer one can have the port.
+
+    Loopback only, and that is not a formality. Everything else under
+    `/api/act/*` writes to a ledger you can read afterwards; this one ends the
+    process, and a phone on the tailnet fat-fingering it would take the
+    dashboard down with no way to bring it back from where it was pressed.
+
+    It refuses while an agent run is open. A run with no `ended_at` is a write
+    the colony has started and not finished, and pulling the interpreter out
+    from under one leaves a worktree and a half-written ticket behind. Waiting
+    is cheap; the alternative is the exact "did that just break something"
+    question a restart is supposed to never raise.
+    """
+    _guard(x_colony)
+    peer = request.client.host if request.client else ""
+    if not access.is_loopback(peer):
+        raise HTTPException(403, "stopping the dashboard is only allowed from the "
+                                 "machine running it — from here there would be "
+                                 "nothing left to press to start it again.")
+
+    conn = _conn()
+    try:
+        busy = one(conn, "SELECT COUNT(*) AS n FROM runs WHERE ended_at IS NULL")["n"]
+    finally:
+        conn.close()
+    if busy:
+        raise HTTPException(409,
+                            f"{busy} agent run{'s' if busy > 1 else ''} still going. "
+                            f"Stopping now would abandon the work mid-write. Wait for "
+                            f"it to land, or halt production first.")
+
+    # After the response, not before it. `os._exit` skips the interpreter's
+    # shutdown entirely -- no atexit, no thread joins -- which is what is wanted
+    # from a process whose remaining threads are a uvicorn loop and a webview:
+    # both have something to say about being closed and neither is worth
+    # listening to when the whole point is that the port has to come free.
+    threading.Timer(0.4, lambda: os._exit(0)).start()
+    return {"ok": True, "pid": os.getpid(), "stamp": BUILD_STAMP}
+
+
+@app.post("/api/act/second-opinion")
+def act_second_opinion(body: dict = Body(...),
+                       x_colony: str | None = Header(None)) -> dict[str, Any]:
+    """Ask the orchestrator persona to audit one pending hire. Decides nothing.
+
+    Deliberately not a `decide` decision. Everything under `/api/act/decide`
+    answers a question and closes it; this one only writes a paragraph onto the
+    card and leaves the question exactly as open as it was. Keeping it off that
+    route is what makes "the second opinion cannot approve anything" true in the
+    code rather than only in the prompt.
+
+    It costs a full roster digest, so it runs when the PO presses the button and
+    never on a pulse.
+    """
+    _guard(x_colony)
+    # Local import for the same reason the pulse endpoint does it: `wake` pulls
+    # in the agent runner, and a module-level import would make every dashboard
+    # start pay for it.
+    from . import wake as wake_mod
+
+    conn = _rw()
+    try:
+        terms = wake_mod.contract(conn, "investigator")
+        if terms is None:
+            raise HTTPException(409, "no active investigator contract — run "
+                                     "`python -m colony init`")
+        # No BEGIN around this one. The run inside it takes minutes, and holding
+        # a write transaction open for that long blocks every other writer on the
+        # ledger, including the pulse. Each statement commits on its own; the
+        # worst interleaving leaves a finished research ticket whose paragraph
+        # never landed, which reads as "ask again" rather than as damage.
+        return wake_mod.second_opinion(conn, int(body["escalation_id"]), terms)
+    except control.Refused as exc:
+        raise HTTPException(409, str(exc))
+    finally:
+        conn.close()
 
 
 @app.post("/api/act/scope")
