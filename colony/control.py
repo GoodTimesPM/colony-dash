@@ -1174,6 +1174,65 @@ def reask(conn: sqlite3.Connection, esc_id: int) -> dict[str, Any]:
     return {"ok": True, "message": "back in the groom queue — Ordis re-reads it on the next wake"}
 
 
+def rescope_story(conn: sqlite3.Connection, story_id: int, scope: str) -> str:
+    """The PO changed what the work is. Rewrite the job, not the history.
+
+    Acceptance criteria are written once, at groom, and they are the only thing
+    a build agent reads as the job. Everything else the PO says lands as history
+    underneath them. That is fine while the PO is answering questions about the
+    work and wrong the moment they change the work: the criteria still describe
+    the old job, so the build builds the old job, finds it already shipped and
+    hands back an empty build. Story #1 did that four times in three hours while
+    the PO watched, having twice said in plain words to drop everything else and
+    do items 12, 14 and 15.
+
+    So the criteria go, and the story goes back in the groom queue to have new
+    ones written against `scope`. Open questions and undecided drafts go with
+    them, because every one of them is an answer about the old job. Nothing on
+    disk is touched and no finished work is undone -- the next groom reads the
+    tree as it is and will not ask for what is already there.
+    """
+    scope = (scope or "").strip()
+    if not scope:
+        raise Refused("a rescope has to say what the work is now")
+    _record(conn, "note", "story", story_id, f"rescoped: {scope[:200]}")
+    conn.execute(
+        """UPDATE stories SET status = 'needs-criteria', acceptance_criteria = NULL,
+                  blocked_reason = NULL, updated_at = datetime('now','localtime')
+            WHERE id = ?""",
+        (story_id,),
+    )
+    # 'decision' cards carry draft criteria for the old job and 'needs-info'
+    # cards ask about it. Leaving either standing would put the PO's attention
+    # on a question they have already made irrelevant.
+    closed = conn.execute(
+        """UPDATE escalations SET resolved_at = datetime('now','localtime'),
+                  po_decision = 'amend'
+            WHERE story_id = ? AND resolved_at IS NULL
+              AND kind IN ('decision','needs-info','run-request')""",
+        (story_id,),
+    ).rowcount
+    # Unstarted build tickets only. A ticket already running owns a worktree,
+    # and yanking it mid-run leaves the worktree behind with nothing pointing
+    # at it; it finishes, and the next dispatch works from the new criteria.
+    parked = conn.execute(
+        """UPDATE tickets SET status = 'wontfix', closed_at = datetime('now','localtime')
+            WHERE story_id = ? AND status = 'open'""",
+        (story_id,),
+    ).rowcount
+    # The old grooms answered a question about a story that no longer exists,
+    # so they must not count against the attempt ceiling for the new one.
+    regroom_budget(conn, story_id)
+    _event(conn, story_id, "decided",
+           "The PO changed what this story is for. The criteria were written "
+           "against the old scope and have been cleared; the next wake writes "
+           "new ones from the line below. Nothing already built was undone.",
+           scope)
+    return ("rescoped " + chr(0x2192) + " criteria cleared, back in the groom queue"
+            + (f" · {closed} question(s) closed" if closed else "")
+            + (f" · {parked} unstarted ticket(s) parked" if parked else ""))
+
+
 def _project_dirs() -> list[str]:
     from . import projects
     return projects.project_dirs()

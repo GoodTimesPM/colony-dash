@@ -539,7 +539,7 @@ def reply_prompt(msg: sqlite3.Row, esc: sqlite3.Row | None, story: sqlite3.Row |
         "Your job is NOT to have a conversation. A reply that produces only prose",
         "leaves this story exactly where it was, and a story that sits still while",
         "the two of you talk about it is the failure this loop exists to prevent.",
-        "Every reply must move the ledger, and there are only two ways to do that:",
+        "Every reply must move the ledger, and there are only three ways to do that:",
         "",
         "  settled          — they told you something the work needed. Write it",
         "                     as standing fact and the story goes back in the groom",
@@ -548,11 +548,38 @@ def reply_prompt(msg: sqlite3.Row, esc: sqlite3.Row | None, story: sqlite3.Row |
         "                     as a direct question, and it becomes a card in",
         "                     their Inbox rather than a sentence in a thread",
         "                     remember to re-read.",
+        "  rescope          — they changed WHAT THE WORK IS. Not a fact the work",
+        "                     needed: a different job.",
         "",
-        "Both at once is normal and is the most useful answer you can give: the",
-        "answered part of it, and here is precisely the next thing you need.",
-        "Neither is a last resort — use it only when they asked a question that",
-        "was purely informational and nothing about the work changed.",
+        "Both of the first two at once is normal and is the most useful answer you",
+        "can give: the answered part of it, and here is precisely the next thing",
+        "you need. Neither is a last resort — use it only when they asked a",
+        "question that was purely informational and nothing about the work",
+        "changed.",
+        "",
+        "`rescope` is the one to get right, because getting it wrong is invisible",
+        "and expensive. The acceptance criteria on a story are written once and",
+        "are the ONLY thing the build agent treats as the job. `settled` adds a",
+        "line of history under them; it does not touch them. So if the PO has",
+        "narrowed, widened, replaced or abandoned the work and you file that as",
+        "`settled`, the next build reads the old criteria, builds the old thing,",
+        "finds it already shipped, and hands back an empty build — while the PO",
+        "watches the colony ignore what they just said. That has happened, more",
+        "than once, on this exact story.",
+        "",
+        "Put it in `rescope` when the PO says any of: only do X, drop Y, forget",
+        "what you were working on, do Z instead, that part is done, start on the",
+        "next thing. Anything that changes which items are in play. Write it as",
+        "the new scope in full — the whole job as it stands now, not the delta —",
+        "because the agent that grooms it reads that line and nothing else about",
+        "what changed. Naming the items the way the PO names them is right; if",
+        "they said items 12, 14 and 15, say items 12, 14 and 15 and say where",
+        "the list of items lives.",
+        "",
+        "A rescope clears the criteria and sends the story back to be groomed",
+        "against the new scope. That is the point. Nothing already built is",
+        "touched or undone. Do not withhold it to protect work in flight, and do",
+        "not use it for a fact that leaves the job the same — that is `settled`.",
         "",
         "Do not write \"next step is scoping this as a real build task\" and stop.",
         "Putting it in `settled` IS how you scope it: the next wake grooms it.",
@@ -572,6 +599,9 @@ def reply_prompt(msg: sqlite3.Row, esc: sqlite3.Row | None, story: sqlite3.Row |
         '  "still_blocked_on": "the ONE specific decision that now blocks this work,',
         '              phrased as a question only they can answer — or null if nothing',
         '              is blocking and the work can proceed",',
+        '  "rescope": "the whole job as it now stands, if they changed what the work',
+        '              is. The criteria are cleared and rewritten from this line, so',
+        '              it has to stand alone. Null if the job is unchanged",',
         '  "project": "a folder from the list if their message settled which one, else null",',
         '  "new_project": "a folder name they asked you to treat as new work, else null",',
         '  "recommendation": "a revised one-line recommendation for the Inbox tile, or null",',
@@ -685,6 +715,7 @@ def answer_po(conn: sqlite3.Connection, terms: dict, projects: list[str]) -> lis
         # it close would be the loop agreeing that talking counted as progress.
         settled = str(answer.get("settled") or "").strip()
         blocked_on = str(answer.get("still_blocked_on") or "").strip()
+        rescope = str(answer.get("rescope") or "").strip()
 
         # A settled line becomes standing fact: the groom agent reads it, writes
         # acceptance criteria on top of it, and never sees this conversation. So
@@ -707,7 +738,7 @@ def answer_po(conn: sqlite3.Connection, terms: dict, projects: list[str]) -> lis
         # Closed first, and only on action. The fresh card below checks for an
         # open question before raising one, so an old card left standing here
         # would suppress the sharper one that replaces it.
-        if esc is not None and (settled or blocked_on):
+        if esc is not None and (settled or blocked_on or rescope):
             conn.execute(
                 "UPDATE escalations SET resolved_at = datetime('now','localtime'), "
                 "po_decision = 'amend' WHERE id = ? AND resolved_at IS NULL",
@@ -725,7 +756,12 @@ def answer_po(conn: sqlite3.Connection, terms: dict, projects: list[str]) -> lis
             _said(conn, story["id"], "decided",
                   settled + ("\n\nOrdis read: " + ", ".join(checked) if checked else ""),
                   ticket_id, 0)
-            if story["status"] == "needs-info":
+            if rescope:
+                # Handled below, and it decides the lane on its own. Running the
+                # needs-info ladder first would send the story back to `ready`
+                # holding the criteria the PO has just replaced.
+                pass
+            elif story["status"] == "needs-info":
                 # Which lane it goes back to depends on whether it has already
                 # been groomed. `backlog` is only groomable while the criteria
                 # are empty (GROOMABLE_WHERE), so a story that was groomed,
@@ -795,6 +831,19 @@ def answer_po(conn: sqlite3.Connection, terms: dict, projects: list[str]) -> lis
                 acted.append(lane)
             else:
                 acted.append("recorded on the story")
+
+        # Before the blocker, because a rescope makes the old blocker moot and
+        # `rescope_story` closes it. A question about the job the PO just
+        # replaced is not a question worth putting back in front of them.
+        if story is not None and rescope:
+            entry = f"[PO, {msg['at']}] Scope now: {rescope}"
+            conn.execute(
+                """UPDATE stories SET po_answers = COALESCE(po_answers || ?, ?)
+                    WHERE id = ?""",
+                ("\n\n" + entry, entry, story["id"]),
+            )
+            acted.append(control.rescope_story(conn, story["id"], rescope))
+            blocked_on = ""
 
         if story is not None and blocked_on:
             conn.execute(
@@ -880,9 +929,26 @@ def stories_to_staff(conn: sqlite3.Connection, limit: int = STAFF_LIMIT) -> list
         """SELECT s.* FROM stories s
             WHERE s.status = 'ready' AND s.dropped_at IS NULL AND s.settled_as IS NULL
               AND s.project IS NOT NULL AND s.project_source = 'confirmed'
+              -- Staffed means "this story has somebody", not "this folder has
+              -- somebody". The old check was the second one, and it is why a
+              -- project could hold exactly one write-capable agent for its
+              -- whole life: the first hire on any folder silenced staffing for
+              -- every story that folder would ever have.
+              --
+              -- An agent carrying no story at all used to count here too, and
+              -- that put the folder-wide rule back in through the side door.
+              -- `og-tracker-sync-verifier` was hired onto `job-search` with no
+              -- story, which made every story in `job-search` look staffed, so
+              -- the PO's "hire a specialist for each of items 12, 14 and 15"
+              -- could not be carried out: every dispatch re-used the one
+              -- verifier hired for a different question weeks earlier. A hire
+              -- with no story is a writer available to the folder, which is a
+              -- fine thing to dispatch to as a fallback (`control.team`
+              -- still ranks it last), and no evidence at all that THIS story
+              -- has the specialist it needs.
               AND NOT EXISTS (SELECT 1 FROM agents a
-                               WHERE a.project = s.project AND a.write_capable = 1
-                                 AND a.status <> 'retired')
+                               WHERE a.write_capable = 1 AND a.status <> 'retired'
+                                 AND a.project = s.project AND a.story_id = s.id)
               AND NOT EXISTS (SELECT 1 FROM escalations e
                                WHERE e.story_id = s.id AND e.kind = 'hire'
                                  AND e.resolved_at IS NULL)
