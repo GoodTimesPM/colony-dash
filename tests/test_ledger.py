@@ -216,17 +216,14 @@ class TestEnvValue(unittest.TestCase):
                          "_env_value must not add anything to the environment")
         self.assertNotIn("NOTION_TOKEN", os.environ)
 
-
     def test_an_edited_env_file_is_read_again(self):
         from unittest import mock
         with tempfile.TemporaryDirectory() as tmp:
             env = Path(tmp) / ".env"
-            env.write_text("COLONY_EDIT_KEY=one
-", encoding="utf-8")
+            env.write_text("COLONY_EDIT_KEY=one\n", encoding="utf-8")
             with mock.patch.object(db, "PROJECT_DIR", Path(tmp)):
                 self.assertEqual(db._env_value("COLONY_EDIT_KEY"), "one")
-                env.write_text("COLONY_EDIT_KEY=second
-", encoding="utf-8")
+                env.write_text("COLONY_EDIT_KEY=second\n", encoding="utf-8")
                 self.assertEqual(db._env_value("COLONY_EDIT_KEY"), "second")
 
 class TestProjectsRoot(unittest.TestCase):
