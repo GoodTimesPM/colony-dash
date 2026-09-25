@@ -1058,8 +1058,9 @@ def _serialize(state: dict[str, Any]) -> tuple[str, str]:
 
 
 # One snapshot per interval, shared by every client. Each open page used to
-# build its own every two seconds.
-_frame: dict[str, Any] = {"at": 0.0, "fp": None, "text": ""}
+# build its own every two seconds. `seq` grows each time the state changes, so
+# the page can drop a response that arrives after a newer frame.
+_frame: dict[str, Any] = {"at": 0.0, "fp": None, "text": "", "seq": 0}
 _frame_lock = threading.Lock()
 
 
@@ -1067,7 +1068,13 @@ def frame() -> tuple[str, str]:
     """The current state's (hash, JSON), rebuilt at most once per SSE interval."""
     with _frame_lock:
         if _frame["fp"] is None or time.monotonic() - _frame["at"] >= SSE_INTERVAL_S * 0.9:
-            _frame["fp"], _frame["text"] = _serialize(snapshot())
+            state = snapshot()
+            fp, text = _serialize(state)
+            if fp != _frame["fp"]:
+                _frame["seq"] += 1
+                _frame["fp"] = fp
+                _frame["text"] = json.dumps({**state, "seq": _frame["seq"]},
+                                            sort_keys=True, default=str)
             _frame["at"] = time.monotonic()
         return _frame["fp"], _frame["text"]
 

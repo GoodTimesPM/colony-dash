@@ -46,6 +46,20 @@ class Frame(unittest.TestCase):
         self.assertEqual(self.calls, 2)
 
 
+    def test_seq_grows_only_when_the_state_changes(self):
+        seqs = []
+        for _ in range(2):
+            server._expire_frame()
+            seqs.append(json.loads(server.frame()[1])["seq"])
+        # The fake snapshot changes every call, so both builds are new states.
+        self.assertEqual(seqs[1], seqs[0] + 1)
+        with mock.patch.object(server, "snapshot", lambda: {"same": 1}):
+            server._expire_frame()
+            a = json.loads(server.frame()[1])["seq"]
+            server._expire_frame()
+            b = json.loads(server.frame()[1])["seq"]
+        self.assertEqual(a, b)
+
 class RosterSummary(unittest.TestCase):
 
     def setUp(self):
