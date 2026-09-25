@@ -1197,6 +1197,11 @@ def app_js(request: Request) -> Response:
     return _asset("app.js", "text/javascript; charset=utf-8", request)
 
 
+@app.get("/boot.js")
+def boot_js(request: Request) -> Response:
+    return _asset("boot.js", "text/javascript; charset=utf-8", request)
+
+
 # ── the phone ────────────────────────────────────────────────────────────────
 #
 # The dashboard was already a web page; these four routes are what let a phone

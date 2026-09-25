@@ -65,6 +65,13 @@ class TestAssetCaching(unittest.TestCase):
         self.assertEqual(again.status_code, 304)
         self.assertEqual(again.body, b"")
 
+    def test_the_theme_boot_script_is_served_and_loaded_in_head(self):
+        resp = server.boot_js(_get("/boot.js"))
+        self.assertIn(b"colony-theme", resp.body)
+        page = server.index(_get("/")).body.decode()
+        self.assertLess(page.index('src="boot.js"'), page.index('href="app.css"') + 40)
+        self.assertLess(page.index('src="boot.js"'), page.index('src="app.js"'))
+
     def test_a_stale_etag_gets_the_file(self):
         resp = server.app_css(_get("/app.css", '"old"'))
         self.assertEqual(resp.status_code, 200)

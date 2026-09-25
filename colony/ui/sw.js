@@ -6,9 +6,9 @@
  *
  * Everything on this page is a live read of a SQLite file on a machine that is
  * either awake and reachable or not. A cached `/api/state` is a board showing
- * yesterday's tickets with today's confidence, and a cached `app.js` is the
- * exact bug the `no-store` headers in `server.py` were added to prevent. So
- * every request goes to the network, every time.
+ * yesterday's tickets with today's confidence, and a cached `app.js` is a
+ * change that does not show until a hard refresh. So every request goes to
+ * the network, every time.
  *
  * The one thing it does add is a better failure. When the desktop is asleep and
  * you open the icon on your phone, the browser's own offline page tells you the
