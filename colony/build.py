@@ -1,21 +1,11 @@
-"""The build tier. The first agent allowed to write anything.
-
-Grooming (M1) reads and reports. This module is the other half: a story the PO
-accepted at the Inbox gate, staffed to an agent hired with write scope on a
-confirmed project, run inside a git worktree, and handed back as a patch nobody
-has applied yet.
-
-The order of the gates matters more than the code does:
+"""The build tier: the first agent allowed to write.
 
     groomed → PO accepts criteria → project confirmed → agent hired with write
     scope → PO dispatches → build runs in a worktree → PO approves the patch
 
-Six gates, four of them human. That is not friction for its own sake. It is the
-answer to "what is the worst thing this can do at 3am", and the answer has to
-stay "nothing you haven't already read" (ARCHITECTURE.md §8).
-
-A build never touches the live tree, never commits, never pushes. It produces a
-diff. The diff is the deliverable.
+Six gates, four human, so the worst an unattended run can do is produce a
+diff nobody has applied (ARCHITECTURE.md §8). A build never touches the live
+tree, commits or pushes.
 """
 
 from __future__ import annotations
@@ -46,9 +36,7 @@ def pending(conn: sqlite3.Connection, limit: int = BUILD_LIMIT) -> list[sqlite3.
     ).fetchall()
 
 
-# What an earlier run on the same story is allowed to tell this one. Findings
-# and learnings are work; a `staffed` or `dispatched` row is bookkeeping and
-# would fill the section with the colony talking about itself.
+# Earlier events a new run may see: work, not bookkeeping.
 HISTORY_KINDS = ("finding", "learning", "note", "decided", "blocked")
 
 
@@ -64,10 +52,8 @@ def history(conn: sqlite3.Connection, story_id: int, limit: int = 12) -> list[di
 
 
 def history_note(events: list[dict] | None) -> str:
-    """The section of the work order that says what is already known.
-
-    Details are included, not just the one-line summaries: the useful thing in
-    a run-request is the command's output, and that lives in the detail.
+    """The "already known" section of the work order, with full details, since
+    a run-request's value is its output.
     """
     if not events:
         return ""
@@ -93,12 +79,8 @@ def history_note(events: list[dict] | None) -> str:
 
 
 def seeded_note(seeded: dict | None) -> str:
-    """What the checkout holds beyond the last commit, in the work order's words.
-
-    An agent that does not know its checkout was seeded reads a file it half
-    expects to be stale and hedges everything it says about it. An agent that
-    does not know a credential file is absent reports the setting as unset,
-    which is the mistake that made this paragraph necessary.
+    """What the checkout holds beyond the last commit, so the agent neither
+    hedges about seeded files nor reports a missing credential as unset.
     """
     if not seeded:
         return ("This checkout is git's copy of the last commit. Files git does not "
@@ -153,20 +135,15 @@ def build_prompt(ticket: sqlite3.Row, workdir: str,
                  scope: list[str] | None = None,
                  seeded: dict | None = None,
                  known: list[dict] | None = None) -> str:
-    """The work order. Says what may be touched, in the words of the scope itself.
-
-    `scope` is the folder list off the agent's contract, which the PO can widen
-    from the contract drawer. It defaults to the story's own folder, which is
-    what every contract holds until they change one. `seeded` is what
-    `worktree.seed` put in the checkout on top of the commit.
+    """The work order. `scope` is the contract's folder list (default: the
+    story's folder); `seeded` is what `worktree.seed` added on top of the
+    commit.
     """
     criteria = (ticket["acceptance_criteria"] or "").strip() or "(none recorded. Ask, do not guess)"
     brief = (ticket["description"] or "").strip() or "(the Notion page body is empty)"
     project = ticket["project"]
     folders = list(scope or []) or [project]
-    # Backslashes throughout: a sub-project reads as `job-search/assisted-apply`
-    # everywhere else in the colony, but half a path in each separator is the
-    # kind of detail an agent stops trusting.
+    # Backslashes throughout, so no path mixes separators.
     scope_lines = "\n".join(
         "  " + workdir.rstrip("\\/") + "\\" + f.replace("/", "\\") for f in folders)
     return f"""You are a build agent in the PO's colony of Claude agents. Ordis is the Scrum
@@ -243,11 +220,8 @@ When you are done, reply with ONLY a JSON object, no prose around it:
 
 
 def clip(text: str, limit: int) -> str:
-    """Shorten a headline without letting it look like the text just stopped.
-
-    Only for the one-line fields -- `story_events.summary`, a ticket title.
-    Report bodies are never clipped: an agent that took the trouble to say
-    which criterion it skipped and why should have all of that reach the card.
+    """Shorten a one-line field with a visible ellipsis. Report bodies are
+    never clipped.
     """
     text = (text or "").strip()
     if len(text) <= limit:
@@ -297,10 +271,7 @@ def run_one(conn: sqlite3.Connection, ticket: sqlite3.Row) -> dict:
     folders = control.scope_projects(terms.get("write_scope")) or [ticket["project"]]
     try:
         work = worktree.create(tid)
-        # The checkout starts as git's copy of the last commit. Seeding brings
-        # it up to what is actually on disk, because half the criteria on the
-        # run that prompted this pointed at files the PO had staged and not
-        # committed, and the agent honestly reported they did not exist.
+        # Seed the checkout to match disk, including the PO's uncommitted work.
         seeded = worktree.seed(tid, folders, secrets=bool(terms.get("sees_secrets")))
     except Exception as exc:  # git refused; a blocked ticket, never a crashed pulse
         conn.execute("UPDATE tickets SET status = 'blocked', findings = ? WHERE id = ?",
@@ -343,10 +314,7 @@ def run_one(conn: sqlite3.Connection, ticket: sqlite3.Row) -> dict:
              result.chargeable_tokens),
         )
 
-    # The diff is taken whatever the run's status. A timeout that wrote three
-    # good files still wrote three good files, and throwing them away means
-    # paying twice for the same work. The same lesson the over-budget path
-    # learned in M1.
+    # Diff whatever the status; a timed-out run's files are still paid for.
     try:
         patch = worktree.diff(tid)
         stat = worktree.stat(tid)
@@ -357,18 +325,9 @@ def run_one(conn: sqlite3.Connection, ticket: sqlite3.Row) -> dict:
     summary = (answer.get("summary") or clip(result.text, 200) or "build finished").strip()
 
     if not patch.strip():
-        # A build that wrote nothing is not the same as a build that did
-        # nothing, and this branch used to treat them as one. It skipped
-        # `_raise_run_requests`, which only ever ran on the path that produced a
-        # patch, so an agent whose only remaining work was a command it has no
-        # shell for had its handover dropped. The story went back to `ready`,
-        # the Inbox said "ready to start", the PO dispatched it again, and the
-        # same agent wrote the same handover into the same silence. Tickets #80
-        # and #82 are the identical pair that came of it.
-        #
-        # The findings are stored as the answer JSON now, not the raw text, so
-        # the skipped criteria and the commands it asked for survive on the
-        # ticket and can be read back from the completed panel.
+        # No files written, but the agent may still have handed over commands.
+        # Raise those, and store the answer JSON so skipped criteria stay
+        # readable.
         conn.execute(
             "UPDATE tickets SET status = 'blocked', findings = ?, "
             "closed_at = datetime('now','localtime') WHERE id = ?",
@@ -440,20 +399,12 @@ def run_one(conn: sqlite3.Connection, ticket: sqlite3.Row) -> dict:
 
 def _park_no_change(conn: sqlite3.Connection, ticket: sqlite3.Row,
                     answer: dict, handed: int) -> None:
-    """Where a story goes when the build wrote no files.
+    """Where a story goes when the build wrote no files: `needs-info`, not
+    `ready`, which would re-dispatch the same empty build.
 
-    Not back to `ready`. `ready` means "dispatch me", and dispatching the same
-    story to the same agent over the same tree produces the same empty build.
-    That loop is what put two identical blocked tickets in the Ticket Queue with
-    nothing anywhere on the page saying why.
-
-    It waits in `needs-info` instead. That is the lane the board reads as "the
-    colony is stopped and needs the PO", it carries the reason in
-    `blocked_reason` where the story panel and the Inbox both show it, and it is
-    the lane `pulse.ensure_blocked_visible` guarantees an open card for on every
-    tick. When commands were handed over, those run-request cards are the open
-    cards and the invariant is already satisfied; a second card saying the same
-    thing in weaker words is noise.
+    `needs-info` shows the reason from `blocked_reason` on the story and
+    Inbox, and `pulse.ensure_blocked_visible` keeps a card open for it. When
+    run-request cards were raised, they are that card.
     """
     sid = ticket["sid"]
     if handed:
@@ -498,25 +449,14 @@ def _park_no_change(conn: sqlite3.Connection, ticket: sqlite3.Row,
 
 
 def _same_command(a: str, b: str) -> bool:
-    """Is this the command the story has been asked about before?
-
-    Whitespace only. Two spellings that differ by an argument are two different
-    questions and both deserve asking; two that differ by a space are one
-    question asked twice.
-    """
+    """Same command ignoring whitespace only."""
     return " ".join((a or "").split()) == " ".join((b or "").split())
 
 
 def _already_asked(conn: sqlite3.Connection, story_id: int, command: str,
                    wrote_nothing: bool) -> str | None:
-    """Why this run-request must not go in front of the PO again, or None.
-
-    Twelve cards on story #1 carried `py -m apply.main auto`, and the PO ran it,
-    rejected it and finally waived it. Every one of those answers landed on the
-    story and none of them stopped the next build asking, because nothing looked
-    at the earlier cards before raising a new one. The Inbox is where the colony
-    asks for a person's attention, and spending it on a question already
-    answered is how it stops being worth reading.
+    """Why this run-request must not go to the PO again, or None. Checks
+    earlier cards on the story so an answered question is not asked twice.
     """
     if not story_id:
         return None
@@ -541,9 +481,8 @@ def _already_asked(conn: sqlite3.Connection, story_id: int, command: str,
         if row["po_decision"] == "approve":
             ran_before = True
     if ran_before and wrote_nothing:
-        # It ran, and this build wrote nothing. Same tree, same command, same
-        # output: there is no version of running it again that tells anyone
-        # something the story does not already record.
+        # Already run, and this build changed nothing: rerunning tells nobody
+        # anything.
         return ("it has already been run on this story and this build changed "
                 "nothing, so running it again would print the same thing")
     return None
@@ -551,16 +490,8 @@ def _already_asked(conn: sqlite3.Connection, story_id: int, command: str,
 
 def _raise_run_requests(conn: sqlite3.Connection, ticket: sqlite3.Row,
                         answer: dict, wrote_nothing: bool = False) -> int:
-    """Turn the agent's `needs_run` list into cards the PO can act on.
-
-    A build agent has no shell, so a criterion phrased "run X and confirm Y"
-    used to come back as a skip with a paragraph explaining why. The paragraph
-    was correct and got nobody any closer. Now the agent writes the command it
-    would have run and the colony asks the PO whether to run it.
-
-    Refused commands are not raised. Nothing is gained by putting a card in
-    front of them that says `git push` on it; the reason is recorded on the
-    story instead so the agent's request is not silently dropped.
+    """Turn the agent's `needs_run` list into run-request cards. Refused
+    commands get a note on the story instead of a card.
     """
     from . import runner
 
@@ -578,10 +509,8 @@ def _raise_run_requests(conn: sqlite3.Connection, ticket: sqlite3.Row,
         expect = str(item.get("expect") or "").strip()
         try:
             command = runner.check(command)
-            # Resolved here rather than at run time so the card shows the line
-            # that will actually be run and the folder it will run in, and so a
-            # `cd` out of the project folder is refused before it is ever put in
-            # front of the PO.
+            # Resolve the `cd` now so the card shows the real command and
+            # folder, and an escape is refused before the PO sees it.
             command, where = runner.resolve_cd(
                 command, runner.check_folder(ticket["project"]))
             where = where.relative_to(runner.ROOT).as_posix()
@@ -592,9 +521,7 @@ def _raise_run_requests(conn: sqlite3.Connection, ticket: sqlite3.Row,
             continue
         settled = _already_asked(conn, ticket["sid"], command, wrote_nothing)
         if settled:
-            # On the story rather than in the Inbox. The next agent reads the
-            # story, so this is where the answer has to be for it to stop
-            # asking, and the PO has already spent their attention on this one.
+            # On the story, where the next agent will read it.
             _event(conn, ticket["sid"], "note",
                    f"{ticket['role']} asked again for `{command}`. Not raised",
                    f"$ {command}\n\nNot put in front of the PO: {settled}."
@@ -618,10 +545,8 @@ def _raise_run_requests(conn: sqlite3.Connection, ticket: sqlite3.Row,
             (ticket["sid"], ticket["id"],
              f'{ticket["role"]} needs a command run: `{command}`',
              "\n\n".join(body),
-             # `where`, not the ticket's project. The `cd` has been stripped
-             # off the command by now, so recording the project root here would
-             # send the run back to the folder the agent had just said was the
-             # wrong one.
+             # `where`, since the `cd` has already been stripped from the
+             # command.
              json.dumps({"command": command, "project": where,
                          "ticket_id": ticket["id"], "why": why,
                          "expect": expect})),

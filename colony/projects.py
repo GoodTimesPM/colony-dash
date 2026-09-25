@@ -1,21 +1,10 @@
-r"""What changed in the project folders. The file manager the PO asked for.
+r"""What changed in the project folders.
 
-The colony's whole read scope is `db.PROJECTS_ROOT`, which is one git repo
-containing every project. So "what changed in job-radar this week" is a
-`git status`/`git log` question scoped to a path prefix, not a filesystem walk,
-and asking git is both faster and truer: git already knows what is tracked, what
-is ignored, and what moved since the last commit.
-
-Two callers, one set of functions:
-
-  * the **pulse** samples this every hour and records anything that moved into
-    `project_changes`, so the log has something to say on an hour where Notion
-    was quiet but you refactored for three hours;
-  * the **dashboard** calls it live for the Projects panel and the diff drawer.
-
-Everything here is read-only. `git status`, `git log` and `git diff` do not
-write to the repository, and no command in this module takes an argument that
-could turn into one.
+Every project lives in one git repo under `db.PROJECTS_ROOT`, so change
+tracking is `git status` and `git log` scoped by path prefix. Two callers:
+the pulse records movement hourly in `project_changes`, and the dashboard
+calls it live for the Projects panel and diff drawer. Everything here is
+read-only.
 """
 
 from __future__ import annotations
@@ -40,10 +29,8 @@ REC = "\x01"
 
 
 def _git(*args: str, cwd: Path | None = None) -> str:
-    """Run one read-only git command. Returns '' rather than raising.
-
-    A project that is not a git repo, or a git that is not installed, must
-    degrade the panel. Never take the pulse down with it.
+    """Run one read-only git command. Returns '' instead of raising, so a
+    missing git degrades the panel rather than the pulse.
     """
     try:
         proc = proc_mod.run(
@@ -58,10 +45,8 @@ def _git(*args: str, cwd: Path | None = None) -> str:
 
 
 def project_dirs() -> list[str]:
-    """Every project folder, one and two levels deep.
-
-    Same definition the pulse uses, a folder with a PROJECT.md in it, so the
-    two never disagree about what counts as a project.
+    """Every folder with a PROJECT.md, one and two levels deep (the pulse's
+    rule).
     """
     if not ROOT.is_dir():
         return []
@@ -76,14 +61,8 @@ def project_dirs() -> list[str]:
     return out
 
 
-# The word "modified" is only meaningful next to the thing it is modified
-# *against*, and on this page that thing is one specific commit: every project
-# folder lives inside a single git repo, so "modified" means "different from
-# HEAD of that repo" for all sixty of them at once. The panel used to state the
-# count and leave the baseline implicit, which is how a reader ends up asking
-# "modified relative to what?" A fair question with no answer on screen. The
-# subject and date ride along with the sha so the baseline can be named in
-# words rather than as seven hex digits nobody recognises.
+# The commit "modified" is measured against, with subject and date so the panel
+# can name it.
 def head() -> dict:
     """Branch and HEAD of the master projects repo. The baseline for "modified"."""
     line = _git("log", "-1", f"--pretty=format:%h{SEP}%s{SEP}%ad",
@@ -99,12 +78,8 @@ def head() -> dict:
     }
 
 
-# What each porcelain bucket is, in the words a person would use for it. `git`
-# says "untracked", which is a statement about git's index and reads like an
-# accusation; what it means to the PO is "a file that has never been committed",
-# which is exactly the category their mod loader keeps filling with folders they
-# never typed. Naming them properly is most of the fix for "modifications I
-# can't find".
+# Plain-language names for porcelain buckets ("never committed", not
+# "untracked").
 KIND_SHORT = {"modified": "edited", "added": "added", "deleted": "deleted",
               "untracked": "new"}
 KIND_LONG = {
@@ -116,11 +91,8 @@ KIND_LONG = {
 
 
 def _status_porcelain() -> list[tuple[str, str]]:
-    """(xy, path) for every changed file in the whole tree, in one call.
-
-    One `git status` for the repo rather than one per project: sixty projects
-    would be sixty subprocesses an hour and every answer comes out of the same
-    index anyway. Bucketing by path prefix afterwards is free.
+    """(xy, path) for every changed file, from one `git status` for the whole
+    repo.
     """
     raw = _git("status", "--porcelain=v1", "-uall")
     out: list[tuple[str, str]] = []
@@ -135,11 +107,7 @@ def _status_porcelain() -> list[tuple[str, str]]:
 
 
 def _bucket(path: str, projects: list[str]) -> str | None:
-    """Which project a changed file belongs to.
-
-    Longest prefix wins, so a file in `job-search/job-radar` is not filed under
-    `job-search`.
-    """
+    """The project a changed file belongs to. Longest prefix wins."""
     norm = path.replace("\\", "/")
     best = None
     for p in projects:
@@ -156,13 +124,8 @@ def _blank(project: str) -> dict:
 
 
 def _mtime(path: str) -> str | None:
-    """When the working tree last changed under a project, as a wall-clock string.
-
-    Deliberately the file's own mtime rather than a `git log` date: these rows are
-    *uncommitted* changes, so the last commit says nothing about when you last
-    touched them. A deleted file cannot be stat'd and simply does not count. It
-    is the one change whose time git alone would know, and one missing sample out
-    of hundreds does not move a max.
+    """When the working tree last changed under a project, from file mtimes,
+    since these changes are uncommitted. Deleted files are skipped.
     """
     try:
         ts = (ROOT / path).stat().st_mtime
@@ -172,19 +135,14 @@ def _mtime(path: str) -> str | None:
 
 
 def scan(since: str | None = None) -> list[dict]:
-    """Per-project working-tree state, plus commits since a timestamp.
-
-    `since` is a git date string. The previous pulse's time. Without it the
-    commit counts are left at zero rather than computed over all history: a
-    number nobody asked for is a number the pulse pays for every hour.
+    """Per-project working-tree state, plus commits since `since` (a git date).
+    No `since` means zero commit counts rather than a full-history walk.
     """
     projects = project_dirs()
     if not projects:
         return []
 
-    # Read once, stamped on every row. It is the same repo for all of them, and a
-    # row that travels without its baseline is a row that cannot say what it is a
-    # change *to* once it reaches the drawer.
+    # The baseline, stamped on every row so each can say what it differs from.
     at_head = head()
 
     agg: dict[str, dict] = {}
@@ -204,9 +162,7 @@ def scan(since: str | None = None) -> list[dict]:
             row["modified"] += 1
         if len(row["files"]) < 40:
             row["files"].append({"xy": xy.strip() or "?", "path": path})
-        # Every dirty path is stat'd, not just the forty the drawer shows: the
-        # panel sorts on this, and a max taken over a truncated sample is a
-        # timestamp that quietly lies about the busiest folders.
+        # Stat every dirty path; the panel sorts on the max.
         seen = _mtime(path)
         if seen and (row["touched_at"] is None or seen > row["touched_at"]):
             row["touched_at"] = seen
@@ -256,11 +212,8 @@ def commits(project: str, limit: int = 12) -> list[dict]:
 
 
 def diff(project: str, path: str | None = None) -> str:
-    """The working-tree diff for a project, or for one file inside it.
-
-    Untracked files have no diff, git will say nothing about them, so they are
-    shown as their own first lines rather than as an empty change, which reads
-    like a bug in the panel.
+    """The working-tree diff for a project or one file. Untracked files are
+    listed first, since git shows no diff for them.
     """
     target = path or project
     stat = _git("diff", "--stat", "--", target) if path is None else ""
@@ -284,21 +237,11 @@ def diff(project: str, path: str | None = None) -> str:
 
 
 # ── the file tree ─────────────────────────────────────────────────────────────
-#
-# `scan()` answers "what moved", which is the right question for the pulse log
-# and the wrong one for a file manager: a project with nothing uncommitted
-# vanishes from it entirely, so a panel built on it looks empty exactly when the
-# tree is tidy. This half answers "what is there", and hangs the change state off
-# it as decoration rather than as the reason a row exists.
-#
-# It is a lazy tree, one directory per request, because the root has sixty
-# projects under it and some of those have `node_modules`. Walking eagerly to
-# render a collapsed row is how a file panel becomes the slowest thing on a page.
+# The browsable tree: what is there, with change state attached, so a tidy
+# project still shows. Lazy, one directory per request.
 
-# Never listed, never read, at any depth. `.git` because its internals are not
-# files anybody browses and one of them is a credential store; `.env` and its
-# neighbours because the read scope in §8 excludes secrets from *every* tier,
-# and a dashboard is a tier.
+# Never listed or read. `.git` holds a credential store, and §8 keeps secrets
+# from every tier, the dashboard included.
 HIDDEN_NAMES = {".git", "node_modules", "__pycache__", ".venv", "venv",
                 ".mypy_cache", ".pytest_cache", ".ruff_cache"}
 READ_LIMIT_BYTES = 400_000
@@ -309,11 +252,8 @@ TEXT_SUFFIXES = {".md", ".txt", ".py", ".js", ".ts", ".tsx", ".jsx", ".json", ".
 
 
 def safe_path(rel: str) -> Path:
-    """Resolve a browser-supplied path inside the root, or refuse.
-
-    Everything the tree endpoints touch comes through here. The check is on the
-    *resolved* path, so a symlink that points out of the tree fails the same way
-    a `..` does.
+    """Resolve a browser-supplied path inside the root, or refuse. Checked on
+    the resolved path, so symlinks fail like `..` does.
     """
     rel = (rel or "").replace("\\", "/").strip("/")
     full = (ROOT / rel).resolve() if rel else ROOT.resolve()
@@ -347,10 +287,8 @@ def _state_for(xy: str) -> str:
 
 
 def tree(rel: str = "", *, status: dict[str, str] | None = None) -> dict:
-    """One directory's children, folders first, with change state attached.
-
-    A folder's `changed` count is how many changed files are anywhere beneath
-    it, which is the number that makes a collapsed row worth expanding.
+    """One directory's children, folders first. A folder's `changed` counts
+    every changed file beneath it.
     """
     full = safe_path(rel)
     if not full.is_dir():
@@ -405,20 +343,14 @@ def read_file(rel: str) -> dict:
             "text": raw.decode("utf-8", errors="replace"), "why": None}
 
 
-# How many of a folder's changed files get written into the log. The drawer lists
-# them, and a list is only readable while it is a list. Past a dozen it is a
-# wall, and the diff view next to it is the better place to read a wall.
+# Files listed per folder in the log; beyond this the diff view reads better.
 FILES_LOGGED = 12
 
 
 def record(conn, pulse_id: int | None, rows: list[dict]) -> int:
-    """Write this pulse's findings into `project_changes`. Returns rows written.
-
-    The deltas, the file list and `moved_by` are attached upstream by the pulse,
-    which is the only caller that knows what the previous sample was and what the
-    colony did in the window. They are stored rather than recomputed because the
-    drawer is reading a beat that happened hours ago: by the time anybody opens
-    it, "the previous sample" is a different row and the files have moved on.
+    """Write this pulse's findings into `project_changes`. Deltas, file lists
+    and `moved_by` come from the pulse and are stored as they were at the
+    time.
     """
     written = 0
     for r in rows:
