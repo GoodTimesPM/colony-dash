@@ -79,6 +79,14 @@ class PatchConflict(WorktreeError):
         self.paths = paths
 
 
+class OutOfScope(WorktreeError):
+    """The patch touches files outside the agent's write scope. Nothing was applied."""
+
+    def __init__(self, message: str, paths: list[str]):
+        super().__init__(message)
+        self.paths = paths
+
+
 def _git(*args: str, cwd: Path | None = None) -> str:
     proc = proc_mod.run(
         ["git", *args],
@@ -102,6 +110,66 @@ def path_for(ticket_id: int) -> Path:
 def _in_scope(rel: str, scope: list[str]) -> bool:
     """Is this repo-relative path inside one of the agent's folders?"""
     return any(rel == f or rel.startswith(f + "/") for f in scope)
+
+
+def _unquote(path: str) -> str:
+    """Undo git's C-style quoting of a path with unusual characters in it."""
+    if len(path) >= 2 and path[0] == path[-1] == '"':
+        raw = path[1:-1].encode("latin-1", "backslashreplace").decode("unicode_escape")
+        return raw.encode("latin-1").decode("utf-8", "replace")
+    return path
+
+
+def _side(value: str, prefix: str) -> str | None:
+    """A `---`/`+++` path with its a/ or b/ prefix removed, or None for /dev/null."""
+    if value == "/dev/null":
+        return None
+    if value.startswith('"'):
+        return '"' + value[1:].removeprefix(prefix)
+    return value.removeprefix(prefix)
+
+
+def patch_files(text: str) -> list[str]:
+    """The paths a patch touches, after the change, in the order it lists them.
+
+    Read from the `+++ b/` line, or `--- a/` for a deletion. A binary or
+    mode-only entry has neither, so it falls back to `rename to`, then to the
+    header, whose two halves are the same path when nothing was renamed.
+    """
+    out: list[str] = []
+    block: dict[str, str | None] | None = None
+
+    def close() -> None:
+        if block is not None:
+            path = (block.get("new") or block.get("rename")
+                    or block.get("old") or block["header"])
+            out.append(_unquote(path))
+
+    for line in text.splitlines():
+        if line.startswith("diff --git "):
+            close()
+            rest = line[len("diff --git "):]
+            half = (len(rest) - 1) // 2
+            if rest[half:half + 1] == " " and rest[2:half] == rest[half + 3:]:
+                header = rest[half + 3:]
+            else:
+                header = rest.split(" b/", 1)[-1]
+            block = {"header": header}
+        elif block is None:
+            continue
+        elif line.startswith("+++ "):
+            block["new"] = _side(line[4:], "b/")
+        elif line.startswith("--- "):
+            block["old"] = _side(line[4:], "a/")
+        elif line.startswith("rename to "):
+            block["rename"] = line[len("rename to "):]
+    close()
+    return out
+
+
+def outside_scope(files: list[str], scope: list[str]) -> list[str]:
+    """The paths in `files` that no folder in `scope` covers."""
+    return [f for f in files if not _in_scope(f, scope)]
 
 
 def _copy_into(rel: str, dest_root: Path) -> int:
@@ -359,41 +427,33 @@ def conflicted() -> list[str]:
     return [line.strip() for line in raw.splitlines() if line.strip()]
 
 
-def apply_patch(ticket_id: int) -> dict:
+def apply_patch(ticket_id: int, scope: list[str] | None = None) -> dict:
     """Land an approved patch in the live tree, uncommitted.
 
-    Two passes, and the order matters.
+    Three passes, strictest first. `git apply --index` is all-or-nothing and
+    exact. A plain worktree apply covers the case where the PO has staged work
+    on a file the patch touches. `--3way` merges a patch written against an
+    older tree, and it can leave conflict markers on disk, so a conflict is
+    raised as `PatchConflict` naming the files rather than as a refusal.
 
-    The strict `git apply --index` goes first. It is all-or-nothing: either
-    every hunk lands exactly as written or nothing is touched. When it succeeds
-    The PO is looking at the patch they approved and nothing was guessed.
-
-    Only when strict refuses do we fall back to `--3way`, which merges a patch
-    written against a slightly older tree. That fallback is not a safe retry,
-    and the old code treated it as one. `--3way --check` reports success when a
-    merge is *possible*, not when it is clean, and a three-way apply that hits a
-    conflict writes the files anyway: conflict markers in the working tree,
-    stages 1/2/3 in the index, and a non-zero exit. The old code caught that
-    exit and said "the patch would not apply", which was wrong twice — most of
-    the patch had applied, and the PO was sent back to a tree with conflict
-    markers in it that nothing had told them about.
-
-    Between the two sits a plain worktree apply, for the common case where the
-    only thing wrong is that the PO has staged work of their own on a file the
-    patch touches. See the comment on it below.
-
-    So a conflict is now reported as a conflict, by name, and the caller keeps
-    the escalation open because finishing the merge is the PO's job.
+    With `scope`, a patch that touches anything outside those folders is
+    refused before git runs. The work order states the scope; this enforces it.
     """
     patch = PATCH_DIR / f"ticket-{ticket_id}.patch"
     if not patch.is_file():
         raise WorktreeError("no saved patch for that ticket")
     text = patch.read_text(encoding="utf-8")
     if not text.strip():
-        raise WorktreeError("the patch is empty — the run changed nothing")
+        raise WorktreeError("the patch is empty, the run changed nothing")
 
-    files = text.count("\ndiff --git ") + text.startswith("diff --git ")
-    result = {"applied": True, "patch": str(patch), "files": files,
+    paths = patch_files(text)
+    if scope:
+        stray = outside_scope(paths, scope)
+        if stray:
+            raise OutOfScope(
+                f"{len(stray)} file(s) fall outside the write scope "
+                f"({', '.join(scope)}): " + ", ".join(stray), stray)
+    result = {"applied": True, "patch": str(patch), "files": len(paths),
               "merged": False, "staged": True}
 
     try:

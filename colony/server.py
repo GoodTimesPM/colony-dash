@@ -1429,7 +1429,7 @@ def api_diff(project: str = Query(..., max_length=200),
 PATCH_MAX_CHARS = 400_000
 
 
-def _diffstat(patch: str) -> dict[str, Any]:
+def _diffstat(patch: str, scope: list[str] | None = None) -> dict[str, Any]:
     """Per-file adds and deletes, counted off the patch itself.
 
     `git diff --stat` was already captured into the escalation's
@@ -1440,17 +1440,20 @@ def _diffstat(patch: str) -> dict[str, Any]:
 
     Counted, not parsed: a line is an addition if it starts with a single "+",
     which is true of every added line and of no header, because "+++" is caught
-    by the header test first.
+    by the header test first. Paths come from `worktree.patch_files`, the same
+    parse that `apply_patch` checks scope against.
     """
+    from . import worktree
+
+    names = worktree.patch_files(patch)
     files: list[dict[str, Any]] = []
     cur: dict[str, Any] | None = None
     for line in patch.splitlines():
         if line.startswith("diff --git "):
-            # "diff --git a/x b/x" {D} take the b-side, which is the path after
-            # the change, so a rename reads as where the file ended up.
-            parts = line.split(" b/", 1)
-            cur = {"path": parts[1] if len(parts) > 1 else line[11:],
-                   "added": 0, "removed": 0, "binary": False, "verb": "changed"}
+            path = names[len(files)] if len(files) < len(names) else line[11:]
+            cur = {"path": path, "added": 0, "removed": 0, "binary": False,
+                   "verb": "changed",
+                   "outside": bool(scope) and bool(worktree.outside_scope([path], scope))}
             files.append(cur)
         elif cur is None:
             continue
@@ -1475,6 +1478,7 @@ def _diffstat(patch: str) -> dict[str, Any]:
             "added": sum(f["added"] for f in files),
             "removed": sum(f["removed"] for f in files),
             "binary": sum(1 for f in files if f["binary"]),
+            "outside": sum(1 for f in files if f["outside"]),
         },
     }
 
@@ -1544,7 +1548,8 @@ def api_patch(escalation_id: int = Query(..., ge=1)) -> dict[str, Any]:
                    "title": (ticket or {}).get("title")},
         "path": str(path) if str(path) else None,
         "report": report,
-        "stat": _diffstat(patch),
+        "stat": _diffstat(patch, proposal.get("scope")),
+        "scope": proposal.get("scope"),
         "run": {
             "model": (run or {}).get("model"),
             "status": (run or {}).get("status"),

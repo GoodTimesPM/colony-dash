@@ -389,7 +389,9 @@ def run_one(conn: sqlite3.Connection, ticket: sqlite3.Row) -> dict:
         return outcome
 
     path = worktree.save_patch(tid, patch)
-    files = len(answer.get("files") or []) or patch.count("\ndiff --git ") + 1
+    paths = worktree.patch_files(patch)
+    stray = worktree.outside_scope(paths, folders)
+    files = len(paths)
     outcome["files"] = files
 
     conn.execute(
@@ -403,6 +405,11 @@ def run_one(conn: sqlite3.Connection, ticket: sqlite3.Row) -> dict:
     # Gate 5. The patch exists; nothing has been applied. This is the escalation
     # the whole milestone is built around.
     detail_bits = [stat.strip()]
+    if stray:
+        detail_bits.insert(0, "OUTSIDE WRITE SCOPE (" + ", ".join(folders) + "):\n  "
+                           + "\n  ".join(stray)
+                           + "\nApply refuses these. Widen the contract's write scope "
+                             "first, or reject.")
     if answer.get("skipped"):
         detail_bits.append("SKIPPED:\n" + "\n\n".join(
             f"  · {s.get('criterion')}\n    → {s.get('why')}"
@@ -417,7 +424,8 @@ def run_one(conn: sqlite3.Connection, ticket: sqlite3.Row) -> dict:
          f'"{ticket["story_title"]}" has a patch waiting — {files} file'
          f'{"s" if files != 1 else ""} changed in {ticket["project"]}/.',
          "\n\n".join(b for b in detail_bits if b),
-         json.dumps({"ticket_id": tid, "patch": str(path), "project": ticket["project"]}),
+         json.dumps({"ticket_id": tid, "patch": str(path), "project": ticket["project"],
+                     "files": paths, "scope": folders, "outside": stray}),
          result.chargeable_tokens),
     )
     _raise_run_requests(conn, ticket, answer)

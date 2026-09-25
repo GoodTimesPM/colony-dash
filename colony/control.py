@@ -741,6 +741,22 @@ def _raise_failed_run(conn: sqlite3.Connection, story_id: int,
          story["notion_hash"]))
 
 
+def _write_scope(conn: sqlite3.Connection, ticket_id: Any) -> list[str] | None:
+    """The ticket's agent's current write scope, read at apply time.
+
+    Read now rather than from the proposal, so widening the contract after a
+    refusal lets the same patch through on the next Apply.
+    """
+    row = conn.execute(
+        "SELECT a.write_scope, s.project FROM tickets t "
+        "JOIN stories s ON s.id = t.story_id "
+        "JOIN agents a ON a.role = t.role AND a.project = s.project "
+        "AND a.status != 'retired' WHERE t.id = ?", (ticket_id,)).fetchone()
+    if not row:
+        return None
+    return scope_projects(row["write_scope"]) or [row["project"]]
+
+
 def _settle_patch(conn: sqlite3.Connection, esc: sqlite3.Row, decision: str,
                   note: str) -> str:
     """Apply or discard a build's patch. The last gate before code is real."""
@@ -762,7 +778,11 @@ def _settle_patch(conn: sqlite3.Connection, esc: sqlite3.Row, decision: str,
         return "patch discarded, nothing applied"
 
     try:
-        applied = worktree.apply_patch(int(ticket_id))
+        applied = worktree.apply_patch(int(ticket_id), scope=_write_scope(conn, ticket_id))
+    except worktree.OutOfScope as exc:
+        conn.execute("UPDATE escalations SET resolved_at = NULL, po_decision = NULL "
+                     "WHERE id = ?", (esc["id"],))
+        raise Refused(str(exc))
     except worktree.PatchConflict as exc:
         # Not a refusal. The files are already in their working tree, some of them
         # with conflict markers in them, and the worktree stays until the merge

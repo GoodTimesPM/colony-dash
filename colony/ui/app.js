@@ -4183,6 +4183,7 @@ async function openPatch(e) {
                tag("+" + t.added, "good"),
                tag("-" + t.removed, "bad"));
   if (t.binary) chips.append(tag(t.binary + " binary"));
+  if (t.outside) chips.append(tag(t.outside + " outside scope", "bad"));
   if (p.project) chips.append(tag(p.project + "/"));
   if (p.run) {
     if (p.run.chargeable_tokens) chips.append(tag(toks(p.run.chargeable_tokens) + " tok"));
@@ -4214,6 +4215,13 @@ async function openPatch(e) {
   }
   if (r.risks) body.append(sectionBlock("look closely at", String(r.risks)));
 
+  const stray = ((p.stat && p.stat.files) || []).filter(f => f.outside);
+  if (stray.length) {
+    body.append(sectionBlock("outside the write scope",
+      stray.map(f => f.path).join("\n") + "\n\nApply will refuse these. Widen the "
+      + "contract's write scope (" + (p.scope || []).join(", ") + ") or reject."));
+  }
+
   // The decision, above the file list rather than under a thousand lines of
   // diff. Scrolling to the bottom to approve is a design that assumes you read
   // all of it; putting the buttons here assumes you read as much as you needed.
@@ -4239,7 +4247,7 @@ async function openPatch(e) {
     for (const f of files) {
       const tr = el("tr");
       tr.append(el("td", "verb " + f.verb, f.verb),
-                el("td", "path", f.path),
+                el("td", "path" + (f.outside ? " bad" : ""), f.outside ? f.path + "  (outside scope)" : f.path),
                 el("td", "plus", f.binary ? "bin" : "+" + f.added),
                 el("td", "minus", f.binary ? "" : "-" + f.removed));
       tbl.append(tr);
