@@ -1,41 +1,14 @@
-"""Who may reach the dashboard, once it stops being reachable only from here.
+"""Who may reach the dashboard when it binds more than loopback.
 
-For its whole life this server bound `127.0.0.1` and that was the entire access
-control story: the write door needed an `X-Colony` header, and the reason a
-header was enough is written down in `server.py`. A form on another web page
-can POST across origins but cannot set a custom header, and nothing off this
-machine could open a socket to it in the first place.
+On loopback the `X-Colony` header is enough (see `server.py`). Binding any
+other address requires COLONY_ACCESS_TOKEN, and the server refuses to start
+without one: an open dashboard on shared wifi would hand out the ledger, the
+project tree and a HALT button.
 
-The second half of that sentence is what a phone breaks. The moment the server
-binds anything but loopback, "nothing off this machine" stops being true, and
-the header stops being an access control and goes back to being what it always
-was: CSRF protection. Both are still wanted; they answer different questions.
-
-So there is exactly one new rule, and it fails closed:
-
-    binding a non-loopback address requires COLONY_ACCESS_TOKEN to be set.
-
-Not a warning, not a default that can be left in place. The server refuses to
-start. A dashboard that quietly served the ledger, the project tree, every run
-transcript and a HALT button to whoever else was on the coffee shop's wifi is
-the one failure here that cannot be walked back.
-
-The token is a bearer secret and is treated as one: compared in constant time,
-carried in an HttpOnly cookie so no script on the page can read it back out, and
-never logged. It is deliberately not a password and there are deliberately no
-accounts. One operator, one secret, and a rotation is a new line in `.env`.
-
-**What this is not.** This is not multi-tenancy. Every session that gets past
-this file is the same PO looking at the same ledger on the same machine; the
-token says "you are the PO on their phone", not "you are some user". Real accounts
-mean a per-user ledger, per-user projects on disk and a per-user `claude` login,
-which is a different program (see PROJECT.md).
-
-The intended transport is a tailnet, Tailscale, WireGuard, whatever puts the
-phone and the desktop on one private network, not a port forwarded from a
-router. On a tailnet the network is already doing the hard half of the work and
-this token is the second lock; on the open internet it would be the only one,
-in front of a page that can spend money.
+The token is one bearer secret for one operator. It is compared in constant
+time, carried in an HttpOnly cookie and never logged. There are no accounts;
+multi-tenancy is a separate program (see PROJECT.md). The intended transport
+is a tailnet, where this token is the second lock rather than the only one.
 """
 
 from __future__ import annotations
@@ -51,10 +24,9 @@ from . import db
 
 TOKEN_ENV = "COLONY_ACCESS_TOKEN"
 
-# HttpOnly, so `document.cookie` cannot read it and an XSS on the page cannot
-# post it somewhere. SameSite=Lax, so another site cannot ride it. No `Secure`:
-# a tailnet address is plain http, and setting Secure would mean the cookie is
-# never stored and the login loops forever.
+# HttpOnly so page script cannot read it, SameSite=Lax against cross-site use.
+# No `Secure`: tailnet addresses are plain http and the cookie would never
+# stick.
 COOKIE = "colony_key"
 COOKIE_MAX_AGE_S = 60 * 60 * 24 * 90
 
@@ -71,11 +43,8 @@ def mint() -> str:
 
 
 def is_loopback(host: str) -> bool:
-    """True for the addresses that mean 'this machine and nowhere else'.
-
-    `localhost` is included by name because that is how people type it, and
-    anything that will not parse as an address is treated as *not* loopback.
-    The unknown case has to fail towards asking for a token.
+    """True for addresses that mean 'this machine only'. Anything unparseable
+    is treated as not loopback, so the unknown case asks for a token.
     """
     host = (host or "").strip().strip("[]")
     if host.lower() in {"localhost", ""}:
@@ -98,12 +67,11 @@ def _hostname(value: str) -> str:
 
 
 def host_allowed(host_header: str | None) -> bool:
-    """True when a request's Host header names this machine.
+    """True when the Host header names this machine.
 
-    DNS rebinding points an attacker's hostname at 127.0.0.1, and the browser
-    then sends that hostname in Host. An IP literal cannot be rebound, so any
-    address is fine. Names are limited to localhost, this machine's own name,
-    MagicDNS names under ts.net and whatever COLONY_ALLOWED_HOSTS lists.
+    Guards against DNS rebinding. IP literals cannot be rebound; names must
+    be localhost, this machine's name, a `ts.net` MagicDNS name or listed in
+    COLONY_ALLOWED_HOSTS.
     """
     name = _hostname(host_header or "")
     if not name:
@@ -123,11 +91,9 @@ def host_allowed(host_header: str | None) -> bool:
 
 
 def origin_matches(origin: str | None, host_header: str | None) -> bool:
-    """True when a request carries no Origin, or one naming the same host.
-
-    A browser sends Origin on every cross-site POST. A request without one came
-    from something that is not a browser page, which the Host check has already
-    judged.
+    """True when a request has no Origin, or one naming the same host.
+    Non-browser clients send no Origin and the Host check has already judged
+    them.
     """
     if origin is None:
         return True
@@ -137,10 +103,8 @@ def origin_matches(origin: str | None, host_header: str | None) -> bool:
 
 
 def matches(supplied: str | None) -> bool:
-    """Constant-time comparison against the configured token.
-
-    False when nothing is configured, which is the safe answer: the only code
-    path that reaches this has already decided a token is required.
+    """Constant-time comparison against the configured token. False when none
+    is set.
     """
     real = token()
     if not real or not supplied:
@@ -148,10 +112,8 @@ def matches(supplied: str | None) -> bool:
     return secrets.compare_digest(supplied, real)
 
 
-# One-time pairing codes. The QR code on the Phone panel carries one of these
-# instead of the token, so the token itself never sits in a URL, a browser
-# history or a proxy log. They live in this process only: a restart voids them,
-# and the panel mints a fresh one on its next open.
+# One-time pairing codes for the Phone panel's QR, so the token never lands in
+# a URL or browser history. In-process only; a restart voids them.
 PAIR_TTL_S = 30 * 60
 _PAIR_LOCK = threading.Lock()
 _PAIRS: dict[str, float] = {}
@@ -191,11 +153,8 @@ class Unconfigured(RuntimeError):
 
 
 def check(host: str) -> bool:
-    """Decide whether this bind needs a token, refusing the unsafe combination.
-
-    Returns True when the server should enforce the token, False when it is
-    loopback-only and nothing changes. Raises `Unconfigured` rather than
-    starting an open server.
+    """Whether this bind needs a token. True to enforce, False for loopback.
+    Raises `Unconfigured` rather than starting an open server.
     """
     if is_loopback(host):
         return False
@@ -213,44 +172,25 @@ def check(host: str) -> bool:
 
 
 # ── who has actually arrived ──────────────────────────────────────────────────
-#
-# The failure this exists for has no error message at either end. The server
-# binds a network address, answers on it from this machine, reports the
-# firewall rule as present, and the phone still sits on a blank tab until it
-# gives up. Every fact the panel had was a fact about the desktop, and the
-# desktop was fine. The one fact nobody was recording is the one that splits
-# the problem in half: has a request from another device reached this process
-# at all?
-#
-# If none has, the packets are dying before the server sees them and the causes
-# are all network-shaped: a phone on a different subnet, a router isolating
-# wireless clients from wired ones, a VPN on the phone routing every address
-# out to the internet. If one has and it was turned away, the network is fine
-# and the token is wrong, which is a different fix and a much smaller one.
-#
-# In memory, not the ledger. The question is always "since this server came
-# up", a restart is the natural way to clear it, and writing a row per request
-# would put the busiest path in the process into the database.
+# Off-machine requests that reached the gate, since this server started. It
+# splits "phone shows a blank tab" in two: none arrived means a network problem
+# (subnet, client isolation, a phone VPN); arrived and refused means a bad
+# token. Kept in memory so the hot path never writes to the ledger.
 
 _ARRIVALS: dict[str, dict] = {}
 ARRIVALS_MAX = 8
 
 
 def note_arrival(host: str, accepted: bool) -> None:
-    """Record that a request from off this machine reached the gate.
-
-    Keyed by address, so a phone reloading forty times is one entry that counts
-    to forty rather than forty entries. Loopback is not recorded: it is this
-    machine, and this machine reaching itself was never in question.
-    """
+    """Record an off-machine request. Keyed by address; loopback is skipped."""
     import time
 
     if not host or is_loopback(host):
         return
     seen = _ARRIVALS.get(host)
     if seen is None:
-        # Oldest out first, by the time it was last seen. Eight is enough to
-        # show a phone, a tablet and a laptop without becoming a log.
+        # Evict the least recently seen. Eight covers a few devices without
+        # being a log.
         if len(_ARRIVALS) >= ARRIVALS_MAX:
             oldest = min(_ARRIVALS, key=lambda k: _ARRIVALS[k]["at"])
             _ARRIVALS.pop(oldest, None)
