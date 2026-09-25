@@ -1,6 +1,7 @@
 // In flight and completed work.
 
-import { $, act, ago, el, longText, store, toast, toks, until, usd } from "./core.js";
+import { $, act, ago, btn, card, chip, el, h, longText, row, store, toast, toks, until,
+  usd } from "./core.js";
 import { STATE, relNode, stamp } from "./render.js";
 import { NEW_PROJECT, openCompose, projectSelect } from "./composer.js";
 import { openCompleted, openStory } from "./drawers.js";
@@ -24,50 +25,47 @@ export function renderFlight(items) {
 }
 
 export function flightRow(f) {
-  const row = el("div", "fl");
-  row.dataset.flight = f.key;
-  row.dataset.state = f.kind === "push"
-    ? (f.stuck ? "stuck" : "push")
-    : (f.run_id ? "running" : f.status);
+  // A row with a story opens it, so it is a button. One without a story is
+  // not a control, and stays a div.
+  const fl = h(f.story_id ? "button.fl" : "div.fl", {
+    type: f.story_id ? "button" : null,
+    "data-flight": f.key,
+    "data-state": f.kind === "push" ? (f.stuck ? "stuck" : "push") : (f.run_id ? "running" : f.status),
+  });
 
   if (f.kind === "push") {
     // A push says what it will do to the board, in the board's words.
     const what = f.verb === "status" ? "→ " + f.what
                : f.verb === "check"  ? (f.checked ? "☑ " : "☐ ") + f.what
                : "💬 " + (f.what || "").slice(0, 80);
-    row.append(el("div", "t", what));
-    const m = el("div", "m");
-    m.append(el("span", "st", f.stuck ? "gave up" : "queued"),
-             el("span", null, "notion"),
-             el("span", "who", f.story_title || ("story #" + f.story_id)));
-    row.append(m);
-    if (f.last_error) row.append(el("div", "err", f.last_error.slice(0, 120)));
-    row.title = f.stuck
+    fl.append(chip(what, "t"),
+              h("span.m", null, chip(f.stuck ? "gave up" : "queued", "st"), chip("notion"),
+                chip(f.story_title || ("story #" + f.story_id), "who")));
+    if (f.last_error) fl.append(chip(f.last_error.slice(0, 120), "err"));
+    fl.title = f.stuck
       ? "tried " + f.attempts + " times and stopped, the pulse will not retry this on its own"
       : "queued " + ago(f.queued_at) + ", the next pulse sends it. Nothing has changed on the board yet.";
   } else {
-    row.append(el("div", "t", f.title));
-    const m = el("div", "m");
     // A reply is a ticket, but it shows as "waiting on Ordis", not its
     // mechanism.
     const reply = !!f.po_message_id;
-    m.append(el("span", "st", f.run_id ? "running" : f.status),
-             el("span", null, reply ? "reply" : f.intent),
-             el("span", "who", f.role || (reply ? "waiting for Ordis" : "unstaffed")));
-    row.append(m);
-    if (reply && f.po_message) row.append(el("div", "said", "“" + f.po_message + "”"));
+    fl.append(chip(f.title, "t"),
+              h("span.m", null, chip(f.run_id ? "running" : f.status, "st"),
+                chip(reply ? "reply" : f.intent),
+                chip(f.role || (reply ? "waiting for Ordis" : "unstaffed"), "who")));
+    if (reply && f.po_message) fl.append(chip("“" + f.po_message + "”", "said"));
     // A blocked ticket shows what it found.
-    if (f.status === "blocked" && f.note) row.append(el("div", "note", f.note));
-    row.title = (f.status === "blocked" && f.note ? f.note + "\n\n" : "") +
-                "ticket #" + f.id + " · " + (f.story_title || "") +
-                (f.run_id ? " · run #" + f.run_id + " started " + ago(f.run_started_at)
-                          : " · created " + ago(f.created_at));
+    if (f.status === "blocked" && f.note) fl.append(chip(f.note, "note"));
+    fl.title = (f.status === "blocked" && f.note ? f.note + "\n\n" : "") +
+               "ticket #" + f.id + " · " + (f.story_title || "") +
+               (f.run_id ? " · run #" + f.run_id + " started " + ago(f.run_started_at)
+                         : " · created " + ago(f.created_at));
   }
 
-  row.onmouseenter = () => lightFlight(f.key, true);
-  row.onmouseleave = () => lightFlight(f.key, false);
-  if (f.story_id) row.onclick = () => openStory(f.story_id);
-  return row;
+  fl.onmouseenter = () => lightFlight(f.key, true);
+  fl.onmouseleave = () => lightFlight(f.key, false);
+  if (f.story_id) fl.onclick = () => openStory(f.story_id);
+  return fl;
 }
 
 // ── completed work ──────────────────────────────────────────────────────────
@@ -110,62 +108,45 @@ for (const b of document.querySelectorAll("[data-done]")) {
 }
 
 export function completedTile(it) {
-  const card = el("div", "tile done");
-  card.tabIndex = 0;
-  card.dataset.kind = it.kind;
-  if (it.outcome) card.dataset.outcome = it.outcome;
-
-  const k = el("div", "k");
-  k.append(el("span", null, it.kind === "dispatch"
-    ? (it.outcome === "empty" ? "no changes" : "delivered") + "  ·  " + it.ref
-    : "filed " + (it.settled_as || "") + "  ·  " + it.ref));
-  k.append(relNode("age", it.at));
-  card.append(k);
-
-  card.append(el("div", "r", it.title || "(untitled)"));
-
-  // The finish date, in full: the panel is sorted by it and a relative age
-  // alone cannot place it.
-  card.append(el("div", "meta", "completed " + stamp(it.at) +
-    (it.since ? "   ·   since the last delivery on " + stamp(it.since) : "")));
-
-  if (it.summary) {
-    const sum = longText(it.summary, 400);
-    sum.classList.add("sum");
-    card.append(sum);
-  }
-
-  const tally = el("div", "tally");
-  const add = (text, cls) => { if (text) tally.append(el("span", cls || null, text)); };
-  if (it.kind === "dispatch") {
-    add(it.done_n + " criteria met", it.done_n ? "good" : null);
-    add(it.skipped_n ? it.skipped_n + " skipped" : "", "hot");
-    add(it.files_n ? it.files_n + " files" : "");
-    add(it.patch ? "patch" : "");
-  } else {
-    add(it.dispatches ? it.dispatches + " dispatch" + (it.dispatches === 1 ? "" : "es") : "no dispatch");
-    add(it.done_n ? it.done_n + " of " + (it.done_n + it.skipped_n) + " to-dos" : "");
-  }
-  add(it.blockers ? it.blockers + " blocker" + (it.blockers === 1 ? "" : "s") : "", "hot");
-  add(it.questions ? it.questions + " question" + (it.questions === 1 ? "" : "s") : "");
-  add(it.messages ? it.messages + " message" + (it.messages === 1 ? "" : "s") : "");
-  add(it.learnings ? it.learnings + " learned" : "");
-  add(it.runs ? it.runs + " run" + (it.runs === 1 ? "" : "s") : "");
-  add(it.tokens ? toks(it.tokens) + " tok" : "");
-  add(usd(it.usd));
-  card.append(tally);
-
-  const foot = [];
-  if (it.project) foot.push(it.project);
-  if (it.role) foot.push(it.role);
-  if (foot.length) card.append(el("div", "meta", foot.join("   ·   ")));
-
   const open = () => openCompleted(it.kind + ":" + it.id);
-  card.onclick = open;
-  card.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); } };
-  card.title = "open the whole record. The work order, what it produced, and every "
-             + "message, question and decision since the last delivery";
-  return card;
+  const plural = (n, word, many) => n ? n + " " + word + (n === 1 ? "" : many || "s") : "";
+  const counts = it.kind === "dispatch"
+    ? [chip(it.done_n + " criteria met", it.done_n ? "good" : null),
+       it.skipped_n && chip(it.skipped_n + " skipped", "hot"),
+       it.files_n && chip(it.files_n + " files"),
+       it.patch && chip("patch")]
+    : [chip(it.dispatches ? plural(it.dispatches, "dispatch", "es") : "no dispatch"),
+       it.done_n && chip(it.done_n + " of " + (it.done_n + it.skipped_n) + " to-dos")];
+  const foot = [it.project, it.role].filter(Boolean);
+
+  const tile = card("done", { "data-kind": it.kind, "data-outcome": it.outcome || null },
+    h("div.k", null,
+      chip(it.kind === "dispatch"
+        ? (it.outcome === "empty" ? "no changes" : "delivered") + "  ·  " + it.ref
+        : "filed " + (it.settled_as || "") + "  ·  " + it.ref),
+      relNode("age", it.at)),
+    // The title is the control. The card is clickable too, for the mouse, but
+    // it holds the "show the rest" button and a button cannot hold another.
+    btn(it.title || "(untitled)", "r", "open the whole record. The work order, what it "
+        + "produced, and every message, question and decision since the last delivery", open),
+    // The finish date, in full: the panel is sorted by it and a relative age
+    // alone cannot place it.
+    h("div.meta", null, "completed " + stamp(it.at) +
+      (it.since ? "   ·   since the last delivery on " + stamp(it.since) : "")),
+    it.summary && longText(it.summary, 400),
+    row("div.tally", counts,
+      it.blockers && chip(plural(it.blockers, "blocker"), "hot"),
+      it.questions && chip(plural(it.questions, "question")),
+      it.messages && chip(plural(it.messages, "message")),
+      it.learnings && chip(it.learnings + " learned"),
+      it.runs && chip(plural(it.runs, "run")),
+      it.tokens && chip(toks(it.tokens) + " tok"),
+      usd(it.usd) && chip(usd(it.usd))),
+    foot.length && h("div.meta", null, foot.join("   ·   ")));
+  const sum = tile.querySelector(".long");
+  if (sum) sum.classList.add("sum");
+  tile.onclick = (ev) => { if (!ev.target.closest("button")) open(); };
+  return tile;
 }
 
 // Links an Inbox tile to its rail rows, from both ends. Keys on the tile are
@@ -270,78 +251,62 @@ if (window.ResizeObserver) {
 }
 
 export function inboxTile(e) {
-  const card = el("div", "tile");
-  card.dataset.kind = e.kind;
-  if (e.snoozed) card.classList.add("snoozed");
-  if (e.stale) card.classList.add("stale");
-  const k = el("div", "k");
-  k.append(el("span", null, e.kind.replace("-", " ")), relNode("age", e.raised_at));
-  if (e.stale) {
-    const flag = el("span", "flag", "stale");
-    flag.title = "the story changed after this was asked. The question is about a version that no longer exists";
-    k.append(flag);
-  }
+  const decide = (decision, extra) => () => act("decide", { escalation_id: e.id, decision, ...extra });
   const keys = flightKeys(e);
+
+  const tile = card(null, { "data-kind": e.kind, "data-flight": keys.join(" ") || null });
+  if (e.snoozed) tile.classList.add("snoozed");
+  if (e.stale) tile.classList.add("stale");
+
+  const k = h("div.k", null, chip(e.kind.replace("-", " ")), relNode("age", e.raised_at),
+    e.stale && chip("stale", "flag", "the story changed after this was asked. The question is "
+                                   + "about a version that no longer exists"));
   if (keys.length) {
     // The marker only appears when there is something to point at. A badge on
     // every tile would be furniture; a badge on three of them is information.
-    card.dataset.flight = keys.join(" ");
-    const pin = el("button", "pin", "queued · " + keys.length);
-    pin.title = "this question has work in the ticket queue. Hover to find it, click to open the story";
+    const pin = btn("queued · " + keys.length, "pin",
+      "this question has work in the ticket queue. Hover to find it, click to open the story", () => {
+        const first = document.querySelector('.fl[data-flight="' + keys[0] + '"]');
+        if (first) first.scrollIntoView({ block: "nearest" });
+        if (e.story_id) openStory(e.story_id);
+      });
     pin.onmouseenter = () => keys.forEach((key) => lightFlight(key, true));
     pin.onmouseleave = () => keys.forEach((key) => lightFlight(key, false));
-    pin.onclick = () => {
-      const first = document.querySelector('.fl[data-flight="' + keys[0] + '"]');
-      if (first) first.scrollIntoView({ block: "nearest" });
-      if (e.story_id) openStory(e.story_id);
-    };
     k.append(pin);
   }
   // The x: close the question without answering it, and without the side
   // effects of dropping the story. Not on a write approval, which the server
   // also refuses: a patch and worktree sit behind it.
   if (e.id && e.kind !== "write-approval") {
-    const x = el("button", "dismiss", "×");
-    x.title = "this question stopped mattering. Close the card and change nothing else. "
-            + "The story keeps its status; edit the brief and Ordis may ask again.";
+    const x = btn("×", "dismiss", "this question stopped mattering. Close the card and change "
+      + "nothing else. The story keeps its status; edit the brief and Ordis may ask again.",
+      decide("dismiss"));
     x.setAttribute("aria-label", "dismiss this question");
-    x.onclick = () => act("decide", { escalation_id: e.id, decision: "dismiss" });
     k.append(x);
   }
-  card.append(k, el("div", "r", e.reason));
-  if (e.recommendation) {
-    const rec = longText(e.recommendation, 520);
-    rec.classList.add("rec");
-    card.append(rec);
-  }
-  // The second opinion sits under the reasoning, not with the buttons; it is
-  // evidence, not a third answer.
-  if (e.second_opinion) {
-    const box = el("div", "second");
-    box.append(el("div", "who", "second opinion \u2014 agents-orchestrator, read-only"));
-    box.append(longText(e.second_opinion, 520));
-    card.append(box);
-  }
-  if (e.snoozed) {
-    card.append(el("div", "snooze-note", "snoozed · back " + until(e.snoozed_until)));
-  }
-  // Ordis's answers live in the thread, behind the reply button's count. A
-  // queued message does belong here: deciding now decides ahead of an answer
-  // you asked for.
-  if (e.awaiting_ordis) {
-    card.append(el("div", "waiting",
+
+  const rec = e.recommendation && longText(e.recommendation, 520);
+  if (rec) rec.classList.add("rec");
+  const meta = [e.story_title, e.est_tokens && toks(e.est_tokens) + " tok"].filter(Boolean);
+  tile.append(k, h("div.r", null, e.reason));
+  tile.append(...[rec,
+    // The second opinion sits under the reasoning, not with the buttons; it is
+    // evidence, not a third answer.
+    e.second_opinion && h("div.second", null,
+      h("div.who", null, "second opinion — agents-orchestrator, read-only"),
+      longText(e.second_opinion, 520)),
+    e.snoozed && h("div.snooze-note", null, "snoozed · back " + until(e.snoozed_until)),
+    // Ordis's answers live in the thread, behind the reply button's count. A
+    // queued message does belong here: deciding now decides ahead of an answer
+    // you asked for.
+    e.awaiting_ordis && h("div.waiting", null,
       e.awaiting_ordis + " repl" + (e.awaiting_ordis === 1 ? "y" : "ies") +
-      " queued. Ordis answers on the next pulse"));
-  }
+      " queued. Ordis answers on the next pulse"),
+    ...(e.blockers || []).map((b) => h("div.blocker", null, b)),
+    meta.length && h("div.meta", null, meta.join("  ·  ")),
+  ].filter(Boolean));
 
-  for (const b of (e.blockers || [])) card.append(el("div", "blocker", b));
-
-  const meta = [];
-  if (e.story_title) meta.push(e.story_title);
-  if (e.est_tokens) meta.push(toks(e.est_tokens) + " tok");
-  if (meta.length) card.append(el("div", "meta", meta.join("  ·  ")));
-
-  const acts = el("div", "acts");
+  const acts = h("div.acts");
 
   // A story whose folder is still a guess has one answer, so the picker is on
   // the tile. A `needs-info` card is the folder question and gets the picker
@@ -351,12 +316,21 @@ export function inboxTile(e) {
   if (unconfirmed) {
     // The picker's own row. "None of these, it's new" swaps the select for a
     // text field and creates the folder on confirm.
-    const row = el("div", "picker");
     const sel = projectSelect(e.project, { allowNew: true });
-    const field = el("input", "field");
-    field.placeholder = "new-folder-name";
+    const field = h("input.field", { placeholder: "new-folder-name" });
     field.style.display = "none";
-    const go = el("button", "act go", "confirm project");
+    const go = btn("confirm project", "act go", null, () => {
+      const isNew = sel.value === NEW_PROJECT;
+      const name = isNew ? field.value.trim() : sel.value;
+      if (!name) {
+        toast(isNew ? "name the new folder" : "pick the folder this story belongs to first", "bad");
+        return;
+      }
+      act("confirm-project", {
+        story_id: e.story_id, project: name, create: isNew,
+        why: isNew ? e.story_title || e.reason : "",
+      });
+    });
 
     sel.onchange = () => {
       const isNew = sel.value === NEW_PROJECT;
@@ -369,161 +343,123 @@ export function inboxTile(e) {
       if (ev.key === "Escape") { sel.value = ""; sel.onchange(); }
       if (ev.key === "Enter") go.click();
     };
-    go.onclick = () => {
-      const isNew = sel.value === NEW_PROJECT;
-      const name = isNew ? field.value.trim() : sel.value;
-      if (!name) {
-        toast(isNew ? "name the new folder" : "pick the folder this story belongs to first", "bad");
-        return;
-      }
-      act("confirm-project", {
-        story_id: e.story_id, project: name, create: isNew,
-        why: isNew ? e.story_title || e.reason : "",
-      });
-    };
-    row.append(sel, field, go);
-    acts.append(row);
+    acts.append(h("div.picker", null, sel, field, go));
   }
 
   if (e.kind === "ready") {
-    // Not an escalation: a state the story is in (see `_ready` in server.py),
-    // so the controls are "start it" and what still blocks it.
-    const go = el("button", "act go", "dispatch to build");
+    // Not an escalation: a state the story is in (see `_ready` in
+    // web/state.py), so the controls are "start it" and what still blocks it.
     const stuck = (e.blockers || []).length;
+    const go = btn("dispatch to build", "act go", stuck ? e.blockers[0]
+      : "cuts the implement ticket. The next wake opens a git worktree and writes in it",
+      () => confirmThen(
+        "Dispatch “" + (e.story_title || "this story") + "” to build?\n\n" +
+        "This cuts a ticket. The next wake opens a git worktree, works in there, and " +
+        "brings back a patch. Nothing touches your working tree until you approve it.",
+        () => act("dispatch", { story_id: e.story_id })));
     go.disabled = !!stuck;
-    go.title = stuck ? e.blockers[0]
-      : "cuts the implement ticket. The next wake opens a git worktree and writes in it";
-    go.onclick = () => confirmThen(
-      "Dispatch \u201c" + (e.story_title || "this story") + "\u201d to build?\n\n" +
-      "This cuts a ticket. The next wake opens a git worktree, works in there, and " +
-      "brings back a patch. Nothing touches your working tree until you approve it.",
-      () => act("dispatch", { story_id: e.story_id }));
     acts.append(go);
   } else if (e.kind === "write-approval") {
-    const view = el("button", "act", "read the patch");
-    view.onclick = () => openPatch(e);
-    const yes = el("button", "act go", "apply");
-    yes.onclick = () => confirmThen(
-      "Apply this patch to the live tree? It lands uncommitted. You still review and commit it yourself.",
-      () => act("decide", { escalation_id: e.id, decision: "approve" }));
-    const no = el("button", "act no", "reject");
-    no.onclick = () => act("decide", { escalation_id: e.id, decision: "reject" });
-    acts.append(view, yes, no);
+    acts.append(
+      btn("read the patch", "act", null, () => openPatch(e)),
+      btn("apply", "act go", null, () => confirmThen(
+        "Apply this patch to the live tree? It lands uncommitted. You still review and commit it yourself.",
+        decide("approve"))),
+      btn("reject", "act no", null, decide("reject")));
   } else if (e.kind === "run-request" && e.id) {
     // The one card that runs something on the live tree. The command is shown
     // verbatim above, since approving an unread command is the risk.
-    const yes = el("button", "act go", "run it");
-    yes.title = "runs it in the project folder and puts the output on the story";
-    yes.onclick = () => confirmThen(
-      "Run this command against your live tree?\n\n" +
-      (e.reason || "").replace(/^.*?: `/, "") .replace(/`$/, "") + "\n\n" +
-      "It runs in the project folder with a 90 second limit. Nothing is committed " +
-      "and no patch is applied \u2014 the output goes on the story so the next " +
-      "build can read it.",
-      () => act("decide", { escalation_id: e.id, decision: "approve" }));
-    const no = el("button", "act no", "don\u2019t run it");
-    no.title = "records that you declined; the story keeps its other findings";
-    no.onclick = () => act("decide", { escalation_id: e.id, decision: "reject" });
-    acts.append(yes, no);
+    acts.append(
+      btn("run it", "act go", "runs it in the project folder and puts the output on the story",
+        () => confirmThen(
+          "Run this command against your live tree?\n\n" +
+          (e.reason || "").replace(/^.*?: `/, "") .replace(/`$/, "") + "\n\n" +
+          "It runs in the project folder with a 90 second limit. Nothing is committed " +
+          "and no patch is applied — the output goes on the story so the next " +
+          "build can read it.",
+          decide("approve"))),
+      btn("don’t run it", "act no", "records that you declined; the story keeps its other findings",
+        decide("reject")));
   } else if (e.kind === "brief-changed" && e.id) {
-    const yes = el("button", "act go", "reopen for grooming");
-    yes.title = "clears the criteria and puts it back in the groom queue. The next wake re-reads the brief";
-    yes.onclick = () => confirmThen(
-      "Reopen “" + (e.story_title || "this story") + "”?\n\n" +
-      "Its acceptance criteria are cleared and the next wake re-reads the whole " +
-      "brief from Notion. Anything already built stays built.",
-      () => act("decide", { escalation_id: e.id, decision: "approve" }));
-    const no = el("button", "act no", "leave it");
-    no.title = "records that the edit did not change the work; the card returns only if you edit the page again";
-    no.onclick = () => act("decide", { escalation_id: e.id, decision: "reject" });
-    acts.append(yes, no);
+    acts.append(
+      btn("reopen for grooming", "act go",
+        "clears the criteria and puts it back in the groom queue. The next wake re-reads the brief",
+        () => confirmThen(
+          "Reopen “" + (e.story_title || "this story") + "”?\n\n" +
+          "Its acceptance criteria are cleared and the next wake re-reads the whole " +
+          "brief from Notion. Anything already built stays built.",
+          decide("approve"))),
+      btn("leave it", "act no", "records that the edit did not change the work; the card "
+        + "returns only if you edit the page again", decide("reject")));
   } else if (e.kind === "hire" && e.id) {
-    const yes = el("button", "act go", "approve");
-    yes.title = "cuts the contract \u2014 write scope is that one project folder and nothing else";
-    yes.onclick = () => act("decide", { escalation_id: e.id, decision: "approve" });
-    const no = el("button", "act no", "reject");
-    no.title = "records that this was the wrong person; the next pulse proposes someone else";
-    no.onclick = () => act("decide", { escalation_id: e.id, decision: "reject" });
-    acts.append(yes, no);
+    acts.append(
+      btn("approve", "act go", "cuts the contract — write scope is that one project folder "
+        + "and nothing else", decide("approve")),
+      btn("reject", "act no", "records that this was the wrong person; the next pulse proposes "
+        + "someone else", decide("reject")));
 
     // Ask `agents-orchestrator`, the persona the colony never hires, to audit
     // this pick. It cannot hire, reject or close the card; it writes a
     // paragraph. It reads the full roster, about a third of a grooming run, so
     // it runs only on this button.
     if (!e.second_opinion) {
-      const ask = el("button", "act", "second opinion");
-      ask.title = "asks agents-orchestrator to audit this pick, read-only. It cannot hire "
-                + "or refuse anything \u2014 it writes its view onto this card and you still decide. "
-                + "Costs one run against the full roster and takes a few minutes.";
-      ask.onclick = () => confirmThen(
-        "Ask agents-orchestrator to audit this hire?\n\n" +
-        "It reads the story, the picked persona's file and the whole roster, then writes " +
-        "its view onto this card. It decides nothing \u2014 approve and reject stay yours.\n\n" +
-        "This costs one read-only run of about 20k tokens and takes a few minutes. The card " +
-        "does not change until it comes back.",
-        async () => {
-          ask.disabled = true;
-          ask.textContent = "reading the roster\u2026";
-          const out = await act("second-opinion", { escalation_id: e.id });
-          if (out && out.ok) toast("second opinion: " + out.verdict, "good");
-          else if (out) toast(out.verdict || "no usable answer came back", "bad");
-          else { ask.disabled = false; ask.textContent = "second opinion"; }
-        });
+      const ask = btn("second opinion", "act",
+        "asks agents-orchestrator to audit this pick, read-only. It cannot hire "
+        + "or refuse anything — it writes its view onto this card and you still decide. "
+        + "Costs one run against the full roster and takes a few minutes.",
+        () => confirmThen(
+          "Ask agents-orchestrator to audit this hire?\n\n" +
+          "It reads the story, the picked persona's file and the whole roster, then writes " +
+          "its view onto this card. It decides nothing — approve and reject stay yours.\n\n" +
+          "This costs one read-only run of about 20k tokens and takes a few minutes. The card " +
+          "does not change until it comes back.",
+          async () => {
+            ask.disabled = true;
+            ask.textContent = "reading the roster…";
+            const out = await act("second-opinion", { escalation_id: e.id });
+            if (out && out.ok) toast("second opinion: " + out.verdict, "good");
+            else if (out) toast(out.verdict || "no usable answer came back", "bad");
+            else { ask.disabled = false; ask.textContent = "second opinion"; }
+          }));
       acts.append(ask);
     }
   } else if (!asksForProject && e.id) {
-    const yes = el("button", "act go", "approve");
-    yes.onclick = () => act("decide", { escalation_id: e.id, decision: "approve" });
-    const no = el("button", "act no", "reject");
-    no.onclick = () => act("decide", { escalation_id: e.id, decision: "reject" });
-    acts.append(yes, no);
+    acts.append(btn("approve", "act go", null, decide("approve")),
+                btn("reject", "act no", null, decide("reject")));
   }
 
   // Reply: most of what a PO needs to say is a sentence.
-  const say = el("button", "act warn",
-                 e.messages ? "reply · " + e.messages : "reply to Ordis");
-  say.title = "write to Ordis about this item. Queued for the next pulse";
-  say.onclick = () => openCompose(e);
-  acts.append(say);
+  acts.append(btn(e.messages ? "reply · " + e.messages : "reply to Ordis", "act warn",
+    "write to Ordis about this item. Queued for the next pulse", () => openCompose(e)));
 
   // Later is a snooze with an end. The card stays in the Inbox but grays out
   // and sorts last until it expires.
   if (e.snoozed) {
-    const wake = el("button", "act", "un-snooze");
-    wake.title = "bring it back to the front of the Inbox now";
-    wake.onclick = () => act("decide", { escalation_id: e.id, decision: "defer", snooze_hours: 0 });
-    acts.append(wake);
+    acts.append(btn("un-snooze", "act", "bring it back to the front of the Inbox now",
+      decide("defer", { snooze_hours: 0 })));
   } else if (e.id) {
-    const later = el("button", "act", "later");
-    later.title = "snooze 8h. It stays in the Inbox, dimmed, because nothing was decided";
-    later.onclick = () => act("decide", { escalation_id: e.id, decision: "defer", snooze_hours: 8 });
-    acts.append(later);
+    acts.append(btn("later", "act", "snooze 8h. It stays in the Inbox, dimmed, because nothing was decided",
+      decide("defer", { snooze_hours: 8 })));
   }
 
   // Re-ask: the answer to a stale question. Resolves it as amended, requeues
   // the groom, and restores the attempts the old groom used.
   if (e.stale) {
-    const again = el("button", "act warn", "re-ask");
-    again.title = "send it back to Ordis to re-read the current brief and ask again if it still needs to";
-    again.onclick = () => act("reask", { escalation_id: e.id });
-    acts.append(again);
+    acts.append(btn("re-ask", "act warn", "send it back to Ordis to re-read the current brief "
+      + "and ask again if it still needs to", () => act("reask", { escalation_id: e.id })));
   }
 
   if (e.story_id) {
     // Named for what it opens. "story" read like a category label on the tile;
-    // it is a link to the story's own timeline, criteria and events.
-    const open = el("button", "act", "open story");
-    open.title = "the full story: brief, acceptance criteria, every event on it";
-    open.onclick = () => openStory(e.story_id);
-    acts.append(open);
-
-    // Drop from here too, since a question about a story is often when you
-    // decide it is not the work.
-    const drop = el("button", "act no", "drop story");
-    drop.title = "take the whole story off the board. Closes its questions, cancels its tickets";
-    drop.onclick = () => dropStory(e.story_id, e.story_title || "this story");
-    acts.append(drop);
+    // it is a link to the story's own timeline, criteria and events. Drop is
+    // here too, since a question about a story is often when you decide it is
+    // not the work.
+    acts.append(
+      btn("open story", "act", "the full story: brief, acceptance criteria, every event on it",
+        () => openStory(e.story_id)),
+      btn("drop story", "act no", "take the whole story off the board. Closes its questions, "
+        + "cancels its tickets", () => dropStory(e.story_id, e.story_title || "this story")));
   }
-  card.append(acts);
-  return card;
+  tile.append(acts);
+  return tile;
 }

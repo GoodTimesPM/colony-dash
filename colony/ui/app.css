@@ -656,11 +656,17 @@ body.halted .halt-banner { display: flex; }
   background: var(--panel-sunk); border-color: var(--rule);
   cursor: pointer; gap: 5px;
 }
-.tile.done:hover, .tile.done:focus-visible {
+.tile.done:hover, .tile.done:has(button.r:focus-visible) {
   border-color: var(--h-completed); background: var(--mint-ground); outline: none;
 }
 .tile.done .k { color: var(--h-completed); }
 .tile.done .r { font-size: var(--step-0); font-weight: 600; }
+/* The title is the tile's button, dressed as a heading. */
+.tile.done button.r {
+  background: none; border: 0; padding: 0; text-align: left;
+  color: inherit; font: inherit; font-size: var(--step-0); font-weight: 600; cursor: pointer;
+}
+.tile.done button.r:focus-visible { outline: 2px solid var(--violet); outline-offset: 2px; }
 .tile.done .sum { font-size: var(--step--1); color: var(--ink-soft); line-height: 1.35; }
 /* Counts in grey, except blockers. */
 .tile.done .tally { display: flex; flex-wrap: wrap; gap: 4px 9px; }
@@ -734,7 +740,9 @@ button.act.solid { background: var(--coral); border-color: var(--coral); color: 
   overflow: hidden;
 }
 .fl[data-state="stuck"]   { border-left-color: var(--coral); background: var(--coral-ground); }
-.fl .t { font-size: var(--step--1); line-height: 1.3; color: var(--ink); }
+.fl .t { display: block; font-size: var(--step--1); line-height: 1.3; color: var(--ink); }
+button.fl { width: 100%; font: inherit; color: inherit; }
+button.fl:focus-visible { outline: 2px solid var(--violet); outline-offset: 1px; }
 .fl .m {
   display: flex; gap: 7px; align-items: baseline;
   font-family: var(--mono); font-size: var(--step--2); letter-spacing: .08em;
@@ -742,7 +750,7 @@ button.act.solid { background: var(--coral); border-color: var(--coral); color: 
 }
 .fl .m .st { color: var(--ink-soft); }
 .fl .m .who { margin-left: auto; letter-spacing: 0; text-transform: none; }
-.fl .err { font-family: var(--mono); font-size: var(--step--2); color: var(--coral); }
+.fl .err { display: block; font-family: var(--mono); font-size: var(--step--2); color: var(--coral); }
 
 /* Why a blocked ticket is blocked, on the ticket itself. */
 .fl[data-state="blocked"] { background: var(--coral-ground); }
