@@ -1,6 +1,6 @@
 // The side drawer and its back trail.
 
-import { $, el } from "./core.js";
+import { $, el, empty } from "./core.js";
 import { openConsole } from "./console.js";
 import { openCompleted, openPersona, openStory } from "./drawers.js";
 import { openAgent, openProject, openPulse } from "./details.js";
@@ -56,7 +56,7 @@ export function openDrawer(eyebrow, title, opts) {
   $("d-eyebrow").textContent = eyebrow;
   $("d-title").textContent = title;
   const body = $("d-body");
-  body.replaceChildren(el("div", "empty", "loading…"));
+  body.replaceChildren(empty("loading…"));
   return body;
 }
 

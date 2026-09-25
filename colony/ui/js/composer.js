@@ -1,6 +1,7 @@
 // Attachments, the reply composer, and filing a story from the dashboard.
 
-import { $, act, ago, el, hhmm, longText, parseTs, refresh, setText, toast, toks } from "./core.js";
+import { $, act, ago, el, empty, hhmm, longText, parseTs, refresh, setText,
+  toast, toks } from "./core.js";
 import { STATE } from "./render.js";
 import { ALL_PROJECTS, TRAIL, closeDrawer, getJSON, jsonList, openDrawer,
   renderTrail, sectionBlock, setAllProjects } from "./drawer.js";
@@ -184,7 +185,7 @@ export async function openCompose(e, opts) {
 
     const entries = data.entries || [];
     if (!entries.length) {
-      thread.append(el("div", "empty", "nothing has been said about this yet"));
+      thread.append(empty("nothing has been said about this yet"));
     }
     for (const m of entries) {
       if (m.kind === "question") {
@@ -546,7 +547,7 @@ export function renderPulses(rows) {
   const box = $("pulses");
   box.replaceChildren();
   setText($("pulse-count"), rows.length ? "last " + hhmm(rows[0].pulse_at) : "");
-  if (!rows.length) { box.append(el("div", "empty", "no pulses yet")); return; }
+  if (!rows.length) { box.append(empty("no pulses yet")); return; }
 
   // Consecutive clean ticks roll up, and a missing hour is drawn in coral, so a
   // stopped heartbeat shows.
@@ -618,8 +619,8 @@ export function renderForge(f) {
   $("forge-count").textContent = f && f.tokens_saved ? toks(f.tokens_saved) + " saved" : "";
 
   if (!items.length) {
-    box.append(el("div", "empty",
-      "nothing yet. The forge proposes a skill once a procedure repeats"));
+    box.append(empty("no skills yet",
+      "the forge proposes a skill once it sees a procedure repeat"));
     return;
   }
 
@@ -687,7 +688,7 @@ export async function openSkill(id) {
   const body = openDrawer("skill #" + id, "", { wide: true });
   let s;
   try { s = await getJSON("/api/skill?id=" + id); }
-  catch { body.replaceChildren(el("div", "empty", "could not load skill " + id)); return; }
+  catch { body.replaceChildren(empty("could not load skill " + id)); return; }
 
   $("d-eyebrow").textContent = `skill · ${s.status}` + (s.detector ? ` · ${s.detector}` : "");
   $("d-title").textContent = s.name;

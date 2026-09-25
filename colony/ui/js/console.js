@@ -1,6 +1,6 @@
 // The console: a shell that answers now.
 
-import { $, act, el, hhmm, toast, toks } from "./core.js";
+import { $, act, el, empty, hhmm, toast, toks } from "./core.js";
 import { getJSON, openDrawer } from "./drawer.js";
 
 // ── console ─────────────────────────────────────────────────────────────────
@@ -18,7 +18,7 @@ export async function openConsole() {
 
   let data;
   try { data = await getJSON("/api/console"); }
-  catch { body.replaceChildren(el("div", "empty", "the console did not answer")); return; }
+  catch { body.replaceChildren(empty("the console did not answer")); return; }
 
   body.replaceChildren();
   const wrap = el("div", "console");
@@ -186,8 +186,7 @@ export async function openConsole() {
     const stuck = tape.scrollHeight - tape.scrollTop - tape.clientHeight < 60;
     tape.replaceChildren();
     if (!st.turns.length) {
-      tape.append(el("div", "empty",
-        "nothing yet. this is a fresh session \u2014 they have no memory of the last one."));
+      tape.append(empty("fresh session", "Ordis starts it with no memory of the last one"));
     }
     for (const t of st.turns) {
       const turn = el("div", "turn");

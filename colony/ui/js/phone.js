@@ -1,6 +1,6 @@
 // Phone access: pairing, the QR code and the access switch.
 
-import { $, act, btn, el, toast } from "./core.js";
+import { $, act, btn, el, empty, toast } from "./core.js";
 import { blk, getJSON, openDrawer } from "./drawer.js";
 import { confirmThen } from "./details.js";
 import { openAppearance } from "./appearance.js";
@@ -317,7 +317,7 @@ export function openPhone() {
   const load = () => getJSON("/api/phone")
     .then(draw)
     .catch(() => body.replaceChildren(
-      el("div", "empty", "could not read phone access. Is the server still up?")));
+      empty("could not read phone access. Is the server still up?")));
   load();
 }
 

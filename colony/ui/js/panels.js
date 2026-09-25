@@ -1,7 +1,7 @@
 // In flight and completed work.
 
-import { $, act, ago, btn, card, chip, el, h, longText, row, setText, store, toast, toks,
-  until, usd } from "./core.js";
+import { $, act, ago, btn, card, chip, el, empty, h, longText, row, setText, store,
+  toast, toks, until, usd } from "./core.js";
 import { STATE, relNode, stamp } from "./render.js";
 import { NEW_PROJECT, openCompose, projectSelect } from "./composer.js";
 import { openCompleted, openStory } from "./drawers.js";
@@ -18,7 +18,7 @@ export function renderFlight(items) {
   setText($("flight-count"), items.length ? String(items.length) : "");
   strip.classList.toggle("quiet", !items.length);
   if (!items.length) {
-    rail.append(el("div", "empty", "nothing queued"));
+    rail.append(empty("nothing queued"));
     return;
   }
   for (const f of items) rail.append(flightRow(f));
@@ -91,9 +91,9 @@ export function renderCompleted(items) {
     ? dispatches + " delivered  ·  " + stories + " filed" : "";
 
   if (!shown.length) {
-    box.append(el("div", "empty", items.length
-      ? "nothing under this filter"
-      : "nothing has finished yet. A dispatch lands here when its ticket closes"));
+    box.append(items.length ? empty("nothing under this filter")
+      : empty("nothing finished yet",
+              "a dispatch lands here when its ticket closes, and a story when you file it"));
     return;
   }
   for (const it of shown) box.append(completedTile(it));
