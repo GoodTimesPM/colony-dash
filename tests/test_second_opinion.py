@@ -190,7 +190,7 @@ class Audit(unittest.TestCase):
         prompt = seen["prompt"]
         self.assertIn("engineering/backend", prompt)
         self.assertIn("design/ux", prompt, "the alternatives have to be in there")
-        self.assertIn("READ-ONLY", prompt)
+        self.assertIn("read-only", prompt)
         self.assertIn("agents-orchestrator", prompt)
 
     # -- the refusals --------------------------------------------------------

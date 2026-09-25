@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any
 
 from . import agent, db, voice
+from .prompt import render as render_prompt
 
 # At the projects root so any Claude Code session there, Ordis included, can
 # load it (§7 step 4).
@@ -255,38 +256,9 @@ def _evidence_brief(conn: sqlite3.Connection, skill: sqlite3.Row) -> str:
 
 
 def draft_prompt(conn: sqlite3.Connection, skill: sqlite3.Row) -> str:
-    return f"""You are Ordis, Scrum Master of a colony of Claude agents, writing a SKILL.md.
-
-A skill is a PROCEDURE, not a fact. It is loaded into an agent's context before
-it starts work, so every sentence has to earn its place: if a competent agent
-would have done it anyway, leave it out. What belongs in a skill is the thing
-that had to be *learned*. The order that turned out to matter, the check that
-prevents the usual failure, the shortcut that is not obvious from the outside.
-
-The forge proposed this candidate from the signal "{skill['detector']}":
-
-  {skill['summary']}
-
-Evidence from the runs that produced it:
-
-{_evidence_brief(conn, skill)}
-
-{voice.STYLE}
-
-Write the skill. Reply with JSON only:
-
-{{
-  "name": "short human name, under 60 chars",
-  "trigger": "one sentence: when should a run load this?",
-  "worth_it": true,
-  "why_not": "if worth_it is false, one sentence saying why",
-  "markdown": "the full SKILL.md body: a Trigger section, a numbered Procedure, a Failure modes section naming how it usually goes wrong, and a Provenance line citing the run ids above"
-}}
-
-Set "worth_it" to false if the evidence does not actually contain a procedure.
-Three runs that succeeded easily and identically teach nothing, and a skill that
-restates the obvious costs every future run context for no return. Saying no is
-a useful answer here and will not be held against you."""
+    return render_prompt("forge_draft", detector=skill["detector"],
+                         summary=skill["summary"],
+                         evidence=_evidence_brief(conn, skill), style=voice.STYLE)
 
 
 def draft(conn: sqlite3.Connection, skill_id: int, terms: dict) -> dict:

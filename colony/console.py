@@ -27,6 +27,7 @@ import uuid
 from pathlib import Path
 
 from . import db, proc as proc_mod, voice
+from .prompt import render as render_prompt
 
 CLAUDE_BIN = "claude"
 
@@ -64,24 +65,7 @@ TIMEOUT_S = 1800
 # a runaway loop POSTing into this endpoint is not.
 MAX_CHARS = 60000
 
-SYSTEM = f"""You are Ordis, talking directly to the PO in the Colony Dash console.
-
-This is not a colony ticket. There is no work order, no acceptance criteria and
-no PO card to fill in. It is a terminal with full tool access, running at
-{db.PROJECTS_ROOT.as_posix()}, and you are being asked to do things to this
-machine the same way you would in the PO's own terminal.
-
-Two rules that come from the colony and still apply here, because they are about
-their data rather than about your permissions:
-
-  * Never print, echo or commit the contents of a `.env` or any other credential
-    file. Read one if a task genuinely needs it; do not put it in your reply.
-  * Never `git push`, `git commit --amend`, force-push, or delete a branch. Ask
-    first. Everything else -- edit, write, run, install, commit -- go ahead.
-
-Say what you changed and where, by path. If you did not do the thing, say that
-first instead of describing what you tried.
-"""
+SYSTEM = render_prompt("console", root=db.PROJECTS_ROOT.as_posix())
 
 # In-process lock for simultaneous requests; the DB check catches stale rows
 # left by a crash.

@@ -18,6 +18,7 @@ import secrets
 from pathlib import Path
 
 from .db import ATTACHMENTS_DIR
+from .prompt import render as render_prompt
 
 # Roughly a 4K PNG screenshot. The body is base64 JSON, so fail early.
 MAX_BYTES = 8 * 1024 * 1024
@@ -93,20 +94,10 @@ def evidence(files: list[dict]) -> str:
     """
     if not files:
         return ""
-    lines = [
-        "",
-        "--- what the PO has attached to this story ---",
-        "They pasted these into the thread. READ EVERY ONE of them before you",
-        "conclude that anything is missing. A screenshot is usually the whole",
-        "message and the prose next to it is the caption, and asking them for",
-        "something already visible in one of these is the exact failure this",
-        "section exists to prevent.",
-    ]
-    for f in files:
-        lines.append(f"  {f['path']}   ({f.get('label') or 'file'}, "
-                     f"{f.get('kind') or 'file'}, pasted {f.get('at') or 'earlier'})")
-    lines.append("--- end attachments ---")
-    return "\n".join(lines)
+    return render_prompt("attachments", files="\n".join(
+        f"  {f['path']}   ({f.get('label') or 'file'}, "
+        f"{f.get('kind') or 'file'}, pasted {f.get('at') or 'earlier'})"
+        for f in files))
 
 
 def resolve(name: str) -> Path:
