@@ -77,6 +77,44 @@ export function el(tag, cls, text) {
   return n;
 }
 
+// `h("button.act.go", { title, onclick }, "apply")`. Classes ride on the tag.
+// `role`, `aria-*` and `data-*` keys become attributes, everything else a
+// property. Children that are strings become text nodes, never markup. Falsy
+// children are skipped, so a child can be `count && node`; pass a zero as "0".
+export function h(tag, props, ...kids) {
+  const [name, ...classes] = tag.split(".");
+  const n = document.createElement(name || "div");
+  if (classes.length) n.className = classes.join(" ");
+  for (const [k, v] of Object.entries(props || {})) {
+    if (v == null || v === false) continue;
+    if (k === "role" || k.startsWith("aria-") || k.startsWith("data-")) n.setAttribute(k, String(v));
+    else n[k] = v;
+  }
+  for (const c of kids.flat()) {
+    if (c) n.append(c);
+  }
+  return n;
+}
+
+// The shapes every panel repeats.
+export const chip = (text, cls, title) => h("span" + (cls ? "." + cls : ""), { title }, text);
+export const btn = (label, cls, title, onclick) =>
+  h("button" + (cls ? "." + cls.split(" ").join(".") : ""), { type: "button", title, onclick }, label);
+// A line of chips, `row("div.tally", ...)`. One with nothing in it is left out.
+export const row = (tag, ...kids) => {
+  const r = h(tag, null, ...kids);
+  return r.childNodes.length ? r : null;
+};
+export const card = (cls, props, ...kids) => h("div.tile" + (cls ? "." + cls : ""), props, ...kids);
+
+// An empty state is one line. The longer why sits behind a "?" for whoever
+// wants it.
+export function empty(text, more) {
+  const n = h("div.empty", null, text);
+  if (more) n.append(" ", h("span.why", { title: more, tabIndex: 0, role: "note", "aria-label": more }, "?"));
+  return n;
+}
+
 // ── writing to the colony ───────────────────────────────────────────────────
 // One function for every control on the page. The server requires the custom
 // header, which a cross-origin page cannot send. Refusals come back as a 409
