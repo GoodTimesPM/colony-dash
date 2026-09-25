@@ -1,19 +1,15 @@
 // Colony Dash. The whole dashboard.
 //
-// One script, no build step and no framework: this page is served from
-// 127.0.0.1 to one person, and a toolchain would be more moving parts than
-// the thing it builds. It lived inside index.html until 2026-08-27.
-//
-// It reads `/api/state` and paints. Every write goes back through an
-// `/api/...` POST with the `X-Colony` header; nothing here decides anything.
+// One script, no build step, no framework. It reads `/api/state` and paints.
+// Every write goes back through an `/api/...` POST with the `X-Colony` header;
+// nothing here decides anything.
 
 "use strict";
 
 const $ = (id) => document.getElementById(id);
 
-// localStorage throws in a locked-down WebView, a private window, or when it is
-// full. Everything the page keeps there is a preference, so a failure means
-// defaults, not a blank page.
+// localStorage throws in a locked-down WebView, a private window, or when full.
+// Everything kept there is a preference, so a failure means defaults.
 const store = {
   get(key, fallback = null) {
     try { const v = localStorage.getItem(key); return v == null ? fallback : v; }
@@ -25,11 +21,8 @@ const store = {
 const STATUS_LABEL = {
   "backlog": "backlog", "needs-info": "needs info", "needs-criteria": "needs criteria",
   "ready": "ready", "in-progress": "running", "po-review": "po review",
-  // Not "done". `accepted` means the PO approved one patch and the files landed.
-  // It says nothing about whether the project is finished, and printing DONE
-  // over a story whose Notion row still reads In Progress is the board deciding
-  // that for them. The real finished state is `settled_as`, which only their Notion
-  // status or their own button can set, and it has its own chip.
+  // Not "done". `accepted` means one patch landed; only `settled_as` (the PO's
+  // Notion status or button) says a story is finished.
   "accepted": "delivered",
 };
 
@@ -63,9 +56,8 @@ function until(s) {
   if (mins < 90) return "in " + Math.round(mins) + "m";
   return "in " + Math.round(mins / 60) + "h";
 }
-// A block of text folded to a few lines with a way to see the rest. A button
-// rather than a bare <details> so it can say how much more there is: "show all"
-// with no size is a door with nothing written on it.
+// A block of text folded to a few lines, with a button that says how much more
+// there is.
 function longText(text, limit) {
   const wrap = el("div", "long");
   const body = el("pre", "detail", text || "");
@@ -91,10 +83,9 @@ function el(tag, cls, text) {
 }
 
 // ── writing to the colony ───────────────────────────────────────────────────
-// One function for every control on the page. The custom header is what stops
-// a stray page in a browser from POSTing here across origins; the server
-// requires it (see server.py). Refusals come back as 409 with the reason
-// written for a person. So show that text, not "request failed".
+// One function for every control on the page. The server requires the custom
+// header, which a cross-origin page cannot send. Refusals come back as a 409
+// with a reason written for a person, so show that text.
 
 async function act(path, body) {
   try {
@@ -124,34 +115,26 @@ function refresh() {
 }
 
 // ── avatars ─────────────────────────────────────────────────────────────────
-// A hired persona's identity carries from the roster file through to the running
-// agent (§9.3): same seed, same face, every run. Mirrored down the vertical axis
-// so eight bits of noise read as a character.
+// A hired persona keeps one face from roster to running agent (§9.3). Mirrored
+// on the vertical axis so the noise reads as a character.
 function hash32(str) {
   let h = 2166136261 >>> 0;
   for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; }
   return h >>> 0;
 }
-// Roster colours are whatever the persona file's author typed: "#0A66C2",
-// "blue", "slate", "neon-green". Canvas does not throw on a colour it cannot
-// parse. It *ignores the assignment*, and whatever was in `fillStyle` before
-// stays. What was in it before, here, was the panel background. So every hired
-// persona whose file named a colour CSS has never heard of was painted onto the
-// panel in the panel's own colour, and came out blank. The two structural
-// agents had faces only because they have no roster row at all: `color` was
-// null, and the seed-derived fallback ran.
-//
-// The words below are the ones the roster actually uses that CSS does not know.
-// Anything else unrecognised falls through to the seed, so a persona still gets
-// a face. Never nothing.
+// Roster colours are whatever the persona's author typed ("blue", "slate",
+// "neon-green"). Canvas ignores a colour it cannot parse and keeps the previous
+// `fillStyle`, which painted those sprites in the panel's own colour. These are
+// the words the roster uses that CSS does not know; anything else unrecognised
+// falls back to the seed.
 const TINT_WORDS = {
   slate: "#94a3b8", amber: "#f59e0b", rose: "#fb7185",
   "neon-green": "#39ff14", "neon-cyan": "#00e5ff", "metallic-blue": "#4a749b",
 };
 
-// Two sentinels, because the only way to ask canvas whether it understood a
-// colour is to watch whether it changed its mind. A value it accepts overwrites
-// both starting points identically; one it rejects leaves both untouched.
+// Canvas only reveals whether it parsed a colour by changing `fillStyle`, so
+// two sentinels are set: an accepted value overwrites both identically, a
+// rejected one leaves both.
 function asHex(value) {
   if (!value) return null;
   const word = String(value).trim().toLowerCase();
@@ -174,18 +157,9 @@ function hex2hsl(hex) {
   return [h * 60, s * 100, l * 100];
 }
 
-// A hue is character and belongs to the persona; a lightness that survives this
-// theme is arithmetic and does not. Nine roster colours are near-black,
-// "#000000" among them, which on a sunk dark panel is the same failure as an
-// unparseable word by a different route. `toward` is the function that already
-// keeps a randomised palette legible; it keeps these legible too.
-// `toward` takes its direction from the colour, which is right when the colour
-// was chosen for a known background and wrong here, where 270 of them arrive
-// from persona files written by people who never saw this panel. "#000000"
-// starts below a dark panel and walks further down into a floor it is already
-// on; yellow starts above a light one and walks up to white. Which way there is
-// room is a fact about the panel, so the panel decides, and the clamped start
-// keeps every hue inside the range where the walk has somewhere to go.
+// The hue belongs to the persona; the lightness is adjusted for this panel.
+// Near-black roster colours vanish on a dark panel, so the panel picks the
+// direction with room, and the clamped start leaves the walk somewhere to go.
 function legible(h, s, l, bg, target) {
   const dir = lum(bg) > 0.4 ? -1 : 1;
   for (let i = 0; i < 120 && contrast(hsl2hex(h, s, l), bg) < target; i++) l += dir;
@@ -211,10 +185,8 @@ function drawAvatar(canvas, seed, color) {
 
   const cells = [];
   for (let y = 1; y < S - 1; y++) for (let x = 0; x < S / 2; x++) cells.push(rnd() > 0.5);
-  // Twenty-four coin flips will occasionally come up nearly all tails, and a
-  // sprite with three lit pixels reads as a missing picture rather than a quiet
-  // one. Filled deterministically from the top so the same seed still gives the
-  // same face.
+  // A seed with very few lit cells reads as a missing picture, so the top is
+  // filled deterministically up to a minimum.
   let ink = cells.filter(Boolean).length;
   for (let i = 0; ink < 6 && i < cells.length; i++) if (!cells[i]) { cells[i] = true; ink++; }
 
@@ -290,9 +262,7 @@ async function syncRoster(rev) {
 
 function tag(text, cls) { const b = el("span"); b.append(el("b", cls || null, text)); return b; }
 
-// A ledger timestamp, said out loud. "2026-08-28 05:00:00" is a fact; "Fri
-// 5:00 AM" is the fact a person can act on, and the only reason the page ever
-// printed the raw string is that it was slicing one it had not parsed.
+// A ledger timestamp as a person reads it: "Fri 5:00 AM".
 function when(ts) {
   const d = parseTs(ts);
   if (!d || isNaN(d)) return String(ts || "").slice(0, 16);
@@ -300,9 +270,7 @@ function when(ts) {
     { weekday: "short", hour: "numeric", minute: "2-digit" });
 }
 
-// The same fact with its date on it. `when` is for the next few days, where the
-// weekday alone is enough. A ticket or a run can be three weeks old, and "Fri
-// 5:00 AM" does not say which Friday.
+// The same with its date, for things that can be weeks old.
 function stamp(ts) {
   const d = parseTs(ts);
   if (!d || isNaN(d)) return String(ts || "").slice(0, 16);
@@ -319,11 +287,8 @@ function renderSprint(sp) {
   const meta = $("sprint-meta");
   meta.replaceChildren();
   if (sprint) {
-    // The day comes from the server, which counts it from the allowance week's
-    // real edge, Friday 05:00, rather than from midnight on whatever date the
-    // sprint row happens to carry. Counting whole days off a date was five
-    // hours out at both ends of every week and, on the seeded placeholder
-    // window, five days out at the start.
+    // The server counts the day from the allowance week's real edge (Friday
+    // 05:00), not from midnight on the sprint row's date.
     const week = sp.week || {};
     const day = week.day || 1, total = week.days || 7;
     meta.append(
@@ -351,16 +316,12 @@ function renderSprint(sp) {
   const weekMeta = $("week-meta");
   weekMeta.replaceChildren();
   if (usage) {
-    // `seven_day_resets_at` is a local timestamp now. It used to be the first
-    // sixteen characters of the UTC string the cache carries, so a window that
-    // closes at five in the morning was on screen as "08:59". The right
-    // instant, told in a timezone nobody here lives in.
+    // `seven_day_resets_at` is already local time.
     weekMeta.append(tag("week " + Number(usage.seven_day_pct).toFixed(1) + "%"),
                     tag("5h " + Number(usage.five_hour_pct).toFixed(0) + "%"),
                     tag("resets " + when(usage.seven_day_resets_at)));
-    // A figure that has stopped moving is what a quiet week looks like and also
-    // what a dead tray app looks like, and the percentage alone cannot say
-    // which. This is the only thing that can.
+    // A figure that stopped moving could be a quiet week or a dead tray app;
+    // this says which.
     if (usage.stale) {
       const s = tag("cache stale", "boosted");
       s.title = "the tray app has not written since " + when(usage.sampled_at);
@@ -373,9 +334,8 @@ function renderSprint(sp) {
   // The bar measures spend against the colony's *allowance*, not the whole week:
   // 35% of the window is the ceiling, so 35% consumed has to read as full.
   const ceiling = band.effective || 35;
-  // The cache can carry a null percentage. The tray app writes what the API
-  // gave it, and the API sometimes gives it nothing. `Number(null)` is 0, which
-  // is at least a number; `null.toFixed` is a blank strip.
+  // The cache can carry a null percentage; `Number(null)` gives 0 rather than a
+  // blank strip.
   const wk = usage ? Number(usage.seven_day_pct) || 0 : 0;
   const pct = usage ? Math.min(100, (wk / ceiling) * 100) : 0;
   const g = $("gauge");
@@ -422,9 +382,8 @@ function renderOrdis(o) {
     box.append(b);
   }
 
-  // The console lives here rather than in its own panel because it is Ordis
-  // themselves, not another department. It is also the one control on the page
-  // that does not wait for a pulse, which is the whole reason it exists.
+  // The console sits in the Ordis panel: it is Ordis, and it answers without
+  // waiting for a pulse.
   const term = el("button", "act go", "open the console");
   term.title = "talk to Ordis directly, with a real shell, right now";
   term.onclick = () => openConsole();
@@ -468,8 +427,7 @@ function agentRow(o) {
 
   if (o.live) {
     // Elapsed time is painted by the one global ticker below, not a timer per
-    // row: this panel re-renders on every state push, and a per-row interval
-    // would leave a timer behind for every frame the page has ever drawn.
+    // row, which would leak a timer for every re-render.
     const stat = el("div", "line mono elapsed");
     stat.dataset.started = o.started.getTime();
     stat.dataset.tokens = o.tokens || 0;
@@ -501,17 +459,10 @@ function agentRow(o) {
   return row;
 }
 
-// Relative times are the only thing on this page that goes stale while the
-// ledger sits perfectly still. Everything else redraws when SSE pushes a new
-// snapshot. But between two beats nothing is pushed for an hour, so "last beat
-// 0m ago · next in 60m" was frozen at the moment of the beat and stayed there,
-// which reads exactly like a heartbeat that has stopped. That is how the pulse
-// outage was found, and a clock that lies in the direction of "everything is
-// fine" is the one kind worth fixing on sight.
-//
-// So a relative time is a node that remembers its own timestamp rather than a
-// string baked at render. Fifteen seconds is the interval because the coarsest
-// unit shown is a minute and nothing here should burn a wakeup per second.
+// Relative times go stale between SSE pushes, which can be an hour apart, and a
+// frozen "0m ago" looks like a stopped heartbeat. So a relative time is a node
+// that keeps its timestamp and is repainted every fifteen seconds; the finest
+// unit shown is a minute.
 function relNode(cls, ts, kind) {
   const n = el("span", cls);
   n.dataset.rel = ts || "";
@@ -573,9 +524,7 @@ function renderBoard(b) {
     } else {
       sub.append(el("span", "dim", "no project"));
     }
-    // What Notion says is already ticked off. The colony reads both halves of
-    // the checklist now, so the board can say "4 of 7 done" instead of leaving
-    // you to open the page to find out you had already finished it.
+    // Notion's ticked items, so the board can say "4 of 7 done".
     if (s.done_n || s.open_n) {
       const total = s.done_n + s.open_n;
       const prog = el("span", "chip prog" + (s.done_n ? "" : " none"), s.done_n + "/" + total);
@@ -601,15 +550,9 @@ function renderBoard(b) {
 }
 
 // ── the filed ───────────────────────────────────────────────────────────────
-//
-// Done, Shipped, Shelved, New and Not started all mean the same thing to the
-// loop, the PO is not asking for anything, so they share one hidden shelf
-// under the board rather than five columns across it. A column is somewhere
-// work passes through; these are where it stops.
-//
-// They are kept visible behind a toggle because "did I finish that, or do I
-// only remember deciding to?" is a question you have while looking at the
-// board, and an answer two clicks into Notion is not an answer.
+// Done, Shipped, Shelved, New and Not started all mean the PO is not asking for
+// anything, so they share one hidden shelf under the board rather than five
+// columns. A toggle shows them.
 const FILED_LABEL = { "done": "done", "shelved": "shelved", "not-started": "not started" };
 
 function renderFiled(rows) {
@@ -629,9 +572,8 @@ function renderFiled(rows) {
     line.append(t);
     line.append(el("span", "chip filed" + (s.settled_as === "done" ? " done" : ""),
                    FILED_LABEL[s.settled_as] || s.settled_as));
-    // What Notion actually says, next to what the ledger made of it: the ledger
-    // folds five statuses into three, and hiding that would make "shipped" look
-    // like the dashboard had lost the word.
+    // Notion's own status beside the ledger's, since the ledger folds five
+    // statuses into three.
     if (s.notion_status) line.append(el("span", "why", s.notion_status));
     list.append(line);
   }
@@ -639,11 +581,8 @@ function renderFiled(rows) {
 }
 
 // ── the dropped ─────────────────────────────────────────────────────────────
-//
-// Dropped stories live under the board rather than in a separate view, because
-// the question they answer. "did we decide not to do that, or did I imagine
-// deciding?" comes up while you are looking at the board. Hidden by default;
-// the count in the header is what tells you there is anything to open.
+// Dropped stories live under the board, hidden by default; the header count
+// says there is something to open.
 function renderDropped(rows) {
   const box = $("stories");
   const btn = $("board-dropped");
@@ -668,14 +607,9 @@ function renderDropped(rows) {
   box.append(list);
 }
 
-// Three orders, because the list answers three different questions. **changes**
-// is the pulse's own order, commits first, then sheer volume, and is what you
-// want when asking "what is outstanding". **recent** sorts by the newest mtime
-// under the folder, which is nearly the opposite: colony-dash can be eighth by
-// volume and still be the thing you were editing a minute ago. **name** is for
-// when you already know what you are looking for and just want it to hold still.
-// The choice is localStorage like the view menu. How you read the panel is not
-// something the server needs to know.
+// Three orders. **changes** is the pulse's order (commits first, then volume),
+// for "what is outstanding". **recent** is newest mtime, for "what was I just
+// editing". **name** holds still. Stored in localStorage like the view menu.
 const SORT_KEY = "colony-proj-sort";
 let PROJ_SORT = store.get(SORT_KEY) || "changes";
 let PROJ_ROWS = [];
@@ -703,10 +637,8 @@ function renderProjects(rows) {
   const box = $("projects");
   PROJ_ROWS = rows;
   box.replaceChildren();
-  // "10 with changes" left the reader to guess what the change was measured
-  // against, and the honest answer is one specific commit. Every project folder
-  // lives inside a single git repo, so one baseline covers all sixty. Naming it
-  // in the header is the difference between a number and a fact.
+  // Every project folder is in one git repo, so one baseline commit covers them
+  // all; the header names it.
   const base = rows.length ? rows[0].head_sha : "";
   $("proj-count").textContent = rows.length
     ? rows.length + (base ? " differ from " + base : " with changes")
@@ -719,10 +651,8 @@ function renderProjects(rows) {
   const max = Math.max(...rows.map((r) => r.dirty_files || 1), 1);
   for (const r of rows.slice().sort(PROJ_SORTS[PROJ_SORT] || PROJ_SORTS.changes)) {
     const b = el("button", "proj");
-    // The time goes on the row rather than only in the tooltip. "Why is this
-    // folder dirty when I never opened it" is usually answered by *when* it was
-    // written, an hour ago, while the machine was doing something else, and a
-    // fact that only exists on hover is a fact nobody has.
+    // The time on the row, since *when* a folder was written usually explains
+    // why it is dirty.
     b.append(el("span", "p", r.project), el("span", "s", r.summary));
     if (r.touched_at) b.append(el("span", "s", ago(r.touched_at)));
     const bar = el("div", "bar");
@@ -739,15 +669,9 @@ last written ${r.touched_at} (${ago(r.touched_at)})` : "");
 }
 
 // ── the file tree ───────────────────────────────────────────────────────────
-//
-// The Projects list above answers "what moved"; a project with a clean tree
-// vanishes from it, which is correct for the pulse log and useless as a file
-// manager. This is the other half: everything that is there, lazily, one folder
-// per request, with change state hung off it as a dot.
-//
-// Open folders are remembered in a Set of paths rather than in the DOM, so a
-// refresh, a snapshot arriving, a rescan, re-renders the same shape instead
-// of collapsing everything the user opened.
+// The Projects list shows what moved; this shows everything that is there,
+// loaded one folder per request, with change state as a dot. Open folders are
+// kept in a Set of paths, so a re-render keeps the same shape.
 
 const TREE_OPEN = new Set();
 let TREE_FILTER = "";
@@ -767,9 +691,8 @@ async function renderTree() {
 async function treeLevel(data, path) {
   const frag = document.createDocumentFragment();
   const q = TREE_FILTER.toLowerCase();
-  // The filter applies to the top level only. It is there to find a project in
-  // a list of sixty, not to search the disk. Filtering every level would make
-  // an open folder disappear out from under the cursor.
+  // The filter applies to the top level only, so an open folder does not vanish
+  // under the cursor.
   for (const d of data.dirs) {
     if (!path && q && !d.name.toLowerCase().includes(q)) continue;
     frag.append(await treeDir(d));
@@ -856,9 +779,8 @@ async function openFile(f) {
 }
 
 // ── in flight ───────────────────────────────────────────────────────────────
-// Tickets the colony is working or staffed to work, and changes queued for the
-// Notion board that have not left this machine. Two shapes, one question: the
-// PO pressed something and it has not finished yet.
+// Tickets the colony is working or staffed to work, and Notion changes queued
+// on this machine: things the PO pressed that have not finished.
 
 function renderFlight(items) {
   const rail = $("flight"), strip = $("flight-strip");
@@ -880,9 +802,7 @@ function flightRow(f) {
     : (f.run_id ? "running" : f.status);
 
   if (f.kind === "push") {
-    // A push says what it would do to the board, in the words of the board.
-    // "→ Done" is the thing the PO clicked, and the row is here precisely so
-    // that click has somewhere to be visible until it lands.
+    // A push says what it will do to the board, in the board's words.
     const what = f.verb === "status" ? "→ " + f.what
                : f.verb === "check"  ? (f.checked ? "☑ " : "☐ ") + f.what
                : "💬 " + (f.what || "").slice(0, 80);
@@ -899,18 +819,15 @@ function flightRow(f) {
   } else {
     row.append(el("div", "t", f.title));
     const m = el("div", "m");
-    // A reply is a ticket like any other, but "research · unstaffed" describes
-    // the mechanism and not the thing: what the PO wants to read here is that
-    // they said something and Ordis has not answered yet.
+    // A reply is a ticket, but it shows as "waiting on Ordis", not its
+    // mechanism.
     const reply = !!f.po_message_id;
     m.append(el("span", "st", f.run_id ? "running" : f.status),
              el("span", null, reply ? "reply" : f.intent),
              el("span", "who", f.role || (reply ? "waiting for Ordis" : "unstaffed")));
     row.append(m);
     if (reply && f.po_message) row.append(el("div", "said", "“" + f.po_message + "”"));
-    // A blocked ticket says what it found. Without this the rail carried two
-    // identical rows reading BLOCKED IMPLEMENT weekly-funnel-report-builder for
-    // a day, which is three facts and no information.
+    // A blocked ticket shows what it found.
     if (f.status === "blocked" && f.note) row.append(el("div", "note", f.note));
     row.title = (f.status === "blocked" && f.note ? f.note + "\n\n" : "") +
                 "ticket #" + f.id + " · " + (f.story_title || "") +
@@ -925,19 +842,10 @@ function flightRow(f) {
 }
 
 // ── completed work ──────────────────────────────────────────────────────────
-//
-// "I want there to be a 'completed dispatches' or 'completed stories'. That way
-// i can keep track of progress and check on work that has been done so i dont
-// accidentally work on the same thing just cause i forgot we worked on
-// something."
-//
-// Two things end and both are here: a dispatch, which is an implement ticket
-// that delivered a patch, and a story, which is one the PO filed. They share a
-// list because the question is chronological, what has this colony produced,
-// in what order, and they keep separate badges because the answer to "did we
-// already build this" is different from "did I already close this".
-//
-// Nothing on this panel writes. It is the only panel that is purely a record.
+// Two things end, and both are listed here: a dispatch (an implement ticket
+// that delivered a patch) and a story the PO filed. One chronological list,
+// separate badges, since "did we build this" differs from "did I close this".
+// Read-only.
 const DONE_FILTER_KEY = "colony-done-filter";
 let DONE_FILTER = store.get(DONE_FILTER_KEY) || "all";
 
@@ -949,9 +857,7 @@ function renderCompleted(items) {
   }
   const shown = DONE_FILTER === "all" ? items : items.filter((i) => i.kind === DONE_FILTER);
 
-  // The count says how much work is behind you, not how much of it is on
-  // screen. A filter that changes the headline number makes the number
-  // useless for the thing it is for.
+  // The count is all finished work; the filter does not change it.
   const dispatches = items.filter((i) => i.kind === "dispatch").length;
   const stories = items.length - dispatches;
   $("completed-count").textContent = items.length
@@ -989,10 +895,8 @@ function completedTile(it) {
 
   card.append(el("div", "r", it.title || "(untitled)"));
 
-  // The date it finished, said properly. This whole panel is sorted by it, so
-  // it is the one fact that cannot be a relative age alone: "3 days ago" does
-  // not tell you whether that was before or after the thing you are about to
-  // start.
+  // The finish date, in full: the panel is sorted by it and a relative age
+  // alone cannot place it.
   card.append(el("div", "meta", "completed " + stamp(it.at) +
     (it.since ? "   ·   since the last delivery on " + stamp(it.since) : "")));
 
@@ -1035,26 +939,22 @@ function completedTile(it) {
   return card;
 }
 
-// The link between the Inbox and this rail, in one function used from both
-// ends. Keys are whitespace-separated on the tile because one question can sit
-// over several tickets, and `[data-flight~="t7"]` matches a list for free.
+// Links an Inbox tile to its rail rows, from both ends. Keys on the tile are
+// space-separated, so `[data-flight~="t7"]` matches one in a list.
 function lightFlight(key, on) {
   for (const n of document.querySelectorAll('[data-flight~="' + key + '"]')) {
     n.classList.toggle("lit", on);
   }
 }
 
-// Which rail rows a given escalation is about: the ticket it was raised from,
-// plus anything else in flight for the same story. A write-approval question
-// and the ticket waiting on that approval are the same piece of work, and the
-// tile is where you decide it.
+// Which rail rows an escalation is about: the ticket it was raised from, plus
+// anything else in flight for the same story.
 function flightKeys(e) {
   const flight = (STATE && STATE.flight) || [];
   const keys = [];
   for (const f of flight) {
-    // A closed ticket is not in flight, so an escalation raised from one gets
-    // no marker: a badge that lights nothing is worse than no badge, because
-    // it teaches you the link does not work.
+    // A closed ticket is not in flight, so a badge that lights nothing is not
+    // shown.
     const mine = (e.ticket_id && f.kind === "ticket" && f.id === e.ticket_id) ||
                  (e.story_id && f.story_id === e.story_id);
     if (mine && !keys.includes(f.key)) keys.push(f.key);
@@ -1066,10 +966,8 @@ function renderInbox(items) {
   const box = $("inbox"), strip = $("inbox-strip");
   box.replaceChildren();
 
-  // A stale question is one the story has moved past: it was written against a
-  // version of the brief that no longer exists, and answering it now answers
-  // the wrong question. It is not deleted, the colony really was confused, and
-  // that is worth being able to look at, but it is out of the way by default.
+  // A stale question was written against an older brief. It is kept, but out of
+  // the way by default.
   const stale = items.filter((e) => e.stale);
   const live = shows("stale") ? items : items.filter((e) => !e.stale);
 
@@ -1084,10 +982,8 @@ function renderInbox(items) {
     // Nothing to run out to a full row, and the observer has to be told so.
     // `replaceChildren` clears the tiles but not the count written beside them.
     box.dataset.live = 0;
-    // An empty Inbox means the system is working, and it still gets a row. The
-    // message rides in a slot rather than replacing them all, because a panel
-    // that changes shape between "clear" and "one question" makes the whole page
-    // jump for the least important reason it has.
+    // An empty Inbox still gets a row, with the message in a slot, so the page
+    // does not jump between "clear" and "one question".
     box.dataset.note = stale.length
       ? "nothing current. " + stale.length + " stale question" +
         (stale.length === 1 ? "" : "s") + " behind the toggle"
@@ -1100,29 +996,18 @@ function renderInbox(items) {
   padSlots(box, live.length);
 }
 
-// How many tiles fit across, asked of the grid rather than worked out from the
-// track width. `auto-fill` already did that arithmetic, and doing it twice is
-// how the two answers drift apart the first time the text size moves.
-//
-// The catch is *when* you ask. The answer is only true of the width the grid had
-// at that instant, and the render that pads the row is not always standing on a
-// laid-out grid: a fold still opening, a window not yet sized, the first paint
-// of a restored layout. Measured then, the row is padded to a width that no
-// longer exists and the slots stop short of the Ticket Queue, which is exactly
-// the "sometimes they come back, sometimes they don't" of it. So the live count
-// is remembered on the element and the padding is redone whenever the width
-// changes, which turns a one-shot guess into something that keeps being right.
+// How many tiles fit across, asked of the grid (`auto-fill` already did the
+// arithmetic). The answer is only true for the width at that moment, and a
+// render can run before layout, so the count is stored on the element and the
+// padding redone whenever the width changes.
 function padSlots(box, count) {
   if (count != null) box.dataset.live = count;
   const live = Number(box.dataset.live || 0);
   for (const old of box.querySelectorAll(".tile.slot")) old.remove();
   const cols = gridCols(box);
   if (!live) {
-    // An empty Inbox is a full row of slots rather than no row at all. The grid
-    // cannot always say how wide it is, a fold still opening, a first paint,
-    // and the message has to appear either way, so an unknown column count falls
-    // back to the single slot that carries it and the observer widens the row
-    // the moment there is a width to widen it to.
+    // An unknown column count falls back to one slot, which carries the
+    // message; the observer widens the row once there is a width.
     for (let i = 0; i < (cols || 1); i++) {
       box.append(i === 0 && box.dataset.note
         ? el("div", "tile slot note", box.dataset.note)
@@ -1134,22 +1019,17 @@ function padSlots(box, count) {
   for (let i = live % cols; i < cols; i++) box.append(el("div", "tile slot"));
 }
 
-// The computed value is a list of resolved track sizes once the grid has been
-// laid out, and the unresolved `repeat(auto-fill, minmax(...))` while it has
-// not. A folded panel, a display:none ancestor. Counting words in that second
-// case returns a confident 2, which is a wrong answer wearing a right one's
-// clothes; it is reported as "don't know" instead, and the observer asks again
-// once the box has a width to answer with.
+// Before layout, the computed value is the unresolved `repeat(auto-fill, ...)`,
+// and counting its words gives a wrong 2. That case returns "unknown" and the
+// observer asks again.
 function gridCols(box) {
   const t = getComputedStyle(box).gridTemplateColumns;
   if (!t || t === "none" || t.indexOf("repeat(") >= 0 || t.indexOf("minmax(") >= 0) return 0;
   return t.split(" ").filter(Boolean).length;
 }
 
-// The Inbox is the full width of the page, so it changes size for reasons the
-// render never hears about: the window, the sidebar, a neighbouring tile being
-// folded away. Width only. Padding changes the height, and reacting to that
-// would be a loop.
+// The Inbox changes width for reasons the render never hears about. Width only:
+// padding changes the height, and reacting to that would loop.
 if (window.ResizeObserver) {
   let inboxWidth = 0;
   new ResizeObserver(() => {
@@ -1188,16 +1068,9 @@ function inboxTile(e) {
     };
     k.append(pin);
   }
-  // The x. Every other control on this tile is an answer to the question, and
-  // the only one that could clear a tile without answering it was "drop story",
-  // which takes the whole story off the board, cancels its tickets and
-  // closes its other questions. So the cheapest way to tidy the Inbox was also
-  // the most destructive thing in it, and a stale question about a problem
-  // already solved elsewhere had no exit that did not cost something.
-  //
-  // Not on a write approval: there is a patch on disk and a worktree behind it,
-  // and closing that question without answering it strands both. The server
-  // refuses it too. This only hides a button that would fail.
+  // The x: close the question without answering it, and without the side
+  // effects of dropping the story. Not on a write approval, which the server
+  // also refuses: a patch and worktree sit behind it.
   if (e.id && e.kind !== "write-approval") {
     const x = el("button", "dismiss", "×");
     x.title = "this question stopped mattering. Close the card and change nothing else. "
@@ -1212,9 +1085,8 @@ function inboxTile(e) {
     rec.classList.add("rec");
     card.append(rec);
   }
-  // The second opinion sits under the reasoning it is about, never beside the
-  // buttons. It is evidence for the decision, not one of the answers to it, and
-  // putting it in the row of controls would make it look like a third choice.
+  // The second opinion sits under the reasoning, not with the buttons; it is
+  // evidence, not a third answer.
   if (e.second_opinion) {
     const box = el("div", "second");
     box.append(el("div", "who", "second opinion \u2014 agents-orchestrator, read-only"));
@@ -1224,13 +1096,9 @@ function inboxTile(e) {
   if (e.snoozed) {
     card.append(el("div", "snooze-note", "snoozed · back " + until(e.snoozed_until)));
   }
-  // Ordis's last answer used to be quoted here. It was the wrong place for it:
-  // the answer is usually to something said days ago, so it reads as the card's
-  // own text and buries the question the card is actually asking. The reply
-  // button carries the count, and the whole exchange is one press away.
-  //
-  // What is still queued does belong here, because it changes what the buttons
-  // mean. Deciding now decides ahead of an answer you asked for.
+  // Ordis's answers live in the thread, behind the reply button's count. A
+  // queued message does belong here: deciding now decides ahead of an answer
+  // you asked for.
   if (e.awaiting_ordis) {
     card.append(el("div", "waiting",
       e.awaiting_ordis + " repl" + (e.awaiting_ordis === 1 ? "y" : "ies") +
@@ -1246,21 +1114,14 @@ function inboxTile(e) {
 
   const acts = el("div", "acts");
 
-  // A story whose folder is still a guess is the single most common thing in
-  // this Inbox, and it has exactly one answer: name the folder. So the answer
-  // is on the tile rather than two clicks into a drawer.
-  //
-  // The kind decides what else belongs here. A `needs-info` escalation *is* the
-  // question "which folder?", approving it would approve nothing, so it gets
-  // the picker alone. A `decision` is a real yes/no that may also happen to sit
-  // on an unconfirmed story, so it gets both.
+  // A story whose folder is still a guess has one answer, so the picker is on
+  // the tile. A `needs-info` card is the folder question and gets the picker
+  // alone; a `decision` on an unconfirmed story gets both.
   const unconfirmed = e.story_id && e.project_source !== "confirmed";
   const asksForProject = e.kind === "needs-info";
   if (unconfirmed) {
-    // The picker sits on its own full-width row. Two answers are possible and
-    // the second one, "none of these, it's new", used to have nowhere to go:
-    // choosing it swaps the <select> for a text field and confirms against a
-    // folder that gets created on the spot.
+    // The picker's own row. "None of these, it's new" swaps the select for a
+    // text field and creates the folder on confirm.
     const row = el("div", "picker");
     const sel = projectSelect(e.project, { allowNew: true });
     const field = el("input", "field");
@@ -1296,10 +1157,8 @@ function inboxTile(e) {
   }
 
   if (e.kind === "ready") {
-    // Not an escalation. There is no `e.id` here and nothing to approve or
-    // snooze. It is a state the story is in, rendered for exactly as long as
-    // it is true (see `_ready` in server.py), so the only two useful controls
-    // are "start it" and "here is what is still in the way".
+    // Not an escalation: a state the story is in (see `_ready` in server.py),
+    // so the controls are "start it" and what still blocks it.
     const go = el("button", "act go", "dispatch to build");
     const stuck = (e.blockers || []).length;
     go.disabled = !!stuck;
@@ -1322,9 +1181,8 @@ function inboxTile(e) {
     no.onclick = () => act("decide", { escalation_id: e.id, decision: "reject" });
     acts.append(view, yes, no);
   } else if (e.kind === "run-request" && e.id) {
-    // The one card that runs something on the live tree rather than proposing a
-    // change to it. The command is in the card text above, verbatim, because
-    // approving a command you have not read is the whole risk here.
+    // The one card that runs something on the live tree. The command is shown
+    // verbatim above, since approving an unread command is the risk.
     const yes = el("button", "act go", "run it");
     yes.title = "runs it in the project folder and puts the output on the story";
     yes.onclick = () => confirmThen(
@@ -1359,16 +1217,10 @@ function inboxTile(e) {
     no.onclick = () => act("decide", { escalation_id: e.id, decision: "reject" });
     acts.append(yes, no);
 
-    // Ask somebody else. `agents-orchestrator` is a persona whose subject is
-    // picking agents, and it is the one persona this colony deliberately never
-    // hires \u2014 two things choosing who works is worse than one. Read here it
-    // audits a pick already made: it cannot hire, cannot reject, and cannot
-    // close this card. It writes a paragraph and the answer is still yours.
-    //
-    // Not automatic. It reads the whole 270-persona roster, so it costs roughly
-    // a third of a grooming run every time, and most hires do not need it. The
-    // ones that do are the hire you are unsure about and the fourth contract in
-    // a row for the same name.
+    // Ask `agents-orchestrator`, the persona the colony never hires, to audit
+    // this pick. It cannot hire, reject or close the card; it writes a
+    // paragraph. It reads the full roster, about a third of a grooming run, so
+    // it runs only on this button.
     if (!e.second_opinion) {
       const ask = el("button", "act", "second opinion");
       ask.title = "asks agents-orchestrator to audit this pick, read-only. It cannot hire "
@@ -1398,18 +1250,15 @@ function inboxTile(e) {
     acts.append(yes, no);
   }
 
-  // Reply. The button that makes this an Inbox rather than a set of switches:
-  // most of what a PO actually needs to say is a sentence, and every other
-  // control here can only say one of two things.
+  // Reply: most of what a PO needs to say is a sentence.
   const say = el("button", "act warn",
                  e.messages ? "reply · " + e.messages : "reply to Ordis");
   say.title = "write to Ordis about this item. Queued for the next pulse";
   say.onclick = () => openCompose(e);
   acts.append(say);
 
-  // Later is a snooze with an end on it. It stays in the Inbox, an Inbox you
-  // can empty without deciding anything stops meaning what it says, but it
-  // grays out and sorts to the back until the snooze expires.
+  // Later is a snooze with an end. The card stays in the Inbox but grays out
+  // and sorts last until it expires.
   if (e.snoozed) {
     const wake = el("button", "act", "un-snooze");
     wake.title = "bring it back to the front of the Inbox now";
@@ -1422,11 +1271,8 @@ function inboxTile(e) {
     acts.append(later);
   }
 
-  // Re-ask. The answer to a stale question is not yes and not no. It is "you
-  // asked me about last week's version, go and read it again". This is the
-  // button that says that: it resolves the escalation as amended, puts the
-  // story back in the grooming queue, and voids the attempts the old grooming
-  // used up so the colony is actually allowed to try again.
+  // Re-ask: the answer to a stale question. Resolves it as amended, requeues
+  // the groom, and restores the attempts the old groom used.
   if (e.stale) {
     const again = el("button", "act warn", "re-ask");
     again.title = "send it back to Ordis to re-read the current brief and ask again if it still needs to";
@@ -1442,9 +1288,8 @@ function inboxTile(e) {
     open.onclick = () => openStory(e.story_id);
     acts.append(open);
 
-    // Dropping from here rather than only from the board, because the Inbox is
-    // where you find out a story is not worth doing: the question that arrives
-    // about a story is often the moment you decide it was never the work.
+    // Drop from here too, since a question about a story is often when you
+    // decide it is not the work.
     const drop = el("button", "act no", "drop story");
     drop.title = "take the whole story off the board. Closes its questions, cancels its tickets";
     drop.onclick = () => dropStory(e.story_id, e.story_title || "this story");
@@ -1455,12 +1300,8 @@ function inboxTile(e) {
 }
 
 // ── attachments ─────────────────────────────────────────────────────────────
-//
-// The upload happens on paste, not on send. A screenshot that appears in the
-// composer as a picture you can look at and remove is a fact; one that is
-// merely promised until you press send is a hope, and the failure mode, a
-// silent 8MB refusal discovered an hour later, is the exact one this dashboard
-// keeps trying to design out.
+// The upload happens on paste, not on send, so a too-large file is refused
+// while you are still looking at it.
 const ATTACH_MAX = 6;
 
 async function upload(file) {
@@ -1510,22 +1351,17 @@ function attachChip(f, onRemove) {
 }
 
 // ── the composer ────────────────────────────────────────────────────────────
-//
 // Typing to Ordis, with the thing you are answering pinned above the box. The
-// drawer goes wide for this one view: drafting a reply while re-reading a
-// proposal in a 640px column means scrolling between the two halves of one
-// thought.
+// drawer goes wide so the proposal and the reply fit side by side.
 
 async function openCompose(e, opts) {
-  // A story-only thread has no Inbox item behind it. It exists because the only
-  // way to say something about a story used to be to wait to be asked about it,
-  // which made the conversation the colony's to start and never the PO's.
+  // A story-only thread has no Inbox item behind it, so the PO can start a
+  // conversation.
   const esc = (opts && opts.storyOnly) ? null : e.id;
   openDrawer(esc ? e.kind.replace("-", " ") + " · #" + esc : "story #" + e.story_id,
              "Reply to Ordis", { wide: true });
-  // Opened straight off an Inbox tile there is no trail to walk back up, but
-  // there is still an obvious "where did this come from": the story the question
-  // is about. Offer that, since it is the one place the reply's context lives.
+  // Opened straight from a tile there is no trail, so offer the story as the
+  // way back.
   if (!TRAIL.length && e.story_id) {
     TRAIL.push({ kind: "story", arg: e.story_id,
                  label: e.story_title || ("story #" + e.story_id) });
@@ -1536,14 +1372,8 @@ async function openCompose(e, opts) {
   box.replaceChildren();
   const wrap = el("div", "compose");
 
-  // Filled by `load()` below, from the server's own reading of the story.
-  //
-  // It used to be pinned here, above the proposal and above every message. That
-  // put it furthest from the box you type in, so on a thread of any length the
-  // one line saying what is actually blocking the story was the one line you
-  // had to scroll back up to find. `load()` now appends it to the end of the
-  // thread instead: the conversation runs oldest to newest, and where the work
-  // stands is the newest thing in it.
+  // Filled by `load()`, which appends it after the newest message, next to the
+  // box you type in.
   const state = el("div", "state");
   state.style.display = "none";
 
@@ -1623,11 +1453,8 @@ async function openCompose(e, opts) {
   box.append(wrap);
   ta.focus();
 
-  // By story wherever there is one. Asking for the escalation's thread was how
-  // the conversation kept vanishing: Ordis closes a question they think they
-  // answered, the next groom raises a new one about the same story, and the
-  // drawer opened on an empty thread with six messages sitting one row away in
-  // the ledger.
+  // Keyed by story when there is one, so a re-raised card does not open on an
+  // empty thread.
   const HEADS = { blocked: "blocked", waiting: "waiting on you",
                   moving: "moving", settled: "closed" };
 
@@ -1643,10 +1470,8 @@ async function openCompose(e, opts) {
       state.dataset.level = st.level;
       state.append(el("div", "head", HEADS[st.level] || st.level));
       state.append(el("div", "line", st.headline));
-      // Every open ask on the story, not just the one this drawer was opened
-      // on. A story parked on a question raised three grooms ago is still
-      // parked, and the tile you clicked to get here may not be the one holding
-      // it.
+      // Every open ask on the story, not only the one this drawer was opened
+      // on.
       for (const a of st.asks || []) state.append(el("div", "ask", a.text));
     }
 
@@ -1668,9 +1493,7 @@ async function openCompose(e, opts) {
         const l = el("div", "msg learned");
         l.append(el("div", "who", "learned · " + ago(m.at)));
         l.append(el("div", "bubble", m.body));
-        // The learning as stored is a gist; the whole thought is the detail.
-        // It used to be a `title` attribute. A tooltip you had to already know
-        // was there, on the one part of the exchange still worth reading later.
+        // The learning's gist is stored; the full thought is `detail`.
         if (m.detail) l.append(longText(m.detail));
         thread.append(l);
         continue;
@@ -1692,12 +1515,9 @@ async function openCompose(e, opts) {
     // directly above the box.
     thread.append(state);
 
-    // Land on the newest message, not the oldest. The thread runs oldest to
-    // newest with the composer under it, so opening at the top means scrolling
-    // past every exchange to reach the box you came here to type in. Twice
-    // through rAF because the first frame is before layout has run, and once
-    // more per image because an attachment that decodes late grows the thread
-    // under a scroll position already taken.
+    // Open on the newest message, next to the composer. Twice through rAF
+    // because the first frame is before layout, and again per image, since late
+    // decodes grow the thread.
     const toEnd = () => { box.scrollTop = box.scrollHeight; };
     requestAnimationFrame(() => requestAnimationFrame(toEnd));
     for (const img of thread.querySelectorAll("img")) {
@@ -1727,26 +1547,18 @@ async function openCompose(e, opts) {
   };
 }
 
-// The sentinel for "none of the folders on this list". A constant rather than a
-// magic string in three places, and one that cannot collide with a real folder
-// name because a real folder name can never contain a newline.
+// The sentinel for "none of the folders on this list". A newline cannot occur
+// in a folder name, so it cannot collide.
 const NEW_PROJECT = "\n<new>";
 
 function projectSelect(current, opts) {
   const sel = el("select", "pick");
   sel.append(el("option", null, "name the folder…"));
   sel.firstChild.value = "";
-  // `STATE` may not have arrived yet, a deep-linked drawer opens before the
-  // first snapshot does, and a picker with no options is a far better failure
-  // than a drawer that renders nothing because one list was undefined.
-  //
-  // Sorted here rather than trusted from either source. /api/projects arrives
-  // alphabetical, but the fallback is the working-tree scan, which is ordered
-  // by *change recency*. A sensible order for "what did I touch today" and a
-  // useless one for "find job-search in this list". Sorting at the point of
-  // render means the picker reads the same way no matter which list filled it.
-  // localeCompare, not <, so the folder starting with ＋ and any accented name
-  // land where a person would look for them.
+  // `STATE` may not have arrived for a deep-linked drawer, so an empty picker
+  // is the failure mode. Sorted here because the fallback list is ordered by
+  // recency. localeCompare puts the ＋ entry and accented names where a person
+  // looks.
   const all = (ALL_PROJECTS.length
     ? ALL_PROJECTS
     : ((STATE && STATE.projects) || []).map((r) => r.project)
@@ -1766,12 +1578,8 @@ function projectSelect(current, opts) {
 }
 
 // ── filing a story from here ────────────────────────────────────────────────
-//
-// The board could show work and move work but never *start* work: a story only
-// existed because a Notion page did. This is the other door, and it is
-// deliberately the same shape as the Inbox's project picker, including the
-// "＋ new project folder…" branch, because "which folder is this?" is the same
-// question whether you are answering it after the fact or up front.
+// Create a story here without Notion. Same shape as the Inbox's project picker,
+// including "＋ new project folder…", since it is the same question.
 
 function openNewStory() {
   // No `nav`: a back button that reopened this would be an empty form claiming
@@ -1820,18 +1628,14 @@ function openNewStory() {
     let project = isNew ? field.value.trim() : sel.value;
     if (isNew && !project) { toast("name the new folder", "bad"); return; }
 
-    // Two calls rather than one, on purpose: `create_story` refuses a folder
-    // that does not exist, so the folder has to be real before the story names
-    // it. Making the story create folders as a side effect would mean a typo in
-    // this box silently becomes a new directory on disk.
+    // Two calls: `create_story` refuses a missing folder, so a typo cannot
+    // become a directory as a side effect.
     go.disabled = true;
     try {
       if (isNew) {
         const made = await act("confirm-project", { project, create: true });
         if (!made) return;
-        // The picker's list was fetched once at load. A folder created a second
-        // ago is not in it, and the very next thing that happens is a story
-        // naming that folder.
+        // Refetch so the new folder is in the list.
         await fetch("/api/projects").then((r) => r.json())
           .then((p) => { ALL_PROJECTS = p.all || ALL_PROJECTS; }).catch(() => {});
       }
@@ -1875,9 +1679,8 @@ function renderMacros(c) {
   box.append(halt);
   box.append(el("hr", "macro-rule"));
 
-  // Beating out of turn. The scheduled task and this button are independent:
-  // the task fires at :07 whatever happens here, so a beat forced at 1:37 sits
-  // between the 1:07 and 2:07 beats rather than replacing either of them.
+  // Beat out of turn. The scheduled task still fires at :07; a forced beat sits
+  // between scheduled ones.
   const hb = el("div", "macro");
   hb.append(el("div", "lb", "heartbeat"));
   const beating = !!c.pulse_running;
@@ -1909,10 +1712,8 @@ function renderMacros(c) {
   const band = c.allowance;
   const al = el("div", "macro");
   al.append(el("div", "lb", "token allowance"));
-  // The bar measures the whole week now, not the distance travelled inside a
-  // boost cap that no longer exists. So the empty part of it is the share of
-  // the quota left for the PO's own sessions, which is the number the dial is
-  // actually trading against.
+  // The bar is the whole week; its empty part is what remains for the PO's own
+  // sessions.
   const lo = c.allowance_min === undefined ? 0 : c.allowance_min;
   const hi = c.allowance_max === undefined ? 100 : c.allowance_max;
   const at = band.effective;
@@ -1924,12 +1725,9 @@ function renderMacros(c) {
     ? `${at}% of the week. ${band.base}% baseline, moved ${band.boost > 0 ? "+" : ""}${band.boost}.`
     : `${band.base}% of the week, as designed.`));
 
-  // A dial, not a ratchet. This was three sizes of "up" (+5, +10, +25) against a
-  // hard +25 ceiling, so the allowance could only climb, and an overshoot could
-  // only be cleared to zero and rebuilt. It walks both ways now over the whole
-  // range: 0% is a real setting, the colony stops spending without the
-  // finality of HALT, and 100% is the PO deciding the week is the colony's.
-  // -5 and +5 are the same size on purpose, so a mispress costs one press.
+  // A dial over 0 to 100%. 0% stops spending without HALT's finality; 100%
+  // gives the week to the colony. -5 and +5 match, so a mispress costs one
+  // press.
   const row = el("div", "row");
   const down = el("button", "act", "\u22125");
   down.title = `down to ${clamp(at - 5)}% of the week`;
@@ -1968,14 +1766,9 @@ function renderMacros(c) {
   box.append(el("hr", "macro-rule"));
 
   // ── the upward direction ──────────────────────────────────────────────────
-  //
-  // Its own switch, separate from HALT, and the separation is the point. HALT
-  // means "spend nothing"; a comment on a Notion page is not a token. A halted
-  // colony that also went silent upward would look broken to anyone reading
-  // the board on their phone, when what it actually is is paused.
-  //
-  // Off holds the queue rather than dropping it: everything you queued while
-  // it was off goes up in order when you turn it back on.
+  // Its own switch, separate from HALT: a Notion comment is not a token, and a
+  // halted colony should not look broken from the phone. Off holds the queue;
+  // it goes up in order when turned back on.
   const nw = el("div", "macro");
   nw.append(el("div", "lb", "writing to notion"));
   const ob = c.outbox || { waiting: 0, stuck: 0 };
@@ -2028,10 +1821,8 @@ function renderMacros(c) {
   }
 }
 
-// The tier column records what the tick DECIDED; `acted` records what the wake
-// actually did. An hour stamped "wake" that cost nothing is a tick that
-// escalated and then found its job list empty. And calling that a wake, in
-// mint, next to a token count of zero, is the log arguing with itself.
+// `tier` is what the tick decided; `acted` is what the wake did. A "wake" hour
+// that spent nothing is shown as a tick.
 function tierOf(p) {
   if (p.tier !== "wake") return p.tier;
   return p.acted ? "wake" : "tick";
@@ -2050,9 +1841,8 @@ function renderPulses(rows) {
   $("pulse-count").textContent = rows.length ? hhmm(rows[0].pulse_at) : "";
   if (!rows.length) { box.append(el("div", "empty", "no pulses yet")); return; }
 
-  // Consecutive clean ticks roll up; a *missing* hour is drawn in coral. A
-  // heartbeat monitor that only shows the beats it received cannot show a
-  // stopped heart, which is the one thing it exists to show.
+  // Consecutive clean ticks roll up, and a missing hour is drawn in coral, so a
+  // stopped heartbeat shows.
   const out = [];
   for (let i = 0; i < rows.length; i++) {
     const p = rows[i], prev = rows[i + 1];
@@ -2093,9 +1883,8 @@ function renderPulses(rows) {
   }
 }
 
-// The forge reads bottom-up on purpose: drafts first (something is waiting on
-// you), then candidates (something could be), then what the active ones earned.
-// The server already sorts it that way; this only has to not undo it.
+// Drafts first (waiting on you), then candidates, then what active skills
+// earned. The server sorts it; this keeps the order.
 const DETECTOR_LABEL = {
   "repeat": "seen 3+ times",
   "recovery": "failed, then worked",
@@ -2103,9 +1892,8 @@ const DETECTOR_LABEL = {
   "po-correction": "you kept fixing it",
 };
 
-// Why a wake would refuse to spend right now, in the words the pulse uses, or
-// null if it would run. The page already holds both numbers; the forge just had
-// no reason to look at them until a draft could sit queued behind them.
+// Why a wake would refuse to spend now, in the pulse's words, or null if it
+// would run.
 function standdown() {
   const sp = STATE && STATE.sprint;
   if (!sp || !sp.usage || !sp.allowance) return null;
@@ -2152,10 +1940,8 @@ function renderForge(f) {
     const bar = el("div", "row-acts");
     if (s.status === "candidate") {
       if (s.draft_requested_at) {
-        // "on the next wake" is true and useless when every wake is standing
-        // down. A request that has been waiting since Tuesday because the week
-        // is over its allowance should say so here, next to the button that
-        // made it, rather than leaving the PO to infer it from the Spend panel.
+        // When every wake is standing down, say why beside the button that
+        // queued the request.
         const held = standdown();
         const w = el("span", held ? "waiting bad" : "waiting",
                      held ? "requested. Held: " + held
@@ -2188,9 +1974,8 @@ function renderForge(f) {
   }
 }
 
-// The promotion gate. It is the only PO action in the dashboard that writes a
-// file outside the ledger, so the draft is shown in full first. Approving a
-// procedure you have not read is the failure mode the gate exists to prevent.
+// The promotion gate writes a file outside the ledger, so the draft is shown in
+// full first.
 async function openSkill(id) {
   const body = openDrawer("skill #" + id, "", { wide: true });
   let s;
@@ -2242,17 +2027,9 @@ async function openSkill(id) {
 }
 
 // ── the spend chart ─────────────────────────────────────────────────────────
-// This was a 34px sparkline over the last fourteen days: the right size for
-// "is it going up", the wrong one for any question with a number in it. The
-// grain now goes from an hour to a year, both shapes are available, and the
-// value under the pointer is readable, which is the difference between a
-// decoration and an instrument.
-//
-// The series comes from /api/spend rather than the snapshot, because the
-// snapshot is one payload for eleven panels and there is no reason for the
-// other ten to carry 48 hourly buckets. Which grain and which shape is
-// localStorage, like the Files sort order. How you read a panel is not a
-// decision about the colony, so it does not belong in the ledger.
+// The spend chart: grains from an hour to a year, bar or line, with the value
+// under the pointer. The series comes from /api/spend, not the snapshot. Grain
+// and shape are kept in localStorage.
 
 const SVGNS = "http://www.w3.org/2000/svg";
 const GRAIN_UNIT = { hour: "h", day: "d", week: "w", month: "mo", year: "y" };
@@ -2260,10 +2037,8 @@ let SPEND_GRAIN = store.get("colony-spend-grain") || "day";
 let SPEND_KIND = store.get("colony-spend-kind") || "line";
 let SPEND_SERIES = null;
 let SPEND_WIDTH = 0;
-// Where the window stops. `null` is the live view. It is deliberately not
-// persisted: which grain you read the panel at is a habit, but a date you paged
-// back to is a look you took once, and a dashboard that opens in July because
-// that is where you left it is a dashboard that lies about the present.
+// Where the window stops; `null` is live. Not persisted, so the page always
+// opens on the present.
 let SPEND_END = null;
 let SPEND_LAND = null;    // which bucket to sit on after a paging load
 
@@ -2282,9 +2057,8 @@ function niceMax(v) {
   return (n <= 1 ? 1 : n <= 2 ? 2 : n <= 2.5 ? 2.5 : n <= 5 ? 5 : 10) * mag;
 }
 
-// One bucket forward or back, `n` of them. Date does the calendar arithmetic.
-// setMonth and setFullYear normalise overflow the same way the server's
-// `_back` does, so 31 March minus a month is the same day on both sides.
+// One bucket forward or back, `n` of them. setMonth and setFullYear normalise
+// overflow the same way the server's `_back` does.
 function stepDate(d, grain, n) {
   const t = new Date(d.getTime());
   if (grain === "hour") t.setHours(t.getHours() + n);
@@ -2312,10 +2086,8 @@ function windowEnd() {
   return pts && pts.length ? fromKey(pts[pts.length - 1].key) : new Date();
 }
 
-// A whole window at a time. The new window ends where the old one began, so the
-// two overlap by exactly one bucket. The bucket you were looking at when you
-// pressed the arrow stays on screen, which is what stops paging feeling like a
-// jump cut.
+// A whole window at a time, overlapping by one bucket so the bucket you were
+// reading stays on screen.
 function pageSpend(dir) {
   const s = SPEND_SERIES;
   if (!s) return;
@@ -2384,9 +2156,7 @@ function drawSpend() {
   for (const b of $("spend-kind").children) b.classList.toggle("on", b.dataset.kind === SPEND_KIND);
   $("spend-count").textContent = s.span + GRAIN_UNIT[s.grain];
 
-  // The forward controls are dead on the live view rather than hidden: a button
-  // that vanishes takes the layout with it, and you lose the affordance the
-  // moment you most want to know it exists.
+  // Disabled rather than hidden on the live view, so the layout holds.
   $("spend-next").disabled = !!s.live;
   $("spend-now").disabled = !!s.live;
   const dateIn = $("spend-date");
@@ -2407,14 +2177,12 @@ function drawSpend() {
   svg.setAttribute("width", W);
   svg.setAttribute("height", H);
   svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
-  // `var()` is not legal inside an SVG presentation attribute. `currentColor`
-  // is, so the accent is set once on the element and inherited by everything
-  // drawn into it.
+  // `var()` is not allowed in SVG presentation attributes; `currentColor` is,
+  // so the accent is set once on the element.
   svg.style.color = "var(--violet)";
 
-  // Horizontal rules first, under everything, with the value they stand for.
-  // `toks` renders 0 as an em dash, which is right in a table cell and wrong on
-  // an axis. An axis tick has a value even when the value is nothing.
+  // Grid lines first, with their values. `toks` renders 0 as a dash, which is
+  // wrong on an axis.
   const axisTok = (v) => (v >= 1 ? toks(Math.round(v)) : "0");
   for (let k = 0; k <= 4; k++) {
     const v = (top / 4) * k, yy = Math.round(y(v)) + 0.5;
@@ -2498,10 +2266,7 @@ function drawSpend() {
   };
   svg.onpointerleave = () => hover(-1);
 
-  // The chart takes focus so it can be read without a mouse. The arrows walk a
-  // bucket at a time and page the window when they run off the end, which makes
-  // the whole ledger reachable from the keyboard rather than only the part the
-  // date box happens to be pointing at.
+  // Keyboard reading: arrows step a bucket and page the window at the ends.
   svg.tabIndex = 0;
   svg.onkeydown = (ev) => {
     const k = ev.key;
@@ -2567,18 +2332,14 @@ $("spend-now").addEventListener("click", () => {
 $("spend-date").addEventListener("change", (ev) => {
   const v = ev.target.value;
   if (!v) return;
-  // A bare date floors to midnight, which at the hour grain would end the window
-  // at the *start* of the day picked and show the day before it. 23:00 puts the
-  // whole of that day inside the window; every coarser grain floors to the same
-  // bucket either way, so one spelling serves all five.
+  // A bare date floors to midnight, which at hour grain ends on the day before.
+  // 23:00 covers the whole day at every grain.
   SPEND_END = v + " 23:00";
   SPEND_LAND = "end";
   loadSpend();
 });
 
-// A column resize changes the pixel width the chart was measured at. Only the
-// width matters. Redrawing on a height change would be a loop, since drawing
-// is what sets the height.
+// Redraw on width changes only; drawing sets the height, so height would loop.
 if (window.ResizeObserver) {
   new ResizeObserver(() => {
     const w = $("spend-chart").clientWidth;
@@ -2608,9 +2369,7 @@ function renderSpend(sp) {
 }
 
 // ── standby: browse by division ─────────────────────────────────────────────
-// 270 personas is too many to scroll and too few to need paging. Divisions are
-// how the agency-agents repo already organises them, so they are how you browse
-// them: a closed accordion of departments, biggest first, opening in place.
+// The roster, browsed by division as an accordion, biggest first.
 
 function renderDivisions(roster) {
   const box = $("roster-divisions");
@@ -2643,31 +2402,16 @@ function personaButton(p) {
 }
 
 // ── adding a persona ────────────────────────────────────────────────────────
+// Add a persona from the dashboard instead of hand-writing YAML frontmatter.
 //
-// The roster is scanned off disk from two folders, and until this panel existed
-// the only way to add to it was to open an editor, get the YAML frontmatter
-// right by hand, save into the right division folder, and re-run a CLI command.
-// Four steps, three of which are "know the file format", to add one colleague.
-//
-// The important half is *which* folder it writes to. `~/.agency-agents` is
-// somebody else's git clone; writing a persona into it means the next `git pull`
-// there either clobbers the file or refuses to merge. So everything written here
-// lands in `~/.colony-agents`, which upstream has never heard of, and the two
-// are scanned together. That is also why neither folder is in this repository:
-// a persona library is a machine's furniture, not this project's source, and
-// shipping a stranger's agents inside a repo that merely reads them would be
-// redistributing their work.
-//
-// Two ways in, one form. Dropping a `.md` file fills the fields in from its
-// frontmatter; typing fills them in directly. They converge deliberately.
-// A drop that skipped the form would be a write with nothing to check first,
-// and the field most worth checking is the division, which is the one thing a
-// dropped file has an opinion about that the person dropping it may not share.
+// Everything written here lands in `~/.colony-agents`, never in
+// `~/.agency-agents`, which is someone else's git clone; the two are scanned
+// together. Dropping a `.md` file and typing both fill the same form, so the
+// division is always checked before writing.
 
 function parseFrontmatter(text) {
-  // The same five-key line reader as `roster.parse_persona`, on purpose. A
-  // richer parser here would accept files the scanner then ignores, which is
-  // the worst of the options: the import succeeds and the persona never shows up.
+  // The same line reader as `roster.parse_persona`, so the import accepts only
+  // what the scanner will show.
   const out = { body: text, meta: {} };
   if (!text.startsWith("---")) return out;
   const rest = text.slice(text.indexOf("\n") + 1);
@@ -2722,10 +2466,8 @@ async function openPersonaNew() {
     return blk(label, input);
   };
 
-  // The PO sorts their roster by department, so the division is the categorisation
-  // and it is required. A datalist rather than a select: the existing divisions
-  // are the suggestion, but "the 17 folders a stranger happened to ship" is not
-  // a closed set of the departments anyone could want.
+  // The division is required. A datalist: existing divisions are suggestions,
+  // not a closed set.
   const division = el("input", "field");
   division.placeholder = "engineering, finance, your-own-department…";
   division.setAttribute("list", "roster-divisions-list");
@@ -2851,16 +2593,9 @@ $("roster-rescan").onclick = async () => {
 
 let ALL_PROJECTS = [];   // every folder with a PROJECT.md, for the confirm pickers
 
-// A drawer can open another drawer, a beat lists the projects that moved, a
-// story lists its tickets, and until now that was a one-way trip: the second
-// view replaced the first, and the only way back was to close everything and
-// find the beat again. So the drawer keeps a trail.
-//
-// Nothing at the call sites had to change. `openDrawer` is called synchronously
-// at the top of every open* function, before the fetch, so "was a drawer already
-// on screen when this one opened?" is exactly the question of whether the user
-// stepped *down* into something or started fresh. And it can be asked here,
-// once, instead of at each of the dozen places that open a drawer.
+// A drawer can open another, so the drawer keeps a trail back. `openDrawer`
+// runs at the top of every open* function, before the fetch, so whether a
+// drawer was already open tells a step down from a fresh start.
 let TRAIL = [];        // where we came from, innermost last
 let HERE = null;       // the view on screen, if it is one we know how to re-open
 let GOING_BACK = false;
@@ -2893,12 +2628,9 @@ function openDrawer(eyebrow, title, opts) {
   const nav = opts && opts.nav;
   if (!d.classList.contains("on")) TRAIL = [];          // opened from the page: a fresh trail
   else if (HERE && !GOING_BACK) TRAIL.push(HERE);       // opened from a drawer: a step down
-  // Note the two halves of that: a view without a `nav` cannot be *returned to*,
-  // re-opening a half-written reply from a back button would be a lie about
-  // what was preserved, but it can still have somewhere to go back *to*. That
-  // used to be conflated, and the cost was the reply drawer: you opened a story,
-  // clicked "reply to Ordis" to answer the thing you were reading, and the way
-  // back to the story was to close everything and find it again.
+  // A view without `nav` cannot be returned to (reopening a half-written reply
+  // would lose the draft), but it can still offer a way back to the view before
+  // it.
   HERE = nav || null;
   renderTrail();
   d.classList.add("on"); $("scrim").classList.add("on"); d.setAttribute("aria-hidden", "false");
@@ -2941,26 +2673,17 @@ function blk(label, ...nodes) {
 }
 function sectionBlock(label, text) { return blk(label, el("pre", "detail", text)); }
 
-// The ledger stores the two halves of a Notion checklist as JSON arrays. A
-// story synced before migration 008 has neither, and a story whose page has no
-// to-dos has empty ones. Both read as "no checklist" here, and neither is an
-// error worth showing.
+// Notion checklists are stored as JSON arrays. Missing (pre-008) and empty both
+// read as "no checklist".
 function jsonList(raw) {
   if (!raw) return [];
   try { const v = JSON.parse(raw); return Array.isArray(v) ? v : []; } catch (_) { return []; }
 }
 
 // ── console ─────────────────────────────────────────────────────────────────
-//
-// A shell, in a drawer, in the Ordis panel. Everything else on this page is a
-// message left for a loop that reads it on the hour; this is a terminal that
-// answers while you watch, with full tool access and no worktree between it and
-// the tree. `console.py` carries the argument for why that is deliberate.
-//
-// The transcript is polled rather than pushed. It is not on the SSE snapshot on
-// purpose: the snapshot fans out to every panel on the page and a chat that is
-// only open sometimes should not be repainting the board while it waits for a
-// shell command.
+// A shell in a drawer: a terminal that answers while you watch, with full tool
+// access and no worktree. `console.py` explains why. The transcript is polled,
+// not on the SSE snapshot, so an open chat does not repaint the board.
 
 const CONSOLE_POLL_MS = 1500;
 
@@ -2982,9 +2705,7 @@ async function openConsole() {
   const cwd = el("div", "cwd");
   const meta = el("div", "meta");
 
-  // Both dropdowns are built from what the server says the CLI accepts, not
-  // from a list typed in here. A hard-coded menu is a menu that lies the first
-  // time a model alias moves.
+  // Both dropdowns come from what the server says the CLI accepts.
   const model = el("select", "pick");
   model.title = "which model answers the next message";
   for (const m of data.models) {
@@ -3000,10 +2721,8 @@ async function openConsole() {
     effort.append(o);
   }
 
-  // Compact is a real turn, not a local button: it sends `/compact` into the
-  // same session, so the summarising happens where the context actually lives.
-  // That is also why it costs tokens and shows up in the tape like anything
-  // else -- it is work, and work on this page is always billed out loud.
+  // Compact sends `/compact` into the same session, so it costs tokens and
+  // shows in the tape.
   const compact = el("button", "act", "compact");
   compact.title = "summarise this conversation so far and keep going in less context";
   const clear = el("button", "act", "clear");
@@ -3041,11 +2760,8 @@ async function openConsole() {
   box.placeholder = "what do you want changed? enter sends, shift+enter for a new line";
   const row = el("div", "row");
 
-  // The command list is read off disk by the server -- the verified built-ins
-  // plus whatever skills are actually installed -- so it cannot drift from
-  // what the CLI would accept. Picking one pastes it at the cursor and hands
-  // focus back; it never sends. Typing "/comp" and guessing the rest is the
-  // thing this replaces.
+  // The command list is read off disk by the server (built-ins plus installed
+  // skills). Picking one pastes it at the cursor; it never sends.
   const cmds = el("select", "pick");
   cmds.title = "paste a slash command at the cursor";
   const head = el("option", null, "/ command…");
@@ -3073,16 +2789,11 @@ async function openConsole() {
   prompt.append(box, row);
   wrap.append(prompt);
 
-  // Read from anywhere the token reaches; write only from the machine itself.
-  // The console spawns `claude` with no worktree and no tool restrictions -- it
-  // is a shell on purpose -- so a token sniffed off a home LAN, which is plain
-  // HTTP, would be worth a command prompt rather than a read-only board. The
-  // server refuses it either way (`_desk_only`); this row is what stops the
-  // refusal arriving as a mystery 403 after you have typed a paragraph.
-  //
-  // These three are held here rather than read off `st` inside `paint`, because
-  // `paint` is also called with the reply from `/api/console/options`, which
-  // does not carry them. A missing key would otherwise read as "locked".
+  // Read from anywhere the token reaches; write only from this machine, because
+  // the console is a shell and the token crosses the LAN in plain HTTP. The
+  // server refuses either way (`_desk_only`); this row explains before you
+  // type. Held here because `paint` also gets `/api/console/options` replies,
+  // which lack these keys.
   let writable = data.writable !== false;
   let remote = data.remote === true;
   const desk = data.desk === true;
@@ -3090,10 +2801,8 @@ async function openConsole() {
   const access = el("div", "access");
   prompt.prepend(access);
 
-  // Turning the boundary off is allowed from anywhere and turning it on is
-  // not -- see `act_console_remote`. So the phone gets a button in one
-  // direction only, and that is deliberate rather than an oversight: a switch
-  // that a stolen token could flip would not be a boundary.
+  // Remote access can be turned off from anywhere but on only at the desk (see
+  // `act_console_remote`), so the phone gets a button in one direction.
   function drawAccess() {
     access.replaceChildren();
     if (desk) {
@@ -3148,11 +2857,8 @@ async function openConsole() {
   }
   drawAccess();
 
-  // Redrawing the whole transcript on every poll would eat a half-typed
-  // message, so the textarea is built once above and only the tape is
-  // replaced. Same reason the scroll position is only forced when you were
-  // already at the bottom: a poll should not yank you off the line you were
-  // reading.
+  // Only the tape is replaced, so a half-typed message survives a poll. Scroll
+  // is forced only if you were already at the bottom.
   function paint(st) {
     const stuck = tape.scrollHeight - tape.scrollTop - tape.clientHeight < 60;
     tape.replaceChildren();
@@ -3185,10 +2891,7 @@ async function openConsole() {
     if (st.model) model.value = st.model;
     if (st.effort) effort.value = st.effort;
     send.disabled = busy || !writable;
-    // Nothing to compact until there is a session to compact, and the CLI says
-    // so in as many words ("Not enough messages to compact") rather than
-    // failing -- but a button that spends tokens to be told that is a bad
-    // button, so it stays off until the conversation exists.
+    // Off until a session exists; compacting nothing still costs tokens.
     compact.disabled = busy || !writable || !st.resuming;
     clear.disabled = busy || !writable || !st.turns.length;
     box.disabled = !writable;
@@ -3206,9 +2909,7 @@ async function openConsole() {
   paint(data);
   box.focus();
 
-  // The poll stops itself when the drawer closes or the body is replaced by
-  // another view. There is no unmount hook on this page, so the node's own
-  // presence in the document is the liveness check.
+  // No unmount hook, so the poll stops when its node leaves the document.
   const timer = setInterval(async () => {
     if (!wrap.isConnected || !$("drawer").classList.contains("on")) {
       clearInterval(timer);
@@ -3217,9 +2918,8 @@ async function openConsole() {
     try { paint(await getJSON("/api/console")); } catch (_) {}
   }, CONSOLE_POLL_MS);
 
-  // `override` is how the compact button gets in: it is an ordinary message
-  // with a fixed body, so it queues behind a running turn and gets refused the
-  // same way, instead of being a second path into the same lock.
+  // `override` is how compact gets in: an ordinary message with a fixed body,
+  // through the same queue and lock.
   async function fire(override) {
     const text = (typeof override === "string" ? override : box.value).trim();
     if (!text) return;
@@ -3282,9 +2982,7 @@ async function openStory(id) {
   renderTrail();
   body.replaceChildren();
 
-  // Before anything else, if this story is not moving, why. It used to be the
-  // last row of the list below, which is where you look after you have already
-  // worked out that something is wrong.
+  // First, if this story is not moving, why.
   if (s.blocked_reason) {
     const box = el("div", "blocker");
     box.append(el("div", "h", "not moving · " + (STATUS_LABEL[s.status] || s.status)),
@@ -3300,14 +2998,8 @@ async function openStory(id) {
   add("synced", s.notion_synced_at || "—");
   body.append(facts);
 
-  // Say something about this story without waiting to be asked about it.
-  //
-  // Replying used to require an Inbox item to reply *to*, which quietly made
-  // every conversation the colony's to open. Most of what a PO wants to say
-  // about a story, this is the wrong folder, that criterion is stale, look at
-  // this screenshot, arrives while they are reading the story, not while they are
-  // reading a question about it. It becomes a ticket the moment it is sent,
-  // same as any other reply.
+  // Say something about this story without waiting to be asked. It becomes a
+  // ticket when sent, like any reply.
   const talk = el("button", "act go", "reply to ordis about this story");
   talk.style.width = "100%";
   talk.title = "queued for the next wake. It shows up in the Ticket Queue straight away";
@@ -3339,9 +3031,7 @@ async function openStory(id) {
   };
   gate.append(disp);
 
-  // Drop, or undo the drop. On the gate rather than off in a corner, because
-  // "not doing this" is one of the three things you can decide about a story
-  // and the other two are already here.
+  // Drop, or undo the drop, beside the other decisions about a story.
   gate.append(el("label", null, s.dropped_at ? "dropped" : "drop"));
   if (s.dropped_at) {
     const note = el("div", "row");
@@ -3360,11 +3050,8 @@ async function openStory(id) {
   body.append(gate);
 
   // ── the checklist, both halves ────────────────────────────────────────────
-  //
-  // This is the block that stops the loop from asking about finished work. The
-  // ledger keeps the ticked and unticked to-dos apart now, so the drawer can
-  // show you what the colony believes is done, which is also the thing to
-  // check first when a question looks like it is about last month.
+  // What the colony believes is done and still open, from the Notion checklist.
+  // Check this first when a question seems out of date.
   const done = jsonList(s.done_items), open = jsonList(s.open_items);
   if (done.length || open.length) {
     const list = el("div", "blk");
@@ -3374,11 +3061,8 @@ async function openStory(id) {
   }
 
   // ── talking back to Notion ────────────────────────────────────────────────
-  //
-  // Everything here queues; nothing here sends. The button writes a row to the
-  // outbox and the next pulse performs the HTTP, which is the same rule that
-  // keeps every other control on this page free of network I/O. And it means
-  // a Notion outage costs you a delay rather than a lost decision.
+  // Everything here queues; the next pulse sends it. A Notion outage costs a
+  // delay, not a decision.
   if (s.notion_page_id) {
     const push = el("div", "form");
     const statuses = (STATE && STATE.controls && STATE.controls.notion_statuses) || [];
@@ -3437,10 +3121,8 @@ async function openStory(id) {
   if (s.description) body.append(sectionBlock("brief", s.description));
   if (s.acceptance_criteria) body.append(sectionBlock("acceptance criteria", s.acceptance_criteria));
 
-  // Who is on this story. Before seats existed the drawer could only say how
-  // many writers the folder had, which is why a second specialist hired onto a
-  // story stayed invisible and nobody hired one. Lead first, because the lead
-  // is the seat that receives the implement ticket and the rest do not.
+  // Who is on this story, lead first: the lead's seat gets the implement
+  // ticket.
   if (data.crew && data.crew.length) {
     const rows = el("div", "rows");
     for (const a of data.crew) {
@@ -3451,9 +3133,8 @@ async function openStory(id) {
       const dd = el("dd", null, (a.name || a.roster_slug || "hand-written contract")
                                 + "  ·  " + a.status
                                 + "  ·  " + (a.model || "").replace("claude-", ""));
-      // An agent with no `story_id` predates seats or was hired by hand. It
-      // works on this story because nobody else is on it, not because anyone
-      // put it there, and the drawer should not pretend otherwise.
+      // No `story_id`: hired by hand or before seats, working here because
+      // nobody else is.
       if (!a.story_id) {
         dd.append(el("div", "stamp",
           "cut for the project, not for this story. It takes the ticket only "
@@ -3468,26 +3149,19 @@ async function openStory(id) {
   }
 
   if (data.tickets.length) {
-    // `.rows` rather than `.blk`: the list scrolls inside itself, capped at the
-    // same height as the brief. A story that has been open for two weeks has
-    // thirty tickets on it, and unbounded they push the runs table and the
-    // timeline off the bottom of the drawer.
+    // `.rows`, not `.blk`: the list scrolls inside itself, capped like the
+    // brief.
     const rows = el("div", "rows");
     for (const t of data.tickets) {
       const r = el("div", "kv");
-      // “Tickets can be more inclusive, acceptance/approval can be a ticket as
-      // well. Basically any call/choice can be made a ticket to ensure that it
-      // has been understood.” Every answered escalation writes one, so the
-      // record of what was decided lives beside the record of what was built.
-      // It is stored as `chore` because `tickets.intent` has a CHECK that
-      // SQLite cannot widen in place; `decided_esc_id` is what makes it a
-      // decision, exactly as `po_message_id` is what makes a ticket a reply.
+      // Every answered escalation writes a decision ticket, so what was decided
+      // sits beside what was built. Stored as `chore` because
+      // `tickets.intent`'s CHECK cannot be widened in place; `decided_esc_id`
+      // marks it.
       const decision = !!t.decided_esc_id;
       const dd = el("dd", null, decision ? (t.findings || "decided")
                                          : `${t.status} · ${t.role}`);
-      // When it was opened, and when it stopped. Without dates this list cannot
-      // answer the first question anyone asks of it, is #19 from this morning
-      // or from last week, and the ids only say what order things happened in.
+      // Opened and closed dates; ids give only the order.
       const life = stamp(t.created_at) +
                    (t.closed_at && t.closed_at !== t.created_at
                       ? "  ·  closed " + stamp(t.closed_at) : "");
@@ -3512,9 +3186,8 @@ async function openStory(id) {
     t.append(head);
     for (const r of data.runs) {
       const tr = el("tr");
-      // Two clocks, because they answer different questions. "started" places
-      // the run in the week; "took" is how long the agent was actually working,
-      // which is the number you want when a run cost more than you expected.
+      // "started" places the run in the week; "took" is how long the agent
+      // worked.
       const secs = r.ended_at && r.started_at
         ? (parseTs(r.ended_at) - parseTs(r.started_at)) / 1000 : null;
       tr.append(el("td", null, "#" + r.id),
@@ -3555,13 +3228,9 @@ async function openStory(id) {
 }
 
 // ── completed drawer ────────────────────────────────────────────────────────
-//
-// Everything that took place between one deliverable and the next, in the order
-// it took place. The story drawer answers "where does this stand"; this answers
-// "what happened, and what came out of it", which is the question you have when
-// you are trying to remember whether a thing is already built.
-//
-// `arg` is "kind:id" because the drawer trail stores one argument per view.
+// Everything between one deliverable and the next, in order: what happened and
+// what came out of it. `arg` is "kind:id" because the trail stores one argument
+// per view.
 async function openCompleted(arg) {
   const [kind, rawId] = String(arg).split(":");
   const id = Number(rawId);
@@ -3601,16 +3270,12 @@ async function openCompleted(arg) {
     body.append(go);
   }
 
-  // What it produced. `done` and `skipped` are the agent's own account of the
-  // acceptance criteria, and `skipped` is the half that matters: an unread
-  // skip list is how a story gets called finished twice.
+  // The agent's account of the criteria. `skipped` matters most.
   const f = d.findings || {};
   if (f.summary) body.append(sectionBlock("what it delivered", f.summary));
-  // `list` takes an array of plain strings and nothing else. `skipped` arrives
-  // as {criterion, why} objects and `risks` and `learned` arrive as single
-  // strings, so both are handled on their own terms below. Handing a string to
-  // a for..of loop iterates its characters, which is how a 294-character risk
-  // note rendered as 294 rows of one letter each.
+  // `list` takes plain strings. `skipped` arrives as {criterion, why} and
+  // `risks`/`learned` as single strings, so they are handled separately; a
+  // string in for..of iterates characters.
   const list = (label, arr, mark) => {
     if (!Array.isArray(arr) || !arr.length) return;
     const box = el("div", "blk");
@@ -3623,9 +3288,7 @@ async function openCompleted(arg) {
       : String(sk));
   list("criteria met", f.done, "✓");
   list("skipped", skipped, "✗");
-  // The commands the agent handed over rather than ran. They are half the story
-  // of a skipped criterion, and the card that carried them is long gone by the
-  // time anyone opens this panel.
+  // Commands the agent handed over instead of running.
   list("handed over to be run", (Array.isArray(f.needs_run) ? f.needs_run : [])
     .map((n) => n && typeof n === "object"
       ? [n.command, n.why].filter(Boolean).join(": ") : String(n)), "$");
@@ -3674,10 +3337,7 @@ async function openCompleted(arg) {
     body.append(blk("tickets cut in this window  ·  " + d.tickets.length, rows));
   }
 
-  // The whole conversation, in order: what you said, what Ordis said, what the
-  // colony asked, what it decided, what it learned. Same rendering as the story
-  // timeline, because it is the same kind of thing and a second visual language
-  // for it would just be a second thing to learn.
+  // The whole conversation in order, rendered like the story timeline.
   const tl = el("div", "blk");
   tl.append(el("div", "lb", "everything that happened  ·  " + d.timeline.length + " entries"));
   if (!d.timeline.length) {
@@ -3705,10 +3365,8 @@ async function openCompleted(arg) {
   body.append(tl);
 }
 
-// One label per entry, in the voice it was said in. The event kinds keep their
-// own word, "groomed", "staffed", "decided", because those are the colony's
-// own vocabulary and renaming them here would make the timeline and the ledger
-// disagree about what happened.
+// One label per entry, in the voice it was said in. Event kinds keep the
+// ledger's own words ("groomed", "staffed", "decided").
 function doneVoice(e) {
   if (e.kind === "po") return "you";
   if (e.kind === "ordis") return "ordis";
@@ -3724,9 +3382,8 @@ function doneRole(e) {
   return null;
 }
 
-// Which voice an event is in, if it is in one. Everything else, a Notion sync,
-// a status filing, a groom that failed, is bookkeeping and stays grey, which
-// is what makes the four coloured ones findable in a list of thirty.
+// Which voice an event is in. Bookkeeping stays grey, so the four coloured
+// voices stand out.
 const EV_VOICE = { po: "you", ordis: "ordis", learning: "learned", ask: "ordis asked" };
 
 function evRole(e) {
@@ -3739,10 +3396,8 @@ function evRole(e) {
 }
 
 // ── persona drawer ──────────────────────────────────────────────────────────
-// The whole persona file, not a summary of it. What a persona refuses, what it
-// insists on, what "done" means to it. Those live in the markdown body, and
-// they are exactly what you need to read *before* hiring someone rather than
-// discover afterwards in a diff.
+// The whole persona file: what it refuses and what "done" means to it, to read
+// before hiring.
 
 async function openPersona(slug) {
   const body = openDrawer("persona", slug, { nav: { kind: "persona", arg: slug, label: slug } });
@@ -3774,20 +3429,16 @@ async function openPersona(slug) {
 
   body.append(hireForm(p));
 
-  // Every heading in the file becomes a block. Anything that fails to split
-  // comes back as one section, which renders as the whole file. Degrading to
-  // "show me the text" is the right failure for a document viewer.
+  // Every heading becomes a block; an unsplittable file is one section.
   for (const sec of p.sections) {
     if (!sec.body) { body.append(el("div", "lb mono dim", sec.title)); continue; }
     body.append(blk(sec.title || "criteria", el("pre", "detail tall", sec.body)));
   }
   if (!p.sections.length && p.body) body.append(sectionBlock("persona file", p.body));
 
-  // Only ever offered for a persona this machine wrote. Deleting an agency one
-  // would delete a file out of somebody else's git clone -- the loss shows up
-  // as a dirty working tree in a repo the user did not think they were editing,
-  // and the next pull puts it straight back, so the button would look broken on
-  // top of being wrong. The server refuses it too; this only hides it.
+  // Only for this machine's personas. Deleting an agency one would dirty
+  // someone else's clone and come back on the next pull. The server refuses it
+  // too.
   if (p.source === "local") {
     const gone = el("button", "act warn", "delete this persona");
     gone.onclick = () => confirmThen(
@@ -3887,19 +3538,11 @@ async function openAgent(id) {
   }
 }
 
-// The write scope started as one folder, derived from the project the agent was
-// hired on, and nothing could change it afterwards. That is too narrow the
-// moment a story's work crosses a folder boundary: a build agent scoped to
-// `job-search/assisted-apply` skipped half its criteria because the files it
-// needed sat in `job-search/job-radar`, and correctly said so rather than
-// writing outside its contract. The scope is the PO's decision, so it belongs
-// on the contract where they can see it and change it.
+// The write scope is the PO's call, so it is editable on the contract. Stories
+// can span folders, and an agent correctly refuses to write outside its scope.
 //
-// The picker offers the folders the colony already knows about, every project
-// with a PROJECT.md, plus the top-level folders that contain them, so picking
-// the parent of a sub-project is one click. The server checks the folder exists
-// under the projects root before it stores anything, because a typed path is
-// still possible and a scope pointing nowhere is worse than a narrow one.
+// The picker offers every project with a PROJECT.md plus the top-level folders
+// that contain them. The server checks the folder exists before storing it.
 function scopeEditor(a) {
   let folders = (a.scope_folders || []).slice();
   const list = el("div");
@@ -3976,11 +3619,9 @@ function scopeEditor(a) {
              list, row, typed);
 }
 
-// Whether the checkout this agent works in contains the `.env` files. Off by
-// default. It is here rather than folded into the scope editor because it is a
-// different question: the scope is about writing, this is about reading a file
-// git never puts in a worktree, which is why an agent once reported a key that
-// is set as unset.
+// Whether this agent's checkout contains the `.env` files. Off by default.
+// Separate from the scope editor: this is about reading a file git never puts
+// in a worktree.
 function secretsEditor(a) {
   let on = !!a.sees_secrets;
   const state = el("div", "dim");
@@ -4013,9 +3654,7 @@ async function openPulse(id) {
   let p;
   try { p = await getJSON("/api/pulse/" + id); }
   catch { body.replaceChildren(el("div", "empty", "could not load that beat")); return; }
-  // "escalated" rather than "wake": the tick found a reason, a wake was
-  // considered, and nothing was spent. The header used to say WAKE directly
-  // above a body that said "spent nothing. The heartbeat is free".
+  // "escalated", not "wake": a wake was considered and nothing was spent.
   const escalated = p.tier === "wake" && !p.acted;
   $("d-eyebrow").textContent =
     `${tierOf(p)}${escalated ? " · escalated" : ""} · ${p.pulse_at}`;
@@ -4044,18 +3683,13 @@ async function openProject(name) {
   try { p = await getJSON("/api/project?name=" + encodeURIComponent(name)); }
   catch { body.replaceChildren(el("div", "empty", "could not read that folder")); return; }
   const st = p.state, repo = p.head || {};
-  // The eyebrow read "undefined · undefined" on every project, because it was
-  // pulling branch and sha off a row that has never carried either. They are a
-  // property of the repo, not of the folder, so they come from the repo.
+  // Branch and sha belong to the repo, not the folder.
   $("d-eyebrow").textContent = repo.branch ? `${repo.branch} · ${repo.sha}` : "project";
   $("d-title").textContent = p.project;
   body.replaceChildren();
 
-  // Every count here is a count of files that differ from one commit, and the
-  // panel used to print the counts without ever naming it. The labels say what
-  // each bucket is in words rather than in git's vocabulary. "untracked" is a
-  // statement about git's index; "never committed" is a statement about the
-  // file, and it is the one that explains folders full of changes nobody made.
+  // Every count is files differing from one commit. Labels use plain words:
+  // "never committed" instead of git's "untracked".
   const kinds = p.kinds || {};
   const facts = el("dl", "kv");
   const add = (k, v, why) => {
@@ -4104,10 +3738,7 @@ async function openProject(name) {
   }
 }
 
-// "Projects that moved" was a list of names. It answered which folder and
-// nothing else. Not what changed in it, not where, not when, and above all not
-// who, which is the question a PO asks first about a folder they never opened.
-// Everything below was already being measured; none of it was being shown.
+// What changed in each moved folder, where, when and by whom.
 const KIND_WORD = { A: "added", M: "edited", D: "deleted", "??": "new", R: "renamed" };
 const KIND_CLS = { A: "a", M: "m", D: "d", "??": "u", R: "m" };
 
@@ -4118,10 +3749,8 @@ function fileKind(xy) {
   return [k || "changed", ""];
 }
 
-// The delta against the previous beat, which is the whole reason the row is in
-// the log. A null delta is a first sighting, not a zero: the folder had never
-// been sampled, so "+14" would claim fourteen files appeared in that hour when
-// what actually happened is that the colony looked for the first time.
+// The change since the previous beat. A null delta is a first sighting, not a
+// zero.
 function movedDelta(c) {
   const bits = [];
   for (const [k, word] of [["modified", "edited"], ["untracked", "new"],
@@ -4130,9 +3759,7 @@ function movedDelta(c) {
     if (d) bits.push((d > 0 ? "+" : "") + d + " " + word);
   }
   if (bits.length) return bits.join(", ") + " since the previous beat";
-  // A beat from before migration 012 has no deltas because none were ever
-  // recorded, which is a different fact from a folder that had never been seen,
-  // and the two are told apart by whether the file list was stored at all.
+  // Pre-012 beats stored no file list, which differs from a first sighting.
   if (c.files == null) return "this beat predates the movement log";
   if (c.d_modified == null && c.d_untracked == null) return "first time this folder was sampled";
   if (c.commits_since) return "the same files. What moved was the commit";
@@ -4147,9 +3774,8 @@ function movedList(changes) {
     const name = el("button", "name", c.project);
     name.onclick = () => openProject(c.project);
     item.append(name);
-    // The colony writes to a folder through exactly one door, a patch the PO
-    // approved, so it can say with certainty when a change was not its doing,
-    // and that is the sentence worth putting on the row.
+    // The colony writes only through approved patches, so it can say for
+    // certain when a change was not its doing.
     const by = el("span", "who", c.moved_by === "colony" ? "the colony" : "not the colony");
     by.title = c.moved_by === "colony"
       ? "a patch you approved was applied into this folder during this beat"
@@ -4217,9 +3843,8 @@ async function openPatch(e) {
   }
   body.replaceChildren();
 
-  // The headline. Every number a decision to apply nine files actually turns
-  // on, on one line, before any prose: how much of the tree moves, how much it
-  // cost, and whether the run that produced it finished cleanly.
+  // The headline: how much moves, what it cost, and whether the run finished
+  // cleanly.
   const t = (p.stat && p.stat.total) || { files: 0, added: 0, removed: 0 };
   const chips = el("div", "meta");
   chips.append(tag(t.files + " file" + (t.files === 1 ? "" : "s")),
@@ -4237,10 +3862,8 @@ async function openPatch(e) {
   if (p.ticket && p.ticket.role) chips.append(tag(p.ticket.role));
   body.append(chips);
 
-  // What the agent says it did. A claim, not a finding: the diff below is the
-  // evidence. It goes first anyway, because it is the only part that can say
-  // which acceptance criteria it believes it met, and reading a nine-file diff
-  // without knowing what it was aiming at is reading noise.
+  // What the agent says it did: a claim, and the diff is the evidence. First,
+  // because it says which criteria it aimed at.
   const r = p.report || {};
   if (r.summary) body.append(el("div", null, r.summary));
 
@@ -4265,9 +3888,7 @@ async function openPatch(e) {
       + "contract's write scope (" + (p.scope || []).join(", ") + ") or reject."));
   }
 
-  // The decision, above the file list rather than under a thousand lines of
-  // diff. Scrolling to the bottom to approve is a design that assumes you read
-  // all of it; putting the buttons here assumes you read as much as you needed.
+  // The decision buttons above the file list, not under the diff.
   const acts = el("div", "row");
   acts.style.display = "flex"; acts.style.gap = "7px"; acts.style.margin = "10px 0";
   const yes = el("button", "act go", "apply to the live tree");
@@ -4280,9 +3901,7 @@ async function openPatch(e) {
   acts.append(yes, no);
   body.append(acts);
 
-  // Per file, sorted by how much of it moves. A nine-file patch where eight
-  // files gained a line and one was rewritten is a different review from nine
-  // files each half rewritten, and the totals alone cannot tell them apart.
+  // Per file, largest change first, since totals hide how the change is spread.
   const files = ((p.stat && p.stat.files) || []).slice()
     .sort((a, b) => (b.added + b.removed) - (a.added + a.removed));
   if (files.length) {
@@ -4306,10 +3925,8 @@ async function openPatch(e) {
   }
   body.append(facts);
 
-  // And the diff. `paintDiff` caps at 3000 lines of its own; `truncated` is the
-  // server saying the file was bigger than it was willing to send, which is a
-  // different fact and has to be said separately or the page quietly implies
-  // you have seen the whole change.
+  // `paintDiff` caps at 3000 lines; `truncated` means the server sent less than
+  // the file, which must be said separately.
   if (p.error) {
     body.append(blk("the change", el("pre", "detail", p.error)));
   } else {
@@ -4321,24 +3938,15 @@ async function openPatch(e) {
 }
 
 // ── confirmations ───────────────────────────────────────────────────────────
-// Only for the things that are hard to walk back: halting production, applying
-// a patch, retiring an agent. Everything else is one click, because a gate you
-// have to click twice for is a gate people learn to click through.
+// Confirmation only for hard-to-undo acts: halting, applying a patch, retiring
+// an agent.
 
 function confirmThen(question, fn) { if (window.confirm(question)) fn(); }
 
 // ── dropping a story ────────────────────────────────────────────────────────
-//
-// Two prompts, and both of them earn their interruption. The first asks for a
-// reason, because "why did we not do this" is the single most useful thing to
-// have written down six months later and the only moment anyone knows the
-// answer is now. Cancelling the reason cancels the drop. There is no way to
-// drop a story silently, which is deliberate.
-//
-// The second asks whether to say so in Notion, and it is separate because it
-// is a different kind of act: the first changes the colony's mind, the second
-// changes a page other people may be reading. The server no-ops the Notion
-// half for a story that has no page, so answering yes is always safe.
+// Two prompts. The first asks why, the most useful fact later; cancelling it
+// cancels the drop. The second asks whether to tell Notion, a separate act that
+// changes a shared page; the server no-ops it for a story with no page.
 function dropStory(id, title) {
   const reason = window.prompt(
     "Drop " + title + "?\n\n" +
@@ -4346,11 +3954,8 @@ function dropStory(id, title) {
     "it is cancelled. Nothing is deleted and you can restore it.\n\n" +
     "Why are you dropping it?", "");
   if (reason === null) return;
-  // Shelved, not Archived. "Archived" is not an option on the Status select and
-  // Notion answers an unknown option by *creating* it, so this dialog was one
-  // OK away from inventing an eighth status on the board. And once the colony
-  // stopped being allowed to send it, from refusing the drop outright with a
-  // sentence about starting work, which is not what dropping a story is.
+  // Shelved, not Archived: Notion creates an unknown select option rather than
+  // refusing it.
   const shelve = window.confirm(
     "Also set it to Shelved in Notion?\n\n" +
     "OK queues the change. It goes up on the next pulse. Cancel drops it here only.");
@@ -4378,22 +3983,17 @@ $("roster-q").addEventListener("input", (e) => {
 
 // ── theme ───────────────────────────────────────────────────────────────────
 
-// `?theme=ember` overrides the stored choice for this load only. It never
-// writes localStorage. It exists so a theme can be inspected without clicking
-// through the picker, which is also the only way to screenshot one headlessly.
+// `?theme=ember` overrides the stored choice for this load only, for inspection
+// and headless screenshots.
 const forced = new URLSearchParams(location.search).get("theme");
 let saved = forced || store.get("colony-theme") || "";
-// A retired theme leaves a name in localStorage that no palette answers to any
-// more: the attribute lands, nothing styles it, and the picker shows blank. Fall
-// back to system rather than to a page dressed in half a theme.
+// A retired theme name in localStorage falls back to system.
 if (saved && !$("theme").querySelector(`option[value="${CSS.escape(saved)}"]`)) {
   store.remove("colony-theme");
   saved = "";
 }
-// A phone paints the status bar and the task-switcher card with `theme-color`,
-// and a fixed one means fifteen palettes all launching behind the same slab of
-// basalt. Read back off the computed style, so a hand-mixed ground is honoured
-// the same as a named theme.
+// A phone paints its status bar with `theme-color`, so it is read off the
+// computed style for every theme and hand-mixed ground.
 function paintThemeColor() {
   const meta = $("theme-color");
   if (!meta) return;
@@ -4410,11 +4010,8 @@ $("theme").onchange = (e) => {
   if (v) { document.documentElement.dataset.theme = v; store.set("colony-theme", v); }
   else { delete document.documentElement.dataset.theme; store.remove("colony-theme"); }
   paintThemeColor();
-  // Picking a theme drops any hand-mixed colours. They were sampled from the
-  // palette you just left, an ember ground held over phosphor is not a third
-  // theme, it is two halves of two, and a picker that appeared to do nothing
-  // is worse than one that asks you to mix again. Named presets are untouched:
-  // that is what saving one is for.
+  // Picking a theme drops hand-mixed colours, which belonged to the old
+  // palette. Named presets are untouched.
   if (Object.keys(VARS).length) { VARS = {}; applyVars(); saveAppearance();
                                   toast("hand-mixed colors cleared", null); }
   if (STATE) render(STATE, true);   // avatars are painted on canvas, so they re-paint
@@ -4422,18 +4019,9 @@ $("theme").onchange = (e) => {
 $("halt-banner-resume").onclick = () => act("halt", { on: false });
 
 // ── appearance ──────────────────────────────────────────────────────────────
-//
-// Three dials, one drawer, and not a byte of it leaves the machine. Text size,
-// the fifteen palette tokens, and where each tile sits. All localStorage, for
-// the same reason the view menu is: how you read the page is not something the
-// colony needs to know, and a page that phoned home about its font size would
-// be a page you could not trust to be only a page.
-//
-// The palette editor is the part that needed a rule to be safe. Handing over
-// fifteen colour pickers is handing over the ability to make the page
-// unreadable in four clicks, so every relationship that has to hold shows its
-// contrast ratio next to the swatch and goes coral when it breaks. Randomize
-// obeys the same audit rather than rolling dice. See below.
+// Text size, palette and tile layout, all in localStorage; nothing leaves the
+// machine. Every contrast relationship shows its ratio beside the swatch and
+// turns coral when it fails. Randomize follows the same audit.
 
 const SCALE_KEY = "colony-scale", VARS_KEY = "colony-vars",
       PRESET_KEY = "colony-presets", LAYOUT_KEY = "colony-layout";
@@ -4451,24 +4039,13 @@ let SCALE = Number(store.get(SCALE_KEY) || DEFAULT_SCALE) || DEFAULT_SCALE;
 let VARS = readJSON(VARS_KEY, {});
 let LAYOUT = readJSON(LAYOUT_KEY, {});
 
-// Name, label, what it paints, and what it has to stay legible against. A row
-// with no audit is a surface colour. It has no single relationship worth one
-// number.
+// Name, label, what it paints, and what it must stay legible against. A row
+// with no audit is a surface colour.
 //
-// The targets are the ones this design actually holds, measured off the
-// twenty-four shipped palettes rather than copied off a checklist: ink 4.5 on
-// panel, everything else 3. An accent on its own chip bed is a 10px uppercase
-// label, which argues for 4.5. But eight of the shipped themes sit between
-// 3.55 and 4.4 there and none of them is hard to read, and an audit that opens
-// by calling a third of the existing design broken is noise, not signal.
-//
-// The rows are grouped, and every one of them says what it paints, because a
-// palette named after its hues is unusable as a control panel: `violet` is
-// simultaneously Ordis, the Standby and Board titles, the focus ring and the
-// modified-files bar, and a picker that reads "violet" tells you the one thing
-// you already knew, the colour, and none of the four things that will move.
-// So the four accents keep their meanings and stay the *source*, and everything
-// downstream of them is now a token of its own that can be pinned separately.
+// Targets: ink 4.5 on panel, everything else 3, measured from the shipped
+// palettes. Every row says what it paints, since `violet` alone drives Ordis,
+// two panel titles, the focus ring and a bar. The four accents are the sources;
+// downstream tokens can be pinned separately.
 const TOKEN_GROUPS = [
   { label: "surfaces",
     note: "The page and the cards on it. No contrast target of their own. They are what everything else is measured against.",
@@ -4560,10 +4137,8 @@ function contrast(a, b) {
   const x = lum(a), y = lum(b);
   return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
 }
-// Walk lightness *away* from the background until the ratio clears. This is the
-// one function that makes a random palette usable: a hue gets chosen for
-// character, and its lightness is then whatever legibility demands. Rather
-// than choosing a colour and hoping it lands somewhere readable.
+// Walk lightness away from the background until the ratio clears. The hue is
+// chosen for character; the lightness is whatever legibility needs.
 function toward(h, s, l, bg, target) {
   const dir = lum(hsl2hex(h, s, l)) > lum(bg) ? 1 : -1;
   for (let i = 0; i < 120 && contrast(hsl2hex(h, s, l), bg) < target; i++) l += dir;
@@ -4572,12 +4147,9 @@ function toward(h, s, l, bg, target) {
 
 // ── applying ────────────────────────────────────────────────────────────────
 
-// Reading a custom property off the root gives its *text*, and half of these
-// are written as `color-mix(in oklab, var(--mint) 55%, var(--violet))`. A
-// recipe, not a colour. So the browser is asked to cook it: a zero-sized probe
-// takes `color: var(--token)`, and its computed colour is the answer. Chromium
-// hands back `rgb(…)` for a plain colour and `color(srgb …)` for a mix, one in
-// 0–255 and the other in 0–1, so both are parsed rather than one assumed.
+// A custom property reads back as text, often a `color-mix(...)` recipe, so a
+// zero-sized probe resolves it. Chromium returns `rgb(...)` (0 to 255) for a
+// plain colour and `color(srgb ...)` (0 to 1) for a mix; both are parsed.
 const PROBE = document.createElement("span");
 PROBE.style.cssText = "position:absolute;width:0;height:0;opacity:0;pointer-events:none";
 document.body.append(PROBE);
@@ -4633,9 +4205,8 @@ const PANEL_LABEL = {
 };
 const COL_LABEL = ["left", "middle", "right"];
 
-// Read out of the markup before anything is moved, so "back to the designed
-// layout" means the layout the page was built with rather than a second copy
-// of it kept in sync by hand.
+// Read from the markup before anything moves, so "reset layout" restores the
+// page as built.
 const HOME = {};
 for (const [ci, col] of [...document.querySelectorAll("main > .col")].entries()) {
   for (const [i, node] of [...col.children].entries()) {
@@ -4669,9 +4240,8 @@ function applyLayout() {
     // the column and the cap, so a tile you put away is still away tomorrow.
     node.classList.toggle("min", !!(LAYOUT[key] || {}).min);
     const max = (LAYOUT[key] || {}).max || 0;
-    // Two panels already scroll inside their own body, the Inbox grid and the
-    // pulse log, so capping the *section* would nest one scroller in another
-    // and give the same list two bars. Their cap moves the inner ceiling.
+    // The Inbox grid and pulse log scroll their own bodies, so their cap
+    // applies inside, avoiding nested scrollbars.
     if (SELF_SCROLL[key]) {
       if (max) node.style.setProperty(SELF_SCROLL[key], max + "px");
       else node.style.removeProperty(SELF_SCROLL[key]);
@@ -4683,10 +4253,8 @@ function applyLayout() {
   }
 }
 
-// Read the order back out of the DOM and store *that*, so the indices stay
-// dense however they were arrived at. Whether they were arrived at by the
-// arrows, by a column change, or by dragging a tile across the page. A move is
-// then always "swap with the neighbour", never "insert at 2.5 and hope".
+// Read the order back from the DOM and store that, so indices stay dense and a
+// move is always a swap with a neighbour.
 function captureLayout() {
   for (const [ci, col] of [...document.querySelectorAll("main > .col")].entries()) {
     let i = 0;
@@ -4703,12 +4271,8 @@ function foldTile(key, on) {
   applyLayout(); saveAppearance();
 }
 
-// Clicking the title bar folds it. The heading is already the one part of a
-// tile that is never content, which makes it the obvious handle and means no
-// new control had to be added to nine panels. Two things it must not swallow:
-// the buttons that live inside some headings (Board's "filed", Files' sort
-// order), and a click while the board is in snap mode, where dragging a tile by
-// its title is the whole interaction.
+// Clicking a title bar folds the tile. Not for buttons inside some headings,
+// nor in snap mode, where the title is the drag handle.
 for (const key of CAPPABLE) {
   const node = panelNode(key);
   const h = node && node.querySelector(":scope > h2");
@@ -4742,16 +4306,9 @@ function moveTile(key, delta) {
 }
 
 // ── snap ────────────────────────────────────────────────────────────────────
-//
-// Dragging is the fastest way to say where a tile goes and the easiest thing to
-// do by accident, so it is a mode with a door at both ends: you enter it from
-// the drawer, and a bar at the bottom of the screen is the only thing on the
-// page while it is on. The tiles wiggle for the same reason. It is the only
-// signal that an ordinary click will now rearrange the page.
-//
-// A drop *inserts* rather than swaps. Swapping moves a second tile you never
-// named; inserting pushes the rest of the column down, which is what dragging
-// something into a list looks like everywhere else.
+// Dragging is a mode you enter from the drawer and leave by the bar at the
+// bottom; tiles wiggle while it is on. A drop inserts rather than swaps, so no
+// second tile moves unasked.
 
 let SNAP = false, DRAG = null, LINE = null;
 
@@ -4771,9 +4328,7 @@ function endDrag() {
   DRAG = null;
 }
 
-// The first tile whose middle is below the pointer is the one being pushed
-// down; measuring against middles rather than edges means the line flips when
-// you have passed half of a tile, not when you have cleared all of it.
+// Measured against tile middles, so the insert line flips halfway past a tile.
 function insertBefore(col, y) {
   for (const node of col.children) {
     if (node === DRAG || node === LINE || !node.dataset.panel) continue;
@@ -4824,14 +4379,10 @@ function insertBefore(col, y) {
 $("snap-done").onclick = () => { setSnap(false); openAppearance(); };
 
 // ── randomize ───────────────────────────────────────────────────────────────
-//
-// Not dice. A palette rolled uniformly is unreadable roughly always, and, more
-// quietly wrong, it breaks the four accents loose from their meanings: a
-// "coral" that came out green stops saying *anomaly*. So the neutrals get a
-// random hue, a random cast and a coin-flip between a dark and a light ground,
-// while the four accents keep their hue *bands* and vary inside them. Every
-// colour then has its lightness solved for the contrast it owes, which is the
-// same audit the twenty-four shipped themes were held to.
+// Not uniform dice, which is almost always unreadable and breaks the accents'
+// meanings. Neutrals get a random hue, cast and dark or light ground; accents
+// vary inside their hue bands; every lightness is solved for its contrast
+// target.
 
 function randomPalette() {
   const rnd = (a, b) => a + Math.random() * (b - a);
@@ -4845,12 +4396,9 @@ function randomPalette() {
   const rule   = hsl2hex(hue, cast * 0.7, dark ? rnd(24, 30) : rnd(85, 89));
   const soft   = hsl2hex(hue, cast * 0.7, dark ? rnd(19, 24) : rnd(90, 93));
 
-  // The chip bed is a tint of its own accent, sitting a hair off the panel, and
-  // it is chosen *first*. Solving it the other way round cannot work on a light
-  // theme: if the accent is only just clear of a near-white panel, no bed light
-  // enough to belong on that panel can also be clear of the accent. The bed
-  // walks to #ffffff and the pair still fails. Four thousand sampled palettes
-  // said so before this was written that way.
+  // The chip bed is chosen first. The other order fails on light themes: no bed
+  // light enough for a near-white panel can also clear an accent that barely
+  // clears the panel.
   const bed = (h, sat) => hsl2hex(h, sat, dark ? 15 : 95);
   // An accent has two jobs, a label on its own bed, a heading on the panel,
   // and its lightness is solved for the harder of the two.
@@ -4890,17 +4438,13 @@ function randomPalette() {
 function presets() { return readJSON(PRESET_KEY, {}); }
 function writePresets(all) { store.set(PRESET_KEY, JSON.stringify(all)); }
 
-// A preset is the whole look and not just the colours: the same palette read at
-// 130% and at 100% is two different designs, and restoring one without the
-// other restores neither.
+// A preset is the whole look, colours and text size together.
 function savePreset(name) {
   name = (name || "").trim().slice(0, 40);
   if (!name) { toast("a preset needs a name", "bad"); return; }
   const all = presets();
-  // The base is stored resolved, so the look is exact. The derived tokens are
-  // stored only if they were pinned by hand. Baking all of them in would make
-  // every preset a palette where moving `--violet` no longer moves Ordis, which
-  // is the behaviour the panel-title rows exist to make optional, not default.
+  // Base tokens are stored resolved; derived tokens only if pinned by hand, so
+  // moving `--violet` still moves what derives from it.
   const full = {};
   for (const name of BASE_TOKENS) full[name] = tokenValue(name);
   for (const name of Object.keys(VARS)) full[name] = VARS[name];
@@ -4959,12 +4503,8 @@ function openAppearance() {
   set.append(blk("text size", size));
 
   // ── palette
-  //
-  // Every swatch is repainted after every edit rather than only its own row,
-  // because one colour is never one relationship: nudging `--panel` moves all
-  // fifteen ratios measured against it, and a readout that only refreshed the
-  // row you touched would be telling the truth about one number and stale about
-  // the rest.
+  // Every swatch is repainted after every edit, since one colour affects every
+  // ratio measured against it.
   const ratios = [];
   const swatches = [];
   const paint = () => {
@@ -5146,23 +4686,11 @@ applyScale();
 applyVars();
 applyLayout();
 // ── the manual ──────────────────────────────────────────────────────────────
+// How the colony works, in plain language, for the PO.
 //
-// A snapshot of how the colony works, written for the PO, in the plainest
-// language the subject allows.
-//
-//     "just make the info tab so i can see how allllllll systems work so i can
-//      make changes where there are gaps ... I dont need you to update this
-//      with every change, thats a waste of tokens, I will remove and re-make it
-//      later when the time comes"
-//
-// So this is deliberately a **frozen document**, not a live view. It reads
-// nothing from the ledger and it will drift as the code changes. The date below
-// is the promise it makes: everything here was true on that day, and nothing
-// checks it afterwards. When it is wrong, delete it and write it again. Do not
-// patch it a line at a time.
-//
-// Data rather than markup because the page has no innerHTML anywhere in it and
-// this is not the file to start.
+// A **frozen document**, not a live view: it reads nothing from the ledger and
+// will drift. The date is when it was true. When it is wrong, rewrite it whole.
+// Data rather than markup, since the page never uses innerHTML.
 const MANUAL_AS_OF = "2026-08-22";
 
 const MANUAL = [
@@ -5317,25 +4845,15 @@ function openManual() {
 }
 
 // ── phone access ────────────────────────────────────────────────────────────
-//
-// The whole setup used to be five steps at the desk: mint a token, open `.env`
-// in an editor, paste it, save, run `py -m colony autostart`. All five happen
-// on the machine you are about to walk away from, which is the argument for
-// doing them here. You are already looking at the page.
-//
-// One `POST /api/act/phone` does all of it and `GET /api/phone` answers the
-// panel. Neither is in `/api/state`: answering costs a PowerShell call and a
-// socket probe, and the live feed polls every few seconds.
+// Phone setup from the page: one `POST /api/act/phone` mints the token, writes
+// `.env` and installs the task; `GET /api/phone` answers the panel. Neither is
+// in `/api/state`, since answering costs a PowerShell call and a socket probe.
 
-// The difference between "works on the sofa" and "works in the car park", said
-// out loud. A LAN address and a tailnet address look equally healthy in every
-// other line of this panel, and only one of them survives leaving the building.
-// So the state of Tailscale is drawn right under the address it decides.
+// A LAN address stops working away from home; a tailnet one does not. So
+// Tailscale's state is drawn under the address it decides.
 //
-// Both buttons are desk-only, matching the server (see `act_tailscale`). One
-// runs an installer with a UAC prompt behind it; the other is only useful to
-// whoever can finish the sign-in. Neither is something a request off the
-// network gets to start, however good its token is.
+// Both buttons are desk-only, like the server (`act_tailscale`): one runs a UAC
+// installer, the other is useful only to whoever finishes the sign-in.
 function tailscaleBlock(where, info, reload) {
   const ts = info.tailscale;
   if (!ts) return;
@@ -5360,9 +4878,7 @@ function tailscaleBlock(where, info, reload) {
   }
 
   if (ts.connected) {
-    // Connected, but the server is not on it. Almost always a server that came
-    // up before Tailscale did, and the fix is a restart rather than anything in
-    // this panel. So say the fix rather than describing the state.
+    // Almost always a server that started before Tailscale; say the fix.
     note("Tailscale is connected on " + (ts.address || "this machine")
          + ", but the dashboard bound a local address instead, which means it "
          + "started before Tailscale did. Restart the dashboard and it will "
@@ -5403,9 +4919,8 @@ function tailscaleBlock(where, info, reload) {
     return;
   }
 
-  // Installed and not connected. Signing in is the only remaining step on this
-  // side; the phone still needs the Tailscale app signed in to the same account,
-  // and nothing here can check that, so it is stated rather than detected.
+  // The phone must also be signed in to the same account, which nothing here
+  // can check.
   note("Tailscale is installed but not signed in, so the address above is a "
        + "local one and the phone will only reach it on the same wifi.");
   if (!here) {
@@ -5449,17 +4964,12 @@ function openPhone() {
       button.textContent = on ? "stopping…" : "setting up…";
       const out = await act("phone", { on: !on });
       if (out && out.minted) toast("minted an access token and wrote it to .env");
-      // Redrawn from the server rather than from `out`, and on the refusal path
-      // too: `act` has already shown the reason, and a setup that failed
-      // halfway must not leave the panel claiming it is on.
+      // Redrawn from the server on both paths, so a half-failed setup does not
+      // show as on.
       load();
     };
-    // Everything in this panel is a snapshot of a machine, not of the ledger,
-    // and the live feed deliberately does not carry it (see `/api/phone`). So
-    // the one thing that goes stale here -- the address after a network change,
-    // `serving` after the logon task finally binds, the firewall after the
-    // rule is added in a terminal -- needs a way to be asked again that is not
-    // "close the drawer and open it".
+    // This panel describes the machine, not the ledger, and is not on the live
+    // feed, so it needs its own refresh.
     const again = el("button", "link", "refresh");
     again.title = "ask the machine again. Address, firewall, and whether it is serving";
     again.onclick = () => { again.textContent = "checking…"; load(); };
@@ -5468,9 +4978,8 @@ function openPhone() {
     set.append(blk("phone access", row));
 
     if (info.problem) {
-      // The one state where Tailscale is not an improvement but the whole
-      // answer: no private network of any kind, so there is nothing to bind
-      // until one exists.
+      // No private network at all, so there is nothing to bind until one
+      // exists.
       const none = el("div", "blk");
       none.append(el("div", "lb", "no address"));
       none.append(el("pre", "detail", info.problem));
@@ -5498,10 +5007,8 @@ function openPhone() {
     }
     set.append(where);
 
-    // The firewall is the one failure the address line cannot show. The probe
-    // behind `serving` runs on this machine, and a packet from this machine
-    // never meets the firewall -- so the address can answer here and still be
-    // dropped for the phone, with a spinner at one end and no log at the other.
+    // The firewall is the failure the address line cannot show: the `serving`
+    // probe runs locally and never meets it.
     if (info.firewall === "blocked" || info.firewall === "unknown") {
       const warn = el("div", "blk");
       warn.append(el("div", "lb", "windows firewall"));
@@ -5524,17 +5031,9 @@ function openPhone() {
       set.append(warn);
     }
 
-    // The only fact in this panel that is about the phone rather than about
-    // this machine. Everything above can read healthy while the phone loads
-    // forever, because everything above is measured from here: the address
-    // binds, the probe answers, the firewall rule exists. What none of them
-    // can see is whether a packet from another device ever arrived. So the
-    // gate records it, and this says so in one sentence.
-    //
-    // It splits the failure cleanly. Nothing arrived means the packets die
-    // before the server, and every cause is on the network. Something arrived
-    // and was turned away means the network is fine and the token is stale,
-    // which is one button away.
+    // The one fact measured from the phone's side: whether any packet from
+    // another device arrived. Nothing arrived means the network; arrived and
+    // refused means a stale token.
     if (on && info.serving) {
       const seen = info.arrivals || [];
       const reach = el("div", "blk");
@@ -5590,9 +5089,7 @@ function openPhone() {
             + (r.hits === 1 ? " request" : " requests")));
           reach.append(line);
         }
-        // A device that arrived and was refused is a token problem, and it is
-        // worth saying which button fixes it rather than leaving "turned away"
-        // to be interpreted.
+        // Refused arrivals are a token problem; say which button fixes it.
         if (seen.some((r) => !r.ok)) {
           reach.append(el("div", "note",
             "Turned away means the request arrived and the token did not "
@@ -5615,10 +5112,8 @@ function openPhone() {
       set.append(blk("open this on the phone", link));
 
       if (info.svg) {
-        // Parsed rather than assigned to `innerHTML`. Nothing hostile can reach
-        // this markup -- the encoder never puts the text into the document, only
-        // into the modules -- but "this particular string is safe" is not a rule
-        // that survives the next person editing it, and a parser is one line.
+        // Parsed rather than set via innerHTML, as a rule that does not depend
+        // on this string being safe.
         const doc = new DOMParser().parseFromString(info.svg, "image/svg+xml");
         const node = doc.documentElement;
         node.style.width = "min(260px, 60vw)";
@@ -5630,20 +5125,11 @@ function openPhone() {
         set.append(wrap);
       }
 
-      // The whole reason this button exists: rotating used to mean minting a
-      // token in a terminal, opening `.env` in an editor, replacing one line,
-      // saving, and re-running a command to get a QR code that matched. Five
-      // steps to undo one mistake, and the mistake -- a token that has been
-      // seen by someone -- is one you want undone in the next ten seconds.
+      // Rotate the token in one press, for a token someone has seen.
       //
-      // Offered only on the machine itself, because "log every phone out" is a
-      // button that, pressed on a phone, logs that phone out mid-press: the
-      // rotate succeeds, the redraw after it comes back 401, and the person is
-      // staring at a login page wondering whether it worked. The server would
-      // let it happen -- the request carried a valid token right up until it
-      // did not -- so the guard belongs here, where the caller knows where it
-      // is standing. The desktop window is loopback and is trusted by peer
-      // address rather than by token, which is why it survives its own click.
+      // Only offered on this machine: pressed on a phone, it logs that phone
+      // out mid-press and the redraw returns 401. The desktop window is trusted
+      // by peer address, so it survives its own click.
       const here = ["127.0.0.1", "::1", "localhost"].includes(location.hostname);
       const roll = el("div", "blk");
       roll.append(el("div", "lb", "token"));
@@ -5665,9 +5151,8 @@ function openPhone() {
           spin.textContent = "rotating…";
           const out = await act("phone-token", { port: info.port });
           if (out) toast("new token written to .env. Scan the code again");
-          // Redrawn from the server on both paths, so a write that failed
-          // halfway cannot leave a QR code on screen for a token that is not
-          // in the file.
+          // Redrawn from the server on both paths, so a failed write cannot
+          // leave a QR code for a token not in the file.
           load();
         });
       roll.append(spin);
@@ -5693,22 +5178,13 @@ $("open-manual").onclick = () => { $("filemenu").open = false; openManual(); };
 $("open-phone").onclick = () => { $("filemenu").open = false; openPhone(); };
 
 // ── what the page shows ─────────────────────────────────────────────────────
+// The page remembers which sections you want. Three rules:
 //
-// Eleven sections is the right number for a colony you are running and the
-// wrong number for a colony you are only checking on. So the page remembers
-// which of them you want. Three rules keep this from becoming a second kind of
-// state to reason about:
-//
-//   1. It is local. Nothing here is sent to the server, and hiding a panel
-//      does not stop the colony from filling it. You are choosing what to
-//      look at, not what runs. Come back with the panel shown and the work
-//      that happened while it was hidden is all there.
-//   2. Panels default to *on* and detail defaults to *off*. A key that has
-//      never been written reads as its default, so a new panel added later
-//      appears for people who have been using the menu for months.
-//   3. Nothing is ever hidden silently. The two detail toggles have a count
-//      in the header when they are hiding something, because a filter you
-//      forgot you set is indistinguishable from a bug.
+//   1. It is local. Hiding a panel does not stop the colony filling it.
+//   2. Panels default to *on*, detail to *off*, so a new panel appears for
+//      existing users.
+//   3. Nothing hides silently: the detail toggles show a count when they hide
+//      something.
 
 const VIEW_KEY = "colony-view";
 const PANEL_KEYS = ["sprint", "inbox", "flight", "ordis", "colony", "standby",
@@ -5754,11 +5230,7 @@ $("board-new").onclick = openNewStory;
 $("board-dropped").onclick = () => setView("dropped", !shows("dropped"));
 $("board-filed").onclick = () => setView("filed", !shows("filed"));
 
-// Click-away close. <details> has no such behaviour of its own, and a menu
-// that stays open over the board while you try to click the board is worse
-// than no menu.
-// Every header dropdown, not just the view menu: `file` is a second one now
-// and a third would otherwise be a third place to remember this.
+// Click-away close for every header dropdown; <details> has none.
 document.addEventListener("click", (ev) => {
   document.querySelectorAll("details.viewmenu[open]").forEach((menu) => {
     if (!menu.contains(ev.target)) menu.open = false;
@@ -5790,10 +5262,8 @@ function connect() {
 
 fetch("/api/projects").then((r) => r.json()).then((p) => { ALL_PROJECTS = p.all || []; }).catch(() => {});
 
-// The tree is not part of the snapshot and deliberately not on the SSE feed: it
-// is a filesystem read, it costs a `git status` and a directory listing, and
-// nothing about it changes because the ledger did. It loads once and refreshes
-// when asked.
+// The tree is a filesystem read (`git status` plus a listing), not on the SSE
+// feed. It loads once and refreshes on request.
 renderTree();
 $("tree-refresh").onclick = () => renderTree();
 $("tree-q").addEventListener("input", (e) => {
@@ -5815,28 +5285,21 @@ paintThemeColor();
   }
 }
 
-// The service worker only exists so a phone will offer to install this to the
-// home screen; it caches nothing but an offline notice (see sw.js). Registered
-// last and failing silently, because a dashboard that will not load because a
-// worker did not register would be a far worse bug than no install prompt. It
-// registers inside the pywebview window too, where it is simply inert. The
-// only thing it ever serves is a page you reach by losing the network, and the
-// desktop shell is running on the machine the server is on.
+// The service worker exists only so a phone offers to install the page; it
+// caches an offline notice (see sw.js). Registered last and failing silently.
+// Inert in the pywebview window.
 if ("serviceWorker" in navigator && location.protocol !== "file:") {
   addEventListener("load", () => {
     navigator.serviceWorker.register("/sw.js").catch(() => {});
   });
 }
 
-// ?nostream skips the live feed and leaves one static frame on screen. An
-// endless SSE response keeps a headless browser from ever settling, so this is
-// how the page gets screenshotted, printed, or debugged without the socket.
+// ?nostream skips the live feed and leaves one static frame, so a headless
+// browser can settle for screenshots and debugging.
 if (location.search.includes("nostream")) setConn(false, "static snapshot");
 else connect();
 
-// ?open=persona:engineering/python-pro. Every drawer is addressable. A
-// persona's criteria or a patch waiting on you is the kind of thing you want to
-// leave a link to, and the drawers were already one function call each.
+// ?open=persona:engineering/python-pro. Every drawer is addressable by link.
 const deep = new URLSearchParams(location.search).get("open");
 if (deep) {
   const [kind, ...rest] = deep.split(":");
