@@ -1,4 +1,4 @@
-r"""Write isolation — an agent never edits the tree you are working in.
+r"""Write isolation. An agent never edits the tree you are working in.
 
 A write-capable run gets its own `git worktree`: a full checkout at
 `.colony/worktrees/ticket-<id>`, on its own branch, sharing the object store but
@@ -8,8 +8,8 @@ we are about to delete.
 
 The handoff back is a **patch, not a merge**. When the run finishes we take a
 diff, park it in `.colony/patches/`, and raise a `write-approval` escalation. If
-the PO approves, the patch is applied to the live tree and left **uncommitted** —
-the PO reviews it in their own editor and commits it themselves. The colony never
+the PO approves, the patch is applied to the live tree and left **uncommitted**.
+The PO reviews it in their own editor and commits it themselves. The colony never
 runs `git commit` on master, never pushes, and never rewrites history. That is
 not a policy the agents are asked to follow; it is a capability they were not
 given (ARCHITECTURE.md §8.3).
@@ -216,8 +216,8 @@ def _ignored_in(scope: list[str]) -> tuple[list[str], list[str]]:
     Returns the files worth copying and a description of each group that was
     skipped for being too numerous to be anything but generated output.
 
-    Credential files are excluded here at every size. They have their own gate
-    — `sees_secrets` on the contract — and a second door into the same room
+    Credential files are excluded here at every size. They have their own gate,
+    `sees_secrets` on the contract, and a second door into the same room
     would make that gate a decoration.
     """
     if not scope:
@@ -318,7 +318,7 @@ def seed(ticket_id: int, scope: list[str], secrets: bool = False) -> dict:
 
     # Ignored state last of the three content passes, and still before the tree
     # is written. `git add -A` honours .gitignore, so none of this reaches the
-    # base tree and none of it can turn up in a patch — the agent reads these
+    # base tree and none of it can turn up in a patch. The agent reads these
     # files and cannot ship them, which is exactly the arrangement `.env` has.
     keep, dropped = _ignored_in(scope)
     report["ignored_skipped"] = dropped
@@ -351,7 +351,7 @@ def create(ticket_id: int) -> Path:
 
     Branched from the current HEAD rather than from a remote: the colony works
     on what is on this machine right now, which is what the PO can actually
-    review. A stale worktree from a previous attempt is torn down first — a
+    review. A stale worktree from a previous attempt is torn down first. A
     half-finished checkout is not evidence worth keeping.
     """
     path = path_for(ticket_id)
@@ -465,14 +465,14 @@ def apply_patch(ticket_id: int, scope: list[str] | None = None) -> dict:
 
     # Both index-aware passes refuse with "does not match index" as soon as one
     # file the patch touches has staged work sitting on top of different
-    # worktree content — `MM` in `git status`. That is the PO's ordinary state
+    # worktree content. `MM` in `git status`. That is the PO's ordinary state
     # in assisted-apply, and it says nothing about whether the patch fits: the
     # same patch that git called unappliable passed `git apply --check` against
     # the worktree on the first try.
     #
     # So try the worktree on its own before reaching for the merge. This is
-    # still all-or-nothing and still exact — every context line has to match
-    # what is on disk — it just leaves the result unstaged, which is where an
+    # still all-or-nothing and still exact, every context line has to match
+    # what is on disk, it just leaves the result unstaged, which is where an
     # applied patch was going to sit anyway.
     try:
         _git("apply", "--check", str(patch))
@@ -501,7 +501,7 @@ def remove(ticket_id: int) -> None:
     """Tear down the checkout. The branch and the saved patch survive.
 
     The patch is the record of what was proposed and has to outlive the
-    scaffolding that produced it — a rejected change you can no longer read is a
+    scaffolding that produced it. A rejected change you can no longer read is a
     decision you cannot revisit.
     """
     path = path_for(ticket_id)

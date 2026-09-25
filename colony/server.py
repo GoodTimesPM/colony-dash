@@ -2,7 +2,7 @@
 
 Reads and writes are deliberately asymmetric.
 
-**Reads** open the ledger with `read_only=True` — not a convention but an
+**Reads** open the ledger with `read_only=True`. Not a convention but an
 enforcement. Every panel on the page comes through a connection that physically
 cannot change anything, so no read path needs auditing for side effects.
 
@@ -66,7 +66,7 @@ BUILD_STAMP = desktop_mod.stamp()
 STARTED_AT = datetime.now().isoformat(timespec="seconds")
 
 # The scrum lifecycle, in order. The board renders these columns even when a
-# column is empty — a board that hides its empty columns hides where work isn't.
+# column is empty. A board that hides its empty columns hides where work isn't.
 BOARD_ORDER = [
     "backlog",
     "needs-info",
@@ -79,7 +79,7 @@ BOARD_ORDER = [
 
 # Statuses that mean the PO has filed this one: finished, parked, or not begun.
 # They are off the board rather than a column on it, because a column is a place
-# work passes through and these are places work stops. They stay reachable — a
+# work passes through and these are places work stops. They stay reachable. A
 # board that can only show live work cannot answer "did I finish that?".
 SETTLED_ORDER = ["done", "shelved", "not-started"]
 
@@ -178,7 +178,7 @@ def _sprint(conn: sqlite3.Connection) -> dict[str, Any]:
     usage = _live_usage(conn)
 
     # The allowance week, from the reset instant the API reported. The sprint
-    # row follows this — `pulse.align_sprint` moves it onto these edges — but the
+    # row follows this, `pulse.align_sprint` moves it onto these edges, but the
     # window is computed here too, because the strip should be telling the truth
     # about the week within a second of a reset rather than within an hour of
     # one, and because a sprint that has not been aligned yet should still show
@@ -200,8 +200,8 @@ def _sprint(conn: sqlite3.Connection) -> dict[str, Any]:
         #
         # Half-open on timestamps rather than `date(started_at) BETWEEN`, which
         # counted the five hours before Friday's reset into the week that was
-        # already over, and then counted the whole of the closing Friday as well
-        # — eight days of runs against a seven-day budget, double-counted at
+        # already over, and then counted the whole of the closing Friday as well.
+        # Eight days of runs against a seven-day budget, double-counted at
         # both seams.
         row = one(
             conn,
@@ -217,7 +217,7 @@ def _sprint(conn: sqlite3.Connection) -> dict[str, Any]:
         spent = row or spent
 
     band = control.effective_allowance(conn)
-    # When the colony is standing down, the sprint total stops moving — which is
+    # When the colony is standing down, the sprint total stops moving, which is
     # correct, and reads exactly like a number that has broken. Saying when the
     # last run ended is the cheapest way to tell those two apart.
     last_run = one(
@@ -239,7 +239,7 @@ def _sprint(conn: sqlite3.Connection) -> dict[str, Any]:
 def _ordis(conn: sqlite3.Connection) -> dict[str, Any]:
     """The Scrum Master's own vitals.
 
-    Ordis is not a row in `agents` — it is the loop itself, and it has no
+    Ordis is not a row in `agents`. It is the loop itself, and it has no
     contract because it hires rather than being hired. But a colony dashboard
     that shows every colonist and not the thing running them is missing its own
     supervisor, so the loop reports here: when it last beat, when it beats next,
@@ -340,8 +340,8 @@ def _board(conn: sqlite3.Connection) -> dict[str, Any]:
         """,
     )
     # Progress belongs on the card, not two clicks in. "4 of 11 done" is the
-    # answer to the question the PO actually has when they look at the board —
-    # and it is the same pair of columns that stops the loop re-raising finished
+    # answer to the question the PO actually has when they look at the board.
+    # And it is the same pair of columns that stops the loop re-raising finished
     # work, so the number on screen and the number in the prompt cannot drift.
     for s in stories:
         s["done_n"] = len(_json_list(s.pop("done_items", None)))
@@ -405,8 +405,8 @@ def _episode_window(conn: sqlite3.Connection, story_id: int | None,
     """Where this episode starts: the last deliverable, or the story's first day.
 
     The obvious start is the moment the ticket was cut, and it is the wrong one.
-    Most of what happened before a dispatch — the questions, the answers, the
-    criteria being argued over — happened *before* the ticket existed, and those
+    Most of what happened before a dispatch, the questions, the answers, the
+    criteria being argued over, happened *before* the ticket existed, and those
     are the part the PO is looking for when they ask what took place. So an
     episode runs from the previous delivery on the same story to this one.
     """
@@ -619,7 +619,7 @@ def _ready(conn: sqlite3.Connection) -> list[dict[str, Any]]:
 
     **Not an escalation.** An escalation is an event: raised once, answered
     once, closed forever. Readiness is not an event, it is a state the story
-    stays in until somebody dispatches it — so raising it as a question would
+    stays in until somebody dispatches it. So raising it as a question would
     make it dismissable while it was still true, which is the one failure this
     Inbox exists to prevent. Derived instead: the tile exists for exactly as
     long as the story is ready, and it is gone the moment the ticket is cut.
@@ -627,7 +627,7 @@ def _ready(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     It also carries what is still in the way. `control.dispatch` enforces three
     preconditions and the only way to discover which one you have failed was to
     press the button and read the refusal. Approving the criteria is the moment
-    the PO thinks the work has started; a tile that says "ready — except nobody
+    the PO thinks the work has started; a tile that says "ready. Except nobody
     is hired to write in that folder" is the difference between a colony that is
     waiting on them and a colony they believe is working.
     """
@@ -650,10 +650,10 @@ def _ready(conn: sqlite3.Connection) -> list[dict[str, Any]]:
          ORDER BY s.updated_at DESC
     """):
         if s["queued"]:
-            continue           # already dispatched — the Ticket Queue has it now
+            continue           # already dispatched. The Ticket Queue has it now
         blockers = []
         if not s["project"] or s["project_source"] != "confirmed":
-            blockers.append("its project folder is still a guess — confirm it here")
+            blockers.append("its project folder is still a guess. Confirm it here")
         if not s["writers"]:
             # Picking the person is the Scrum Master's job now (`wake.staff_stories`),
             # so this stopped being an instruction to the PO and became a status.
@@ -666,16 +666,16 @@ def _ready(conn: sqlite3.Connection) -> list[dict[str, Any]]:
             blockers.append(
                 (f"Ordis has proposed {len(pending)} people for this story. Each is "
                  f"waiting in this Inbox as its own card and you can take some and "
-                 f"refuse others — the first one you approve is the lead.")
+                 f"refuse others. The first one you approve is the lead.")
                 if len(pending) > 1 else
-                (f"Ordis has proposed someone — {pending[0]['reason']} It is waiting "
+                (f"Ordis has proposed someone. {pending[0]['reason']} It is waiting "
                  f"in this Inbox as its own card.")
                 if pending else
-                (f"nobody is hired to write in {s['project'] or 'that folder'} yet — "
+                (f"nobody is hired to write in {s['project'] or 'that folder'} yet. "
                  f"Ordis picks a persona on the next pulse and brings you the name "
                  f"to approve. You can still hire someone yourself from Standby."))
         if halted:
-            blockers.append("the colony is halted — resume it in Macros")
+            blockers.append("the colony is halted. Resume it in Macros")
         out.append({
             "id": None, "kind": "ready", "story_id": s["id"], "story_title": s["title"],
             "project": s["project"], "project_source": s["project_source"],
@@ -693,14 +693,14 @@ def _ready(conn: sqlite3.Connection) -> list[dict[str, Any]]:
 
 
 def _flight(conn: sqlite3.Connection) -> list[dict[str, Any]]:
-    """Work already in motion — next to the Inbox, because that is where it is decided.
+    """Work already in motion. Next to the Inbox, because that is where it is decided.
 
     Two things belong here and they are not the same shape. A **ticket** is work
     the colony is doing or is staffed to do. A **push** is a change queued for
     the Notion board that has not left the machine yet. What they have in common
     is the only thing this panel is about: the PO pressed something, and it has
     not finished. Before this existed, both were two clicks deep in a story
-    drawer, which meant "did that go through?" had no answer on the page — and a
+    drawer, which meant "did that go through?" had no answer on the page. And a
     queued change you cannot see is indistinguishable from one that was dropped.
 
     Sorted by what is furthest along: running first, then staffed, then waiting.
@@ -751,8 +751,8 @@ def _flight(conn: sqlite3.Connection) -> list[dict[str, Any]]:
         # A blocked ticket used to sit here forever saying only "blocked", which
         # is a state and not a reason. Two identical ones sat in this rail for a
         # day with nothing on the page explaining either. A blocked ticket that
-        # has closed is finished and belongs in Completed instead — the query
-        # above no longer selects it — and one still open says why here.
+        # has closed is finished and belongs in Completed instead, the query
+        # above no longer selects it, and one still open says why here.
         found = _findings(t.pop("findings", None)) or {}
         t["note"] = (found.get("summary") or "").strip() if found else ""
         out.append({"key": f"t{t['id']}", "kind": "ticket", **t})
@@ -804,7 +804,7 @@ def _forge(conn: sqlite3.Connection) -> dict[str, Any]:
     """The forge panel. Active skills are included, not just the pending ones.
 
     The M2 stub listed candidates and drafts only, which made the panel go empty
-    exactly when the forge had succeeded — the same failure the Files panel had
+    exactly when the forge had succeeded. The same failure the Files panel had
     (§10.5). What the PO wants to see once a skill is promoted is what it has
     earned since.
     """
@@ -841,8 +841,8 @@ def _spend(conn: sqlite3.Connection) -> dict[str, Any]:
 #
 # All five grains are rolled up in Python from one hourly query rather than five
 # different `strftime` groupings. The hourly query returns one row per hour that
-# actually had a run — bounded by real activity, not by the length of the window
-# — so it is small however far back you look, and a week that starts on Monday
+# actually had a run, bounded by real activity, not by the length of the window,
+# so it is small however far back you look, and a week that starts on Monday
 # is a line of Python instead of a nest of SQLite date modifiers.
 
 SPAN = {"hour": 48, "day": 30, "week": 26, "month": 12, "year": 5}
@@ -914,8 +914,8 @@ def _series(conn: sqlite3.Connection, grain: str, span: int,
            for d in starts]
 
     # Runs on either side of the window are counted, not merely dropped. Once the
-    # window can be paged away from now, "0 runs" has two very different causes —
-    # a quiet stretch, or a window pointed at the wrong end of the ledger — and
+    # window can be paged away from now, "0 runs" has two very different causes,
+    # a quiet stretch, or a window pointed at the wrong end of the ledger, and
     # only a count in each direction tells them apart.
     before = after = 0
     first, last = starts[0], starts[-1]
@@ -958,7 +958,7 @@ def _series(conn: sqlite3.Connection, grain: str, span: int,
 def _roster_summary(conn: sqlite3.Connection) -> dict[str, Any]:
     """Divisions with their personas, so Standby can be browsed and not only searched.
 
-    The whole roster is ~270 rows of short text — small enough to ship in the
+    The whole roster is ~270 rows of short text. Small enough to ship in the
     snapshot and let the browser open a division instantly, which is the point
     of a dropdown. The persona *body* is not included; that is a per-click read
     off disk, because 270 markdown files is a different order of payload.
@@ -1023,7 +1023,7 @@ def _controls(conn: sqlite3.Connection) -> dict[str, Any]:
         "notion_write": control.get_control(conn, "notion_write", "1") == "1",
         # A forced beat runs on a thread and takes minutes when it wakes, so the
         # button has to be able to say "running" rather than sit there looking
-        # unpressed. True for a scheduled beat as well — the lock is shared.
+        # unpressed. True for a scheduled beat as well. The lock is shared.
         "pulse_running": control.pulse_running(),
         "outbox": outbox_mod.depth(conn),
         "notion_statuses": list(notion_mod.WRITABLE_STATUS),
@@ -1211,7 +1211,7 @@ def boot_js(request: Request) -> Response:
 #
 # `sw.js` is served from the root on purpose. A service worker may only control
 # pages at or below its own path, so one served from `/ui/sw.js` could not
-# control `/` — the single most common way this is got wrong.
+# control `/`. The single most common way this is got wrong.
 
 @app.get("/manifest.webmanifest")
 def manifest(request: Request) -> Response:
@@ -1267,8 +1267,8 @@ def api_roster_summary(request: Request) -> Response:
 def api_story(story_id: int) -> dict[str, Any]:
     """The detail drawer: the story, its timeline, its tickets, its runs.
 
-    `story_events` exists precisely so this view has something worth reading —
-    not "where is this" but "what did we find out, and when" (§9.3).
+    `story_events` exists precisely so this view has something worth reading.
+    Not "where is this" but "what did we find out, and when" (§9.3).
     """
     conn = _conn()
     try:
@@ -1303,8 +1303,8 @@ def api_story(story_id: int) -> dict[str, Any]:
             ),
             # Who is actually on this story, lead first. The dashboard could
             # only ever render a count of writers before, so a second specialist
-            # hired onto a story was real in the ledger and invisible on screen —
-            # which is most of the reason nobody hired one.
+            # hired onto a story was real in the ledger and invisible on screen.
+            # Which is most of the reason nobody hired one.
             "crew": [
                 {"id": a["id"], "role": a["role"], "roster_slug": a["roster_slug"],
                  "seat": a["seat"], "status": a["status"], "model": a["model"],
@@ -1331,7 +1331,7 @@ def api_spend(grain: str = Query("day"), span: int = Query(0),
 
     # `end` is where the window stops. A bare date is enough for every grain
     # coarser than an hour, so both spellings are accepted and an unparseable
-    # one is an error rather than a silent fall back to now — a date control
+    # one is an error rather than a silent fall back to now. A date control
     # that quietly ignores you is worse than one that says no.
     at: datetime | None = None
     if end:
@@ -1397,8 +1397,8 @@ def api_roster(q: str = Query("", max_length=120), limit: int = 40) -> list[dict
 def api_persona(slug: str = Query(..., max_length=200)) -> dict[str, Any]:
     """One persona, read straight out of its file.
 
-    The ledger stores the frontmatter; the *criteria* — how this persona works,
-    what it refuses, what "done" means to it — live in the markdown body, and
+    The ledger stores the frontmatter; the *criteria*, how this persona works,
+    what it refuses, what "done" means to it, live in the markdown body, and
     that is exactly what you need to read before hiring someone. So the body is
     read from disk on demand rather than duplicated into SQLite, where it would
     go stale the next time the agency-agents repo is pulled.
@@ -1435,7 +1435,7 @@ def api_persona(slug: str = Query(..., max_length=200)) -> dict[str, Any]:
 def _sections(markdown: str) -> list[dict[str, str]]:
     """Split a persona body on its headings, so the drawer can show structure.
 
-    Persona files are not uniform — some use `##`, some `**Bold:**`, some
+    Persona files are not uniform. Some use `##`, some `**Bold:**`, some
     neither. Anything that fails to split just comes back as one section, which
     renders as the whole file. Degrading to "show me the text" is the right
     failure for a document viewer.
@@ -1465,7 +1465,7 @@ def api_projects() -> dict[str, Any]:
 def api_tree(path: str = Query("", max_length=400)) -> dict[str, Any]:
     """One folder's children. The browsable half of the file panel.
 
-    Lazy by design — the caller asks for the folder it is about to draw, and
+    Lazy by design. The caller asks for the folder it is about to draw, and
     nothing else. `projects_mod.safe_path` is the only thing standing between a
     query string and the filesystem, so every refusal it raises becomes a 400
     rather than a stack trace.
@@ -1519,7 +1519,7 @@ def api_diff(project: str = Query(..., max_length=200),
              path: str | None = Query(None, max_length=400)) -> dict[str, Any]:
     """A working-tree diff, for the project or one file inside it.
 
-    `path` is checked to sit under `project` before it reaches git — not because
+    `path` is checked to sit under `project` before it reaches git. Not because
     git would do anything dangerous with it, but because a viewer that will
     render any path on the disk is a viewer that has stopped being scoped.
     """
@@ -1706,7 +1706,7 @@ def api_agent(agent_id: int) -> dict[str, Any]:
         conn.close()
 
 
-# ── PO actions — the only writes ──────────────────────────────────────────────
+# ── PO actions, the only writes ───────────────────────────────────────────────
 
 
 @app.post("/api/act/decide")
@@ -1730,7 +1730,7 @@ def act_decide(body: dict = Body(...), x_colony: str | None = Header(None)) -> d
 
 @app.post("/api/act/confirm-project")
 def act_confirm(body: dict = Body(...), x_colony: str | None = Header(None)) -> dict[str, Any]:
-    """Name the folder. Optionally create it first — see `control.create_project`."""
+    """Name the folder. Optionally create it first. See `control.create_project`."""
     _guard(x_colony)
     if body.get("create"):
         made = _act(control.create_project, str(_need(body, "project")),
@@ -1743,7 +1743,7 @@ def act_confirm(body: dict = Body(...), x_colony: str | None = Header(None)) -> 
 
 @app.post("/api/act/story")
 def act_story(body: dict = Body(...), x_colony: str | None = Header(None)) -> dict[str, Any]:
-    """File a story without going through Notion — see `control.create_story`."""
+    """File a story without going through Notion. See `control.create_story`."""
     _guard(x_colony)
     return _act(
         control.create_story,
@@ -1769,7 +1769,7 @@ def act_reply(body: dict = Body(...), x_colony: str | None = Header(None)) -> di
 
 @app.post("/api/upload")
 def upload(body: dict = Body(...), x_colony: str | None = Header(None)) -> dict[str, Any]:
-    """Take one pasted file and put it on disk. Not an action — nothing decided.
+    """Take one pasted file and put it on disk. Not an action. Nothing decided.
 
     Uploading is separate from replying so a paste can land the moment it
     happens: a screenshot appears in the composer as a thumbnail you can look at
@@ -1824,8 +1824,8 @@ def _thread_state(conn: sqlite3.Connection, escalation_id: int | None,
     hard to know when there is something that needs to be changed."
 
     The thread showed what had been *said* and nothing about where the story
-    stood, so the one fact that decides whether a reply matters — is this thing
-    stuck, and on what — lived two panels away. It is a row at the top of the
+    stood, so the one fact that decides whether a reply matters, is this thing
+    stuck, and on what, lived two panels away. It is a row at the top of the
     conversation now, and it carries its own severity so the page can colour it
     without re-deriving any of this in JavaScript.
 
@@ -1863,20 +1863,20 @@ def _thread_state(conn: sqlite3.Connection, escalation_id: int | None,
     # `moving` is the good state.
     if s["dropped_at"] or s["settled_as"]:
         level = "settled"
-        headline = f"this story is {s['settled_as'] or 'dropped'} — nothing is running"
+        headline = f"this story is {s['settled_as'] or 'dropped'}. Nothing is running"
     elif s["status"] == "needs-info" or any(q["kind"] == "needs-info" for q in open_qs):
         level = "blocked"
-        headline = "blocked — it cannot start until this is answered"
+        headline = "blocked. It cannot start until this is answered"
     elif s["status"] == "ready" and not writers:
         level = "waiting"
-        headline = "criteria accepted — waiting on a writer to be hired"
+        headline = "criteria accepted. Waiting on a writer to be hired"
     elif any(q["kind"] in ("decision", "hire", "write-approval", "brief-changed")
              for q in open_qs):
         level = "waiting"
         headline = "waiting on your decision"
     elif s["status"] in ("backlog", "needs-criteria"):
         level = "moving"
-        headline = "in the groom queue — an agent picks it up on the next pulse"
+        headline = "in the groom queue. An agent picks it up on the next pulse"
     elif s["status"] == "in-progress":
         level = "moving"
         headline = "being built now"
@@ -1895,7 +1895,7 @@ def _thread_state(conn: sqlite3.Connection, escalation_id: int | None,
                         "text": s["blocked_reason"], "raised_at": None})
     if s["project"] and s["project_source"] != "confirmed":
         asks.append({"id": None, "kind": "project",
-                     "text": f"the folder {s['project']}/ is still a guess — an "
+                     "text": f"the folder {s['project']}/ is still a guess. An "
                              f"inference cannot authorise a write",
                      "raised_at": None})
 
@@ -1921,8 +1921,8 @@ def _episode(conn: sqlite3.Connection, story_id: int | None,
              since: str, until: str) -> list[dict[str, Any]]:
     """Everything that happened on a story between two moments, in one order.
 
-    The conversation is `control.conversation` — what was said, what was asked,
-    what was learned — and the rest of it is `story_events`: groomed, staffed,
+    The conversation is `control.conversation`, what was said, what was asked,
+    what was learned, and the rest of it is `story_events`: groomed, staffed,
     blocked, decided, synced. They are merged rather than listed separately
     because the order is the story, and reading a decision without the question
     that came two rows above it is the failure this panel exists to fix.
@@ -2078,7 +2078,7 @@ def act_phone_token(request: Request, body: dict = Body(...),
     peer = request.client.host if request.client else ""
     if not access.is_loopback(peer):
         raise HTTPException(403, "rotating the token is only allowed from the "
-                                 "machine itself — doing it from here would log "
+                                 "machine itself. Doing it from here would log "
                                  "this device out mid-request. Use the dashboard "
                                  "on the desktop, or `py -m colony phone --rotate`.")
 
@@ -2117,7 +2117,7 @@ def act_tailscale(request: Request, body: dict = Body(...),
     peer = request.client.host if request.client else ""
     if not access.is_loopback(peer):
         raise HTTPException(403, "setting up Tailscale is only allowed from the "
-                                 "machine itself — it runs an installer and asks "
+                                 "machine itself. It runs an installer and asks "
                                  "for administrator. Open the dashboard on the "
                                  "desktop, or run `py -m colony tailscale --install`.")
 
@@ -2229,7 +2229,7 @@ def act_quit(request: Request, x_colony: str | None = Header(None)) -> dict[str,
     peer = request.client.host if request.client else ""
     if not access.is_loopback(peer):
         raise HTTPException(403, "stopping the dashboard is only allowed from the "
-                                 "machine running it — from here there would be "
+                                 "machine running it. From here there would be "
                                  "nothing left to press to start it again.")
 
     conn = _conn()
@@ -2276,7 +2276,7 @@ def act_second_opinion(body: dict = Body(...),
     try:
         terms = wake_mod.contract(conn, "investigator")
         if terms is None:
-            raise HTTPException(409, "no active investigator contract — run "
+            raise HTTPException(409, "no active investigator contract. Run "
                                      "`python -m colony init`")
         # No BEGIN around this one. The run inside it takes minutes, and holding
         # a write transaction open for that long blocks every other writer on the
@@ -2538,7 +2538,7 @@ def _rescan(why: str) -> dict[str, Any]:
 def act_rescan(x_colony: str | None = Header(None)) -> dict[str, Any]:
     """Re-read both persona roots. The one write that isn't a decision.
 
-    It changes only the `roster` table — résumés, not employees — and a persona
+    It changes only the `roster` table, résumés, not employees, and a persona
     whose file changed upstream is something the PO should see rather than
     discover the next time they hire. Also the way a persona added by hand, in
     an editor, outside the dashboard, becomes visible without a restart.
@@ -2630,7 +2630,7 @@ def _desk_only(request: Request) -> None:
     if not _at_the_desk(request):
         raise HTTPException(403,
             "the console is a real shell on the machine running the colony, so "
-            "it only answers from that machine — a stolen access token should "
+            "it only answers from that machine. A stolen access token should "
             "not be worth a command prompt. Everything else here works from your "
             "phone. To allow it from here, turn on 'answer from anywhere' in the "
             "console on the desktop.")
@@ -2668,7 +2668,7 @@ def act_console_remote(request: Request, body: dict = Body(...),
     if on and not _at_the_desk(request):
         raise HTTPException(403,
             "opening the console to the network can only be done from the "
-            "machine itself — otherwise a stolen access token could switch off "
+            "machine itself. Otherwise a stolen access token could switch off "
             "the check that is keeping it out. Turn it on from the dashboard on "
             "the desktop. Turning it back off works from anywhere.")
 
@@ -3052,5 +3052,5 @@ def serve_extra(host: str, port: int) -> None:
     # to report the phone switch on. So the socket is proven from the outside
     # before this returns.
     if not _wait_for_port(host, port, timeout_s=8.0):
-        raise OSError(f"could not start serving {host}:{port} — "
+        raise OSError(f"could not start serving {host}:{port}. "
                       "something else is probably bound to it")

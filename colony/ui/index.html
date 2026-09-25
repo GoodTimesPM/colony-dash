@@ -23,14 +23,14 @@
   The colony, and the controls for it.
 
   Two typographic rules run through the whole page. Anything the ledger
-  *measured* is set in mono, anything a human *wrote* is set in sans — token
+  *measured* is set in mono, anything a human *wrote* is set in sans. Token
   counts, timestamps, roles, ids and statuses are machine facts; story titles,
   findings and escalation reasons are prose. And colour is rationed: amber
   belongs to the PO Inbox and nothing else, so a page with amber on it means
   something wants the PO. Mint means live work. Coral means an anomaly.
 
   Since M3 the page can also write. Every control that does routes through
-  POST /api/act/*, which is a thin skin over control.py — the module that
+  POST /api/act/*, which is a thin skin over control.py. The module that
   records the decision before it takes effect and refuses anything the colony's
   rules forbid. Nothing on this page spends a token: approving a story marks it
   dispatchable and the next wake decides. That separation is deliberate, and it
@@ -166,7 +166,7 @@
     </section>
     <section class="panel" data-panel="standby">
       <h2>Standby <span class="count" id="roster-count"></span>
-        <button class="link" id="roster-add" title="add a persona of your own — a dropped file, or one written here">&#65291; persona</button>
+        <button class="link" id="roster-add" title="add a persona of your own. A dropped file, or one written here">&#65291; persona</button>
         <button class="link" id="roster-rescan" title="re-read the persona folders from disk">rescan</button></h2>
       <div class="body">
         <input class="search" id="roster-q" placeholder="search personas, or browse below" autocomplete="off">
@@ -180,7 +180,7 @@
     <section class="panel" data-panel="board">
       <h2>Board <span class="count" id="board-count"></span>
         <button class="link go" id="board-new" title="File a story straight into the ledger">&#65291; Story</button>
-        <button class="link" id="board-filed" style="display:none" title="done, shipped, shelved or not started — the colony asks nothing about these">filed</button>
+        <button class="link" id="board-filed" style="display:none" title="done, shipped, shelved or not started. The colony asks nothing about these">filed</button>
         <button class="link" id="board-dropped" style="display:none" title="stories you have dropped">dropped</button>
       </h2>
       <div class="flow" id="flow"></div>
@@ -196,7 +196,7 @@
     </section>
     <section class="panel" data-panel="files">
       <h2>Files <span class="count" id="proj-count"></span>
-        <button class="link" data-sort="changes" title="most changed first — the pulse's own order">changes</button>
+        <button class="link" data-sort="changes" title="most changed first. The pulse's own order">changes</button>
         <button class="link" data-sort="recent" title="whichever folder you touched last, first">recent</button>
         <button class="link" data-sort="name" title="alphabetical">name</button>
         <button class="link" id="tree-refresh" title="re-read the working tree">refresh</button>

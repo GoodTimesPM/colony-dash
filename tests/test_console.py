@@ -2,8 +2,8 @@
 
 The console is the deliberate exception to the colony's safety model: a real
 shell, no allowlist, no worktree. What keeps that honest is that exactly one
-turn may be in flight — two shells writing one tree is the failure this whole
-system exists to prevent — so the lock is the thing worth pinning down.
+turn may be in flight, two shells writing one tree is the failure this whole
+system exists to prevent, so the lock is the thing worth pinning down.
 
 Nothing here spawns `claude`. `console._answer` is replaced with a stub that
 blocks until the test lets it go, which is what "a turn in flight" means from

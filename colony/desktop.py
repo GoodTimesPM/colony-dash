@@ -1,7 +1,7 @@
 """The window. A pywebview shell around the local server.
 
 It runs as a real desktop window rather than a browser tab so it can live on the
-second monitor without chrome around it (ARCHITECTURE.md §9.1) — the same trick
+second monitor without chrome around it (ARCHITECTURE.md §9.1). The same trick
 the tray app uses. `http://127.0.0.1:8787` still works if you'd rather, and
 `--serve` gives you exactly that with no window at all, which is also the
 fallback on a machine with no WebView2 runtime.
@@ -121,7 +121,7 @@ def _stale(address: str, port: int) -> bool:
     A server older than the checkout is the reason "I restarted it" and "it
     picked up my change" stopped being the same sentence. The window is a shell
     around whatever process owns the port, `app.js` is read off disk on every
-    request, and Python is not — so a stale server serves a new page wired to
+    request, and Python is not. So a stale server serves a new page wired to
     routes it has never heard of, and the only symptom is a 404 on a button that
     visibly exists.
 
@@ -241,7 +241,7 @@ def _set_window_icon(title: str, tries: int = 40) -> None:
     """Hang the colony's mark on the window frame.
 
     pywebview only accepts an `icon=` on its GTK and Qt backends; on Windows the
-    frame takes whatever icon the host process has, which is `pythonw.exe` — the
+    frame takes whatever icon the host process has, which is `pythonw.exe`. The
     same generic snake as every other Python program on this machine, which is
     the collision that started this. So the icon is set the Windows way, by
     finding the window once it exists and sending it WM_SETICON.
@@ -317,7 +317,7 @@ def launch(port: int = DEFAULT_PORT, *, host: str = HOST, window: bool = True,
     # is what that sentence has to mean.
     if live and (replace or _stale(live, port)):
         why = "asked to restart" if replace else "running code older than this checkout"
-        log(f"the dashboard on {live}:{port} is {why} — stopping it")
+        log(f"the dashboard on {live}:{port} is {why}. Stopping it")
         if _stop(live, port):
             live = None
         else:
@@ -330,18 +330,18 @@ def launch(port: int = DEFAULT_PORT, *, host: str = HOST, window: bool = True,
             # existed, which is a one-time problem per machine and worth naming
             # precisely: "it will not stop" sends someone reading logs, and
             # "close the window, then start it again" ends it.
-            log("could not stop it — the dashboard now up is NOT running your "
+            log("could not stop it. The dashboard now up is NOT running your "
                 "latest changes. Close the Colony Dash window (or end the "
                 f"pythonw.exe serving port {port}) and start it again; from then "
                 "on a restart replaces it on its own.")
 
     if live:
-        # Someone already has it — almost always a dashboard you forgot was open,
+        # Someone already has it. Almost always a dashboard you forgot was open,
         # or the one the logon task started on a network address. Opening a
         # second server would leave two windows claiming to be the dashboard, so
         # point at the live one instead.
         local = live
-        log(f"already serving on http://{local}:{port} — reusing it")
+        log(f"already serving on http://{local}:{port}. Reusing it")
     else:
         def _serve():
             try:
@@ -375,12 +375,12 @@ def launch(port: int = DEFAULT_PORT, *, host: str = HOST, window: bool = True,
         # given a second earlier: use theirs, and say so in a single line.
         thread.join(timeout=0.5)
         if not thread.is_alive():
-            log(f"another dashboard bound {local}:{port} first — reusing it")
+            log(f"another dashboard bound {local}:{port} first. Reusing it")
         else:
             serving = True
             log(f"serving http://{host}:{port}")
             if host != HOST:
-                log("this is reachable from the network — the access token is "
+                log("this is reachable from the network. The access token is "
                     "required on every request that is not the login page")
 
                 # And loopback as well, so this machine can always reach its own
@@ -406,7 +406,7 @@ def launch(port: int = DEFAULT_PORT, *, host: str = HOST, window: bool = True,
                     _mark(local, port)
                     log(f"also serving http://{HOST}:{port} for this machine")
                 except Exception as exc:
-                    log(f"could not also bind {HOST}:{port} ({exc}) — the "
+                    log(f"could not also bind {HOST}:{port} ({exc}). The "
                         f"dashboard is still up on {host}")
 
     if not window:
@@ -424,7 +424,7 @@ def launch(port: int = DEFAULT_PORT, *, host: str = HOST, window: bool = True,
     try:
         import webview
     except ImportError:
-        log("pywebview not installed — running headless; open the URL above")
+        log("pywebview not installed. Running headless; open the URL above")
         return _idle() if serving else 0
 
     webview.create_window(
@@ -435,7 +435,7 @@ def launch(port: int = DEFAULT_PORT, *, host: str = HOST, window: bool = True,
         min_size=(960, 640),
         background_color="#0B0F14",
         # pywebview defaults `text_select` to False and enforces it by injecting
-        # `user-select: none` over the entire document — so nothing on the page
+        # `user-select: none` over the entire document. So nothing on the page
         # could be highlighted or copied, including the one thing a dashboard
         # exists to produce: a number or a sentence you want to paste somewhere
         # else. It is a kiosk default living in a tool, and it made a read-only
@@ -447,8 +447,8 @@ def launch(port: int = DEFAULT_PORT, *, host: str = HOST, window: bool = True,
         # pywebview defaults to `private_mode=True`, which hands WebView2 an
         # incognito profile: every localStorage key the page writes is thrown
         # away when the window closes. The theme, the text size, the palette and
-        # the tile layout all live there — deliberately, because how you read the
-        # page is not the colony's business (ARCHITECTURE.md §9.2) — so the
+        # the tile layout all live there, deliberately, because how you read the
+        # page is not the colony's business (ARCHITECTURE.md §9.2), so the
         # default silently reset the dashboard's whole appearance on every
         # launch, and looked like a bug in the picker rather than in the shell.
         # The profile goes next to the ledger, under .colony/, so it is scoped to

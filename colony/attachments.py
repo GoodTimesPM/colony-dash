@@ -2,7 +2,7 @@
 
 A screenshot is frequently the entire message. "The title formatting broke" and
 a picture of the broken title are not the same sentence, and the second one is
-the one that can be acted on — up to now the dashboard could only take the
+the one that can be acted on. Up to now the dashboard could only take the
 first, so every reply that was really about something *visible* had to be
 retyped into prose and lost most of what it was.
 
@@ -64,7 +64,7 @@ def save(label: str, data_url: str) -> dict:
     if not blob:
         raise Rejected("that file was empty")
     if len(blob) > MAX_BYTES:
-        raise Rejected(f"that file is {len(blob) // 1024}KB — the limit is "
+        raise Rejected(f"that file is {len(blob) // 1024}KB. The limit is "
                        f"{MAX_BYTES // 1024 // 1024}MB")
 
     label = (label or "file").strip()[:80] or "file"
@@ -82,7 +82,7 @@ def for_story(conn, story_id: int | None) -> list[dict]:
     Attachments were reachable from exactly one prompt: the reply that carried
     them. That is the wrong scope by a long way. A conversation is scoped to the
     story (`control.thread` says why), and the evidence in it belongs to the
-    story too — the screenshot the PO pasted on Tuesday is still the answer on
+    story too. The screenshot the PO pasted on Tuesday is still the answer on
     Thursday, to whichever agent is asking.
 
     The cost of getting that wrong is not theoretical. Story #1 carries three
@@ -126,7 +126,7 @@ def evidence(files: list[dict]) -> str:
     interpolated unconditionally.
 
     Worded as an instruction rather than a listing because the failure mode is
-    not that the agent cannot open these — it can, `Read` renders an image — it
+    not that the agent cannot open these, it can, `Read` renders an image, it
     is that the agent never thinks to.
     """
     if not files:

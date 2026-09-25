@@ -1,17 +1,17 @@
 """Scan persona files into the `roster` table.
 
 These files are résumés, not employees. They carry `name`/`description`/`color`/
-`emoji`/`vibe` and nothing else — no `tools:`, no `model:`. Persona without
+`emoji`/`vibe` and nothing else. No `tools:`, no `model:`. Persona without
 governance. Scanning them here makes them browsable and searchable; it does not
 install anything and does not make anything runnable. See ROSTER.md §2.
 
 Two roots are scanned, and the split is the whole point of this module:
 
-  `~/.agency-agents`  — somebody else's git clone. Read only, always. Nothing
+  `~/.agency-agents`. Somebody else's git clone. Read only, always. Nothing
                         here ever writes into it, because the next `git pull`
                         in that clone would either clobber the write or refuse
                         to fast-forward past it.
-  `~/.colony-agents`  — this machine's own personas, written by the dashboard.
+  `~/.colony-agents`. This machine's own personas, written by the dashboard.
                         Upstream has never heard of it, so it survives.
 
 Neither is inside this repository and neither is ever committed. A persona is a
@@ -192,7 +192,7 @@ def digest(conn: sqlite3.Connection, *, desc_chars: int = 200) -> str:
     """The whole roster, grouped by division, with how often each was picked.
 
     All 270 of them, deliberately. The obvious economy is to search the roster
-    with terms from the story and show the top twenty — and that economy is the
+    with terms from the story and show the top twenty. And that economy is the
     bias. A search over the story text can only ever return personas whose
     description already sounds like the story, which is how a colony ends up
     with four engineers and no one who has ever thought about a user. The PO
@@ -203,7 +203,7 @@ def digest(conn: sqlite3.Connection, *, desc_chars: int = 200) -> str:
     from a shortlist someone else drew.
 
     `hired` is the count that makes the diversity rule checkable rather than
-    aspirational — it goes in front of the chooser, and it is still there
+    aspirational. It goes in front of the chooser, and it is still there
     afterwards when someone asks why the same name keeps coming up.
     """
     out: list[str] = []

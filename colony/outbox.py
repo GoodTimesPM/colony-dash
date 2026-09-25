@@ -1,6 +1,6 @@
 """The Notion outbox: queue here, send from the tick.
 
-Two modules are not allowed to make network calls. `control.py` is one — a
+Two modules are not allowed to make network calls. `control.py` is one. A
 dashboard button must be instant, must be transactional, and must not fail
 because Notion had a bad minute. `wake.py` is the other in spirit: it spends
 tokens and should spend them on thinking, not on HTTP.
@@ -42,9 +42,9 @@ MAX_ATTEMPTS = 11
 def _reason(exc: Exception) -> str:
     """What to write on a failed row, for a person reading a tile at a glance.
 
-    Notion's own refusals already read as sentences — "403 restricted_resource:
+    Notion's own refusals already read as sentences. "403 restricted_resource:
     Insufficient permissions for this endpoint" names both the problem and the
-    fix — so stamping `NotionError:` in front of them only spends characters the
+    fix. So stamping `NotionError:` in front of them only spends characters the
     tile does not have. Anything else keeps its class name, because a bare
     `[Errno 11001] getaddrinfo failed` needs the word that says it came from
     Python and not from Notion.

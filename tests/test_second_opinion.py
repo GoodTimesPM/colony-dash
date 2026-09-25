@@ -208,7 +208,7 @@ class Audit(unittest.TestCase):
         cur = self.conn.execute(
             "INSERT INTO escalations (story_id, kind, reason) "
             "VALUES (?, 'decision', 'Accept these criteria?')", (story_id,))
-        self.assertIn("this card is a decision", self.refused(int(cur.lastrowid)))
+        self.assertIn("This card is a decision", self.refused(int(cur.lastrowid)))
 
     def test_a_hire_that_is_already_decided(self):
         _, esc_id = self.pending_hire()

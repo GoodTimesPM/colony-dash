@@ -1,4 +1,4 @@
-"""The skill forge — where a run that went well becomes a procedure.
+"""The skill forge. Where a run that went well becomes a procedure.
 
 This is the piece that makes the colony compound rather than merely repeat.
 A memory is a *fact* ("the Notion database was renamed"); a skill is a
@@ -25,7 +25,7 @@ schedule, behind the budget guard. A mis-click costs nothing.
 **Promotion is a human gate.** Auto-promotion is how a system teaches itself a
 bad habit and then applies it colony-wide. `promote()` is the only path here
 that writes a file to disk, and it is only ever reached from a PO action
-(ARCHITECTURE.md §7, §8.2 — the third gate).
+(ARCHITECTURE.md §7, §8.2, the third gate).
 
 Value is measured in tokens the skill stops the colony from spending, which is
 the same currency as the budget, so the forge has to pay for itself in the unit
@@ -44,7 +44,7 @@ from typing import Any
 from . import agent, db, voice
 
 # Where a promoted skill lands. The project root rather than colony-dash,
-# because a skill is for the whole colony *and* for Ordis — a Claude Code
+# because a skill is for the whole colony *and* for Ordis. A Claude Code
 # session opened anywhere under PROJECTS should be able to load it. This is the
 # "learned from the agents, passed on to the Scrum Master" path in §7 step 4.
 SKILLS_DIR = db.PROJECTS_ROOT / ".claude" / "skills"
@@ -101,7 +101,7 @@ def class_stats(conn: sqlite3.Connection) -> dict[tuple[str, str], dict]:
     for row in rows:
         key = (row["intent"], row["role"])
         stat = out.setdefault(key, {"ok": [], "failed": [], "tokens": [], "tickets": {}})
-        # A run killed over budget still produced its answer (§10.2) — it is a
+        # A run killed over budget still produced its answer (§10.2). It is a
         # success that cost too much, and excluding it would hide the very runs
         # a shortcut skill would most help.
         if row["status"] in ("ok", "over-budget"):
@@ -117,7 +117,7 @@ def class_stats(conn: sqlite3.Connection) -> dict[tuple[str, str], dict]:
 
 
 def baseline_for(conn: sqlite3.Connection, intent: str, role: str) -> int:
-    """What a class costs without a skill — the number savings are measured against."""
+    """What a class costs without a skill. The number savings are measured against."""
     stat = class_stats(conn).get((intent, role))
     return stat["median"] if stat else 0
 
@@ -178,7 +178,7 @@ def detect(conn: sqlite3.Connection) -> list[dict]:
             if hit:
                 found.append(hit)
 
-        # 2. Failed, then succeeded. The recovery path is the lesson — it is the
+        # 2. Failed, then succeeded. The recovery path is the lesson. It is the
         #    part no transcript of the successful run alone would ever show.
         for ticket_id, runs in stat["tickets"].items():
             bad = [r for r in runs if r["status"] not in ("ok", "over-budget")]
@@ -270,7 +270,7 @@ def _evidence_brief(conn: sqlite3.Connection, skill: sqlite3.Row) -> str:
     """
     runs = json.loads(skill["evidence_runs"] or "[]")
     if not runs:
-        return "(no run evidence — this candidate came from the PO's own corrections)"
+        return "(no run evidence. This candidate came from the PO's own corrections)"
 
     placeholders = ",".join("?" * len(runs))
     lines: list[str] = []
@@ -297,7 +297,7 @@ def draft_prompt(conn: sqlite3.Connection, skill: sqlite3.Row) -> str:
 A skill is a PROCEDURE, not a fact. It is loaded into an agent's context before
 it starts work, so every sentence has to earn its place: if a competent agent
 would have done it anyway, leave it out. What belongs in a skill is the thing
-that had to be *learned* — the order that turned out to matter, the check that
+that had to be *learned*. The order that turned out to matter, the check that
 prevents the usual failure, the shortcut that is not obvious from the outside.
 
 The forge proposed this candidate from the signal "{skill['detector']}":
@@ -320,8 +320,8 @@ Write the skill. Reply with JSON only:
   "markdown": "the full SKILL.md body: a Trigger section, a numbered Procedure, a Failure modes section naming how it usually goes wrong, and a Provenance line citing the run ids above"
 }}
 
-Set "worth_it" to false if the evidence does not actually contain a procedure —
-three runs that succeeded easily and identically teach nothing, and a skill that
+Set "worth_it" to false if the evidence does not actually contain a procedure.
+Three runs that succeeded easily and identically teach nothing, and a skill that
 restates the obvious costs every future run context for no return. Saying no is
 a useful answer here and will not be held against you."""
 
@@ -386,7 +386,7 @@ def draft(conn: sqlite3.Connection, skill_id: int, terms: dict) -> dict:
             "retire_reason=?, draft_requested_at=NULL WHERE id=?",
             (f"declined at draft: {why}", skill_id),
         )
-        out["verdict"] = f"declined — {why}"
+        out["verdict"] = f"declined. {why}"
         return out
 
     markdown = (answer.get("markdown") or "").strip()
@@ -430,8 +430,8 @@ def write_skill_file(slug: str, body: str) -> Path:
 def attach(conn: sqlite3.Connection, slug: str, roles: list[str]) -> list[str]:
     """Add the skill to each named agent contract. 'ordis' is a legal role here.
 
-    Ordis has no row in `agents` — the Scrum Master is this codebase, not a hired
-    colonist — so attaching to Ordis means the file exists under
+    Ordis has no row in `agents`, the Scrum Master is this codebase, not a hired
+    colonist, so attaching to Ordis means the file exists under
     `.claude/skills/`, which any Claude Code session opened under PROJECTS will
     find. That is the whole mechanism, and it is why the file lands at the
     project root instead of inside colony-dash.
@@ -487,7 +487,7 @@ def record_uses(conn: sqlite3.Connection, *, skills: list[sqlite3.Row], run_id: 
     """One row per skill per run, with the baseline it is being judged against.
 
     `tokens_saved` on the skill is kept as a running total for the dashboard, but
-    it is only ever the sum of `skill_uses.saved` — the detail is the truth and
+    it is only ever the sum of `skill_uses.saved`. The detail is the truth and
     the total is the convenience. A saving may be negative: a skill that makes
     runs *more* expensive has to be able to say so.
     """

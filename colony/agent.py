@@ -1,4 +1,4 @@
-"""Spawning a colonist — one `claude -p` invocation, recorded in the ledger.
+"""Spawning a colonist. One `claude -p` invocation, recorded in the ledger.
 
 This is the only place in Colony Dash that spends tokens. Everything else is
 pure Python. So this is also the only place that needs the guards: a tool
@@ -7,7 +7,7 @@ allowlist, a working directory, a wall-clock timeout, and a `runs` row written
 
 The contract, from ARCHITECTURE.md §2.1 and §8: the persona says how to think,
 Colony Dash says what may be touched. A persona file never supplies `tools:` or
-`model:` — those come from the agent's contract in the `agents` table and are
+`model:`. Those come from the agent's contract in the `agents` table and are
 passed here explicitly. Nothing is inherited, and nothing is implicit.
 """
 
@@ -29,7 +29,7 @@ CLAUDE_BIN = "claude"
 # the `agents` table cannot become a capability.
 #
 # Bash stays here even for write-capable runs, and that is the load-bearing
-# entry. Edit and Write are bounded — they touch files inside a throwaway
+# entry. Edit and Write are bounded. They touch files inside a throwaway
 # worktree. Bash is unbounded: it is `git push`, `rm -rf`, `curl | sh`, and the
 # whole class of things §8.3 says the colony must never be able to do. Denying
 # the shell is what makes "the colony cannot push" a capability statement rather
@@ -100,7 +100,7 @@ class RunResult:
         """The agent's answer, when we asked it to reply with JSON.
 
         Models wrap JSON in prose or a fenced block often enough that parsing
-        has to tolerate it. A failure here is not an error — it means the run
+        has to tolerate it. A failure here is not an error. It means the run
         said something we can't act on, which the caller reports as a finding
         rather than a crash.
         """
@@ -139,7 +139,7 @@ def _usage_from(payload: dict) -> dict:
         "cache_read_tokens": cread,
         "cache_write_tokens": cwrite,
         "total_tokens": inp + out + cread + cwrite,
-        # Cache reads are the same context re-read each turn — already paid for
+        # Cache reads are the same context re-read each turn. Already paid for
         # when written. Counting them against a ceiling makes the ceiling
         # meaningless: one grooming run read 333k of cache and 3k of new output.
         "chargeable_tokens": inp + out + cwrite,
@@ -235,7 +235,7 @@ def run_ticket(
     """Spawn for a ticket and record the run, whatever the outcome.
 
     The `runs` row is opened before the process starts. If the machine dies
-    mid-run the ledger still shows a `running` row with a start time — an
+    mid-run the ledger still shows a `running` row with a start time. An
     honest "we don't know how this ended" beats a gap that looks like it never
     happened.
     """
@@ -259,8 +259,8 @@ def run_ticket(
     )
 
     status = result.status
-    # The ceiling can't stop a run mid-flight — `claude -p` has no turn budget we
-    # can set from out here — so it is enforced as a recorded outcome. A role
+    # The ceiling can't stop a run mid-flight, `claude -p` has no turn budget we
+    # can set from out here, so it is enforced as a recorded outcome. A role
     # that keeps breaching its ceiling is a contract to renegotiate, and the
     # ledger is where that argument gets its evidence.
     #

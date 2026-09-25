@@ -12,7 +12,7 @@ Two things live here, because they are the same fact seen twice.
 
 `read()` is the cache file, parsed. The pulse used to be the only reader, once
 an hour, and the dashboard showed whatever the last tick had copied into
-`usage_samples` — so a number that changes every five minutes was arriving up to
+`usage_samples`. So a number that changes every five minutes was arriving up to
 an hour late and reading, at a glance, like a counter that had stopped. Nothing
 about the cache costs anything to read: it is a local file written by the tray
 app, which is the one process allowed to call the usage endpoint (~5 requests
@@ -21,8 +21,8 @@ history rows still come from the pulse; the live figure comes from here.
 
 `week_window()` is the Friday-to-Friday range. It prefers the reset instant the
 API itself reported, because that is the truth and this is only a model of it.
-The Friday-05:00 arithmetic is the fallback for when there is no cache to read
-— a fresh machine, a stopped tray app — and it is deliberately a fallback: a
+The Friday-05:00 arithmetic is the fallback for when there is no cache to read,
+a fresh machine, a stopped tray app, and it is deliberately a fallback: a
 constant in this file cannot know about a daylight-saving shift or an account
 whose window moved, and the reported instant can.
 """
@@ -54,7 +54,7 @@ def parse_iso(text: str | None) -> datetime | None:
 
     The cache writes UTC with an offset: "2026-08-28T08:59:59.877882+00:00".
     The dashboard was printing the first sixteen characters of that string, so
-    a window that closes at five in the morning was on screen as "08:59" — the
+    a window that closes at five in the morning was on screen as "08:59". The
     right instant, told in a timezone nobody in this house lives in. Everything
     downstream compares against `datetime('now','localtime')` values from the
     ledger, so the conversion happens once, here.
@@ -98,7 +98,7 @@ def json_safe(sample: dict | None) -> dict | None:
 
     `read()` hands back real `datetime` objects, because everything that does
     arithmetic on a reset instant wants one. `json.dumps` does not, and the
-    pulse writes its whole context into `pulses.detail` as JSON — so the
+    pulse writes its whole context into `pulses.detail` as JSON. So the
     moment `read()` started parsing instead of passing strings through, every
     tick began dying at that one boundary. Fifteen of them died before anyone
     noticed, because a scheduled task that exits 1 looks, from the dashboard,
@@ -131,7 +131,7 @@ def week_window(now: datetime | None = None,
     opening, not the one that just closed.
 
     `resets_at` is the end the API reported. It is trusted when it is anywhere
-    near sane — within a week either side of now — and ignored when it is not,
+    near sane, within a week either side of now, and ignored when it is not,
     because a cache left behind by a stopped tray app can name a reset that
     happened days ago, and quietly measuring last week is worse than measuring
     an arithmetic week that is at least the right length.
