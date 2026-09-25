@@ -243,7 +243,11 @@ export function drawSpend() {
   svg.onpointerleave = () => hover(-1);
 
   // Keyboard reading: arrows step a bucket and page the window at the ends.
+  // The readout speaks only while the chart has focus. It is rebuilt on every
+  // repaint, and a live region that is always on would read it each time.
   svg.tabIndex = 0;
+  svg.onfocus = () => $("spend-readout").setAttribute("aria-live", "polite");
+  svg.onblur = () => $("spend-readout").removeAttribute("aria-live");
   svg.onkeydown = (ev) => {
     const k = ev.key;
     if (k === "ArrowLeft" || k === "ArrowRight") {

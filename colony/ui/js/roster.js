@@ -81,7 +81,8 @@ export async function openPersonaNew() {
 
   // A file input as well as a drop target, because a drop target alone is
   // unusable on a phone and this dashboard is used from one.
-  const drop = el("div", "dropzone", "drop a persona .md here, or tap to pick one");
+  const drop = el("button", "dropzone", "drop a persona .md here, or tap to pick one");
+  drop.type = "button";
   const file = el("input");
   file.type = "file";
   file.accept = ".md,.markdown,text/markdown,text/plain";

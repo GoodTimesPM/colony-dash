@@ -1,7 +1,7 @@
 // In flight and completed work.
 
-import { $, act, ago, btn, card, chip, el, h, longText, row, store, toast, toks, until,
-  usd } from "./core.js";
+import { $, act, ago, btn, card, chip, el, h, longText, row, setText, store, toast, toks,
+  until, usd } from "./core.js";
 import { STATE, relNode, stamp } from "./render.js";
 import { NEW_PROJECT, openCompose, projectSelect } from "./composer.js";
 import { openCompleted, openStory } from "./drawers.js";
@@ -15,7 +15,7 @@ import { shows } from "./view.js";
 export function renderFlight(items) {
   const rail = $("flight"), strip = $("flight-strip");
   rail.replaceChildren();
-  $("flight-count").textContent = items.length ? String(items.length) : "";
+  setText($("flight-count"), items.length ? String(items.length) : "");
   strip.classList.toggle("quiet", !items.length);
   if (!items.length) {
     rail.append(el("div", "empty", "nothing queued"));
@@ -183,10 +183,10 @@ export function renderInbox(items) {
 
   const btn = $("inbox-show-stale");
   btn.style.display = stale.length ? "" : "none";
-  btn.textContent = shows("stale") ? "hide stale · " + stale.length : "stale · " + stale.length;
+  setText(btn, shows("stale") ? "hide stale · " + stale.length : "stale · " + stale.length);
 
   const waiting = items.filter((e) => !e.stale).length;
-  $("inbox-count").textContent = waiting ? waiting + " waiting on you" : "";
+  setText($("inbox-count"), waiting ? waiting + " waiting on you" : "");
   strip.classList.toggle("quiet", waiting === 0);
   if (!live.length) {
     // Nothing to run out to a full row, and the observer has to be told so.

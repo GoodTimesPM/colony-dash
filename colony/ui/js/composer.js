@@ -1,6 +1,6 @@
 // Attachments, the reply composer, and filing a story from the dashboard.
 
-import { $, act, ago, el, hhmm, longText, parseTs, refresh, toast, toks } from "./core.js";
+import { $, act, ago, el, hhmm, longText, parseTs, refresh, setText, toast, toks } from "./core.js";
 import { STATE } from "./render.js";
 import { ALL_PROJECTS, TRAIL, closeDrawer, getJSON, jsonList, openDrawer,
   renderTrail, sectionBlock, setAllProjects } from "./drawer.js";
@@ -545,7 +545,7 @@ export function tierKey(p) {
 export function renderPulses(rows) {
   const box = $("pulses");
   box.replaceChildren();
-  $("pulse-count").textContent = rows.length ? hhmm(rows[0].pulse_at) : "";
+  setText($("pulse-count"), rows.length ? "last " + hhmm(rows[0].pulse_at) : "");
   if (!rows.length) { box.append(el("div", "empty", "no pulses yet")); return; }
 
   // Consecutive clean ticks roll up, and a missing hour is drawn in coral, so a

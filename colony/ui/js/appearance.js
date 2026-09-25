@@ -263,6 +263,8 @@ export function applyLayout() {
     // Folded is a layout fact, not a session one: it lives in LAYOUT beside
     // the column and the cap, so a tile you put away is still away tomorrow.
     node.classList.toggle("min", !!(LAYOUT[key] || {}).min);
+    const head = node.querySelector(":scope > h2");
+    if (head) head.setAttribute("aria-expanded", String(!(LAYOUT[key] || {}).min));
     const max = (LAYOUT[key] || {}).max || 0;
     // The Inbox grid and pulse log scroll their own bodies, so their cap
     // applies inside, avoiding nested scrollbars.
@@ -545,11 +547,14 @@ export function openAppearance() {
   const groups = [];
   for (const g of TOKEN_GROUPS) {
     const grid = el("div", "swatches");
+    grid.setAttribute("role", "group");
+    grid.setAttribute("aria-label", g.label);
     for (const [name, label, does, audit] of g.rows) {
       const row = el("div", "sw");
       const input = document.createElement("input");
       input.type = "color"; input.value = tokenValue(name);
       input.title = name + ": " + does;
+      input.setAttribute("aria-label", label + ", " + does);
       input.oninput = () => {
         VARS[name] = input.value;
         document.documentElement.style.setProperty(name, input.value);

@@ -1778,10 +1778,20 @@ body.snapping .snapbar { display: flex; }
   cursor: pointer;
   transition: border-color .12s, color .12s, background .12s;
 }
+.dropzone { display: block; width: 100%; background: none; font: inherit; font-size: var(--step--1); }
 .dropzone:hover { border-color: var(--violet); color: var(--ink); }
+.dropzone:focus-visible { outline: 2px solid var(--violet); outline-offset: 1px; }
 .dropzone.over {
   border-color: var(--violet);
   color: var(--ink);
   background: color-mix(in oklab, var(--violet) 12%, transparent);
 }
 textarea.field.tall { min-height: 220px; }
+
+/* Click-to-copy text: a button that looks like the text it copies. */
+button.copy {
+  display: block; width: 100%; background: none; border: 0; padding: 0;
+  text-align: left; color: inherit; font: inherit; font-family: var(--mono);
+  word-break: break-all; cursor: pointer;
+}
+button.copy:focus-visible { outline: 2px solid var(--violet); outline-offset: 2px; }
