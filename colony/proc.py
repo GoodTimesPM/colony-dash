@@ -41,6 +41,33 @@ def hidden() -> dict:
     return {"creationflags": CREATE_NO_WINDOW, "startupinfo": si}
 
 
+def alive(pid: int) -> bool:
+    """Whether a process with this pid is still running."""
+    if pid <= 0:
+        return False
+    if IS_WINDOWS:
+        import ctypes
+        kernel = ctypes.windll.kernel32
+        handle = kernel.OpenProcess(0x1000, False, pid)  # QUERY_LIMITED_INFORMATION
+        if not handle:
+            # Access denied still means the process exists.
+            return kernel.GetLastError() == 5
+        try:
+            code = ctypes.c_ulong()
+            kernel.GetExitCodeProcess(handle, ctypes.byref(code))
+            return code.value == 259  # STILL_ACTIVE
+        finally:
+            kernel.CloseHandle(handle)
+    import os
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
 def kill_tree(pid: int) -> None:
     """End a process and everything it started.
 
