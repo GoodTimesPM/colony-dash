@@ -1740,8 +1740,6 @@ def retire_skill(conn: sqlite3.Connection, skill_id: int, reason: str = "") -> d
     """Retire a skill. The file stays and the row stays, as evidence of which
     detectors propose skills that do not work.
     """
-    from . import forge
-
     row = conn.execute("SELECT * FROM skills WHERE id = ?", (skill_id,)).fetchone()
     if not row:
         raise Refused("no such skill")
