@@ -1,30 +1,15 @@
-"""The weekly window, and where its edges actually are.
+"""The weekly allowance window and where its edges are.
 
-Anthropic's 7-day allowance does not reset on Monday, or at midnight, or on any
-boundary the calendar knows about. It resets on **Friday at 05:00 local**, and
-the tray app's cache reports the exact instant it will next do so. The PO's
-sprints run on that clock or they are measuring a week that does not exist:
+The 7-day allowance resets Friday 05:00 local, not on a calendar boundary,
+and the PO's sprints run on that clock.
 
-    "my weekly token usage resets every friday at 5:00 AM. The weekly sprints
-     and day count should abide by this range"
+`read()` parses the tray app's cache live. The tray app is the only process
+allowed to call the rate-limited usage endpoint, so the file is free to
+read; the pulse still writes the history rows.
 
-Two things live here, because they are the same fact seen twice.
-
-`read()` is the cache file, parsed. The pulse used to be the only reader, once
-an hour, and the dashboard showed whatever the last tick had copied into
-`usage_samples`. So a number that changes every five minutes was arriving up to
-an hour late and reading, at a glance, like a counter that had stopped. Nothing
-about the cache costs anything to read: it is a local file written by the tray
-app, which is the one process allowed to call the usage endpoint (~5 requests
-per rolling 5 minutes per account, shared with the Claude Code CLI itself). The
-history rows still come from the pulse; the live figure comes from here.
-
-`week_window()` is the Friday-to-Friday range. It prefers the reset instant the
-API itself reported, because that is the truth and this is only a model of it.
-The Friday-05:00 arithmetic is the fallback for when there is no cache to read,
-a fresh machine, a stopped tray app, and it is deliberately a fallback: a
-constant in this file cannot know about a daylight-saving shift or an account
-whose window moved, and the reported instant can.
+`week_window()` prefers the reset instant the API reported and falls back to
+Friday-05:00 arithmetic when there is no cache. The reported instant follows
+DST and account changes; the constant cannot.
 """
 
 from __future__ import annotations
@@ -36,8 +21,7 @@ from pathlib import Path
 
 CACHE = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "claude-usage" / "usage.json"
 
-# Every ledger timestamp is written in this shape, and so is every instant that
-# leaves this module for somewhere that cannot hold a datetime.
+# The ledger's timestamp format, also used for instants leaving this module.
 TS = "%Y-%m-%d %H:%M:%S"
 
 # Past this, the tray app has stopped and the figure on screen is a fossil.
@@ -50,14 +34,9 @@ WEEK = timedelta(days=7)
 
 
 def parse_iso(text: str | None) -> datetime | None:
-    """An ISO instant from the cache, as a naive *local* datetime.
-
-    The cache writes UTC with an offset: "2026-08-28T08:59:59.877882+00:00".
-    The dashboard was printing the first sixteen characters of that string, so
-    a window that closes at five in the morning was on screen as "08:59". The
-    right instant, told in a timezone nobody in this house lives in. Everything
-    downstream compares against `datetime('now','localtime')` values from the
-    ledger, so the conversion happens once, here.
+    """An ISO instant from the cache (UTC with offset) as a naive local
+    datetime, to compare against the ledger's `datetime('now','localtime')`
+    values.
     """
     if not text:
         return None
@@ -65,9 +44,7 @@ def parse_iso(text: str | None) -> datetime | None:
         stamp = datetime.fromisoformat(str(text).strip())
     except ValueError:
         return None
-    # Microseconds dropped here rather than at each print site. The ledger keeps
-    # whole seconds everywhere, and "resets 2026-08-28 05:00:00.383185" is a
-    # reset instant reported to a precision nobody can act on.
+    # Whole seconds, like every other ledger timestamp.
     if stamp.tzinfo is None:
         return stamp.replace(microsecond=0)
     return stamp.astimezone().replace(tzinfo=None, microsecond=0)
@@ -94,17 +71,8 @@ def read() -> dict | None:
 
 
 def json_safe(sample: dict | None) -> dict | None:
-    """A `read()` result with its instants rendered as ledger timestamps.
-
-    `read()` hands back real `datetime` objects, because everything that does
-    arithmetic on a reset instant wants one. `json.dumps` does not, and the
-    pulse writes its whole context into `pulses.detail` as JSON. So the
-    moment `read()` started parsing instead of passing strings through, every
-    tick began dying at that one boundary. Fifteen of them died before anyone
-    noticed, because a scheduled task that exits 1 looks, from the dashboard,
-    exactly like a colony with nothing to do.
-
-    Anything crossing a serialisation boundary comes through here.
+    """A `read()` result with datetimes rendered as ledger timestamps, for
+    anything that goes through `json.dumps` (the pulse's `pulses.detail`).
     """
     if sample is None:
         return None
@@ -125,16 +93,11 @@ def next_reset(now: datetime | None = None) -> datetime:
 
 def week_window(now: datetime | None = None,
                 resets_at: datetime | None = None) -> tuple[datetime, datetime]:
-    """The allowance week `now` falls in, as (start, end).
+    """The allowance week `now` falls in, as half-open (start, end).
 
-    Half-open: a run at exactly the reset instant belongs to the week that is
-    opening, not the one that just closed.
-
-    `resets_at` is the end the API reported. It is trusted when it is anywhere
-    near sane, within a week either side of now, and ignored when it is not,
-    because a cache left behind by a stopped tray app can name a reset that
-    happened days ago, and quietly measuring last week is worse than measuring
-    an arithmetic week that is at least the right length.
+    `resets_at` is trusted only within a week of now. A stale cache from a
+    stopped tray app can name a reset days old, and an arithmetic week beats
+    last week.
     """
     now = now or datetime.now()
     end = resets_at

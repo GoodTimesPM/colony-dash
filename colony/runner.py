@@ -1,23 +1,14 @@
-r"""The one thing a build agent cannot do, done by the colony instead.
+r"""Runs a command a build agent asked for, once the PO approves it.
 
-A build agent gets Read, Grep, Glob, Edit and Write. It has no shell, no
-network and no package manager, and that is not an oversight. An unattended
-run with a shell is one bad line away from `git push`, `rm -rf` or `curl | sh`
-(ARCHITECTURE.md §8.3). The price of the rule is that a criterion phrased "run
-`py -m apply.main auto` and confirm the OG tracker row appears" was
-unanswerable. The agent could only skip it.
+Build agents have no shell (ARCHITECTURE.md §8.3), so a criterion like "run
+this and confirm the row appears" is out of their reach. They put the
+command in `needs_run`, which raises a `run-request` card with the command,
+why, and the expected result. If the PO approves, it runs here and the
+output goes on the story for the next build to read.
 
-So the agent stops trying and hands the command over. `needs_run` in its reply
-raises a `run-request` card carrying the command as written, why it is needed,
-and what the agent expects to see. The PO reads the command and decides. If they
-runs it, the colony runs it here and puts the output back on the story, where
-the next build reads it.
-
-What this module is not: a shell for agents. Nothing calls `execute` except a
-PO decision on a card, one command at a time, and the command is the text the
-PO read. The refusals below are a second line behind that, for the cases where
-a plausible-looking command does something the colony is not allowed to do at
-any tier.
+This is not a shell for agents: only a PO decision calls `execute`. The
+refusals below are a second line against commands that look routine but are
+never allowed.
 """
 
 from __future__ import annotations
@@ -30,19 +21,16 @@ from . import db, proc as proc_mod
 
 ROOT = db.PROJECTS_ROOT
 
-# Ninety seconds. Long enough for a test suite or an API round trip, short
-# enough that a command waiting on a prompt nobody can answer gives up rather
-# than holding the dashboard's worker thread until the process is killed.
+# Enough for a test suite; short enough that a command stuck on a prompt gives
+# up instead of holding the worker thread.
 TIMEOUT_S = 90
 
 # Output kept per stream. Well past anything worth reading, and the cap exists
 # only so a runaway loop cannot write a gigabyte into the ledger.
 MAX_OUTPUT = 40000
 
-# The things the colony may not do at any tier, whoever asks. These are not a
-# security boundary. The PO can open a terminal and type any of them themselves.
-# They are here so that a command which *looks* routine on a card cannot turn
-# out to have been one of these.
+# Never allowed at any tier. Not a security boundary; the PO has a terminal.
+# This stops a routine-looking card from hiding one of these.
 FORBIDDEN = [
     (re.compile(r"\bgit\s+push\b", re.I), "the colony never pushes"),
     (re.compile(r"\bgit\s+commit\b", re.I), "the colony never commits. You commit"),
@@ -93,27 +81,16 @@ def check_folder(project: str) -> Path:
     return path
 
 
-# `cd job-search/assisted-apply; py -m apply.main auto`. Written by an agent
-# that had no way to know which of those two folders the colony was going to
-# start it in. Both spellings have to work, because both are things a person
-# would type and the agent cannot tell them apart from where it sits.
+# Agents write `cd sub/dir; cmd` without knowing the start folder.
 _LEADING_CD = re.compile(
     r"""^\s*cd\s+(?P<path>"[^"]+"|'[^']+'|[^\s;&|]+)\s*(?:;|&&)\s*""")
 
 
 def resolve_cd(command: str, cwd: Path) -> tuple[str, Path]:
-    """Strip a leading `cd` and say which folder the rest should run in.
+    """Strip a leading `cd` and return the folder the rest should run in.
 
-    A `cd` deeper into the project folder is honoured rather than refused. The
-    write scope is a folder and everything under it, so a subfolder of it is
-    already approved, and refusing to descend was costing real runs: with the
-    scope on `job-search/`, `py -m apply.main auto` has to start in
-    `job-search/assisted-apply/` or there is no `apply` package to find, and
-    every attempt died on `No module named 'apply'` before it ran a line.
-
-    A `cd` that leaves the project folder is still refused. That one is not a
-    detail of where the code sits, it is a request to run somewhere nobody
-    approved.
+    A `cd` deeper inside the write scope is honoured; packages often live in
+    a subfolder. A `cd` that leaves the project is refused.
     """
     here = Path(str(cwd)).resolve(strict=False)
     landing = here
@@ -122,11 +99,8 @@ def resolve_cd(command: str, cwd: Path) -> tuple[str, Path]:
         if not found:
             return command, landing
         raw = found.group("path").strip("\"'").replace("\\", "/")
-        # Relative to the folder we are in, and relative to the projects root,
-        # because an agent writing `cd job-search/assisted-apply` may mean
-        # either and has no way to know which. Both readings are usually inside
-        # the scope -- `proj/proj/inner` has `proj` for a parent as surely as
-        # `proj/inner` does -- so existing on disk is what picks between them.
+        # Try the path relative to here and to the projects root; the one that
+        # exists on disk wins.
         inside = [c for c in ((landing / raw).resolve(strict=False),
                               (ROOT / raw.lstrip("/")).resolve(strict=False))
                   if c == here or here in c.parents]
@@ -144,20 +118,14 @@ def resolve_cd(command: str, cwd: Path) -> tuple[str, Path]:
 
 
 def execute(command: str, project: str) -> dict:
-    """Run one command in one project folder and bring back everything it said.
-
-    Never raises for a command that fails. A failing command is an answer,
-    often the answer the criterion was asking for, so the exit code and both
-    streams come back and the caller writes them down.
+    """Run one command in one project folder and return exit code and both
+    streams. A failing command is an answer, so this never raises for one.
     """
     command = check(command)
     command, cwd = resolve_cd(command, check_folder(project))
 
     try:
-        # shell=True: the commands on these cards are written the way the PO
-        # would type them (`py -m apply.main auto`), and splitting them by hand
-        # would mean explaining to them why their own line did not work. The text
-        # is one they read and approved, which is the whole control here.
+        # shell=True: the PO approved this exact text as they would type it.
         completed = proc_mod.run(
             command, cwd=str(cwd), shell=True, capture_output=True, text=True,
             encoding="utf-8", errors="replace", timeout=TIMEOUT_S,
@@ -179,13 +147,8 @@ def execute(command: str, project: str) -> dict:
 
 
 def transcript(result: dict, expect: str = "") -> str:
-    """The run as the story will remember it, and as the next agent will read it.
-
-    `expect` is the build agent's own sentence about what a correct result looks
-    like. It is written down next to the output rather than left on the card,
-    because the card is answered and gone by the time anyone reads the run back,
-    and a transcript that records only what happened leaves the next agent to
-    guess what was supposed to happen.
+    """The run as the story records it, with the agent's `expect` beside the
+    output so the next reader knows what should have happened.
     """
     head = f"$ {result['command']}\n  in {result['cwd']}"
     if result.get("timed_out"):
@@ -206,26 +169,17 @@ def transcript(result: dict, expect: str = "") -> str:
     return "\n\n".join(parts)
 
 
-# Counts of zero are how a passing test suite reports itself. Blanking them
-# before the scan below is the difference between reading "0 failed" as a pass
-# and reading it as the word "failed".
+# Blank out zero counts so "0 failed" does not read as a failure.
 _ZERO_COUNT = re.compile(r"\b(0|no) (failed|failures|errors?|warnings?|skipped)\b", re.I)
 
-# Exit 0 is a weak claim. `py -m apply.main auto` printed "Notion query failed
-# (ConnectionError)" and returned 0, and the colony wrote that down as a clean
-# run against a criterion that had asked for proof the sync worked. These
-# patterns do not decide whether the criterion was met, nothing here can,
-# they decide whether the run is allowed to look like it settled anything.
+# Exit 0 is weak evidence; a command can print an error and still return 0.
+# These decide only whether the run may look like it settled anything.
 SUSPECT = [
     (re.compile(r"traceback \(most recent call last\)", re.I),
      "it printed a traceback"),
     (re.compile(r"\bno tests? (ran|were run|collected|found)\b", re.I),
      "no test ran"),
-    # `0 newly-applied row(s) in the Job Radar Tracker`. The real output of
-    # `py -m apply.main auto`, and the reason the noun is allowed to sit a few
-    # words away from the zero and to be written `row(s)`. A command run to
-    # prove a sync touched a row, reporting that it touched none, is the exact
-    # thing this verdict exists to catch.
+    # "0 newly-applied row(s) in ...": a sync that touched nothing.
     (re.compile(r"\b0 (?:[a-z][\w'-]* ){0,3}"
                 r"(?:pass(?:ed|es)?|tests?|rows?|files?|records?|items?|entries"
                 r"|entry|matches|results?|jobs?|applications?)(?:\(s\))?\b", re.I),
@@ -244,11 +198,8 @@ SUSPECT = [
 
 
 def judge(result: dict) -> tuple[str, str]:
-    """`clean`, `suspect` or `failed`, and the sentence that says which.
-
-    `clean` means nothing in the output contradicts the request. It does not
-    mean the criterion is met: only a person, or the next build agent reading
-    the transcript against the expectation, can say that.
+    """`clean`, `suspect` or `failed`, with a sentence saying why. `clean`
+    means nothing contradicts the request, not that the criterion is met.
     """
     if result.get("timed_out"):
         return "failed", f"it never finished. Gave up after {TIMEOUT_S}s"
@@ -267,11 +218,7 @@ def judge(result: dict) -> tuple[str, str]:
 
 
 def looks_shell_free(command: str) -> bool:
-    """Would `shlex` read this the same way a shell does?
-
-    Only used to decide whether the card can show a tidy argument list next to
-    the raw text. Nothing depends on the answer.
-    """
+    """Would `shlex` split this as a shell would? Display only."""
     try:
         shlex.split(command)
         return True

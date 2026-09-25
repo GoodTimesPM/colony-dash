@@ -1,26 +1,14 @@
-"""How a colonist writes the parts the PO reads.
+"""How a colonist writes the prose fields the PO reads on Inbox cards.
 
-Every prose field the colony produces ends up on a card in the PO's Inbox: a
-recommendation, a report, an answer to something they asked. The agents were
-told what to decide and never told how to write it down, so the shape of the
-writing was whatever the model reached for. An opening line announcing what it
-was about to say, a closing line asking if anything else was needed, and the one
-sentence that mattered buried between them.
-
-`STYLE` is the `unslop` editing rules, aimed at these fields rather than at a
-chat reply. It cuts the vocabulary that marks text as machine-written, bans the
-preamble and the closer, and asks for a file, a number or an error in place of a
-judgement. `STYLE` goes into every prompt that asks an agent for prose.
-
-It is a paragraph of instruction, not a filter. Nothing here can stop a model
-writing badly. It can only say what good looks like.
+`STYLE` is the `unslop` rules aimed at those fields: no preamble, no closer,
+no machine-tell vocabulary, and a file, number or error in place of a
+judgement. It goes into every prompt that asks for prose. It is instruction,
+not a filter.
 """
 
 from __future__ import annotations
 
-# Roughly 1,700 characters, so about 425 tokens on every prompt that carries it.
-# That is the cost, and it is worth paying: a report nobody reads is the whole
-# run wasted, and the run costs four figures in tokens.
+# About 425 tokens per prompt, cheap next to a run whose report goes unread.
 STYLE = """--- how to write the prose fields below ---
 Write like a person who did the work, not like a model summarising it. The first
 line and the last line are the two that get read.

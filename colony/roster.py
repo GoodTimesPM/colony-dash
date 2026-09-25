@@ -1,25 +1,13 @@
 """Scan persona files into the `roster` table.
 
-These files are résumés, not employees. They carry `name`/`description`/`color`/
-`emoji`/`vibe` and nothing else. No `tools:`, no `model:`. Persona without
-governance. Scanning them here makes them browsable and searchable; it does not
-install anything and does not make anything runnable. See ROSTER.md §2.
+Personas carry name, description, color, emoji and vibe; no tools, no model.
+Scanning makes them searchable, not runnable (ROSTER.md §2). Two roots:
 
-Two roots are scanned, and the split is the whole point of this module:
+  `~/.agency-agents`  someone else's git clone, read only so `git pull` works.
+  `~/.colony-agents`  this machine's own personas, written by the dashboard.
 
-  `~/.agency-agents`. Somebody else's git clone. Read only, always. Nothing
-                        here ever writes into it, because the next `git pull`
-                        in that clone would either clobber the write or refuse
-                        to fast-forward past it.
-  `~/.colony-agents`. This machine's own personas, written by the dashboard.
-                        Upstream has never heard of it, so it survives.
-
-Neither is inside this repository and neither is ever committed. A persona is a
-machine's furniture; shipping a stranger's agent library inside a project that
-merely reads it would be redistributing their work and would make the clone a
-dependency of `git clone` rather than of first run. The dashboard offers an
-import panel instead, and a fresh install with no personas at all is a normal
-install with an empty Standby panel.
+Neither is in this repo. A fresh install with no personas is normal and
+shows an empty Standby panel.
 """
 
 from __future__ import annotations
@@ -39,11 +27,8 @@ FRONTMATTER_KEYS = ("name", "description", "color", "emoji", "vibe")
 
 
 def parse_persona(path: Path) -> dict | None:
-    """Pull the YAML frontmatter out of a persona file.
-
-    Deliberately a five-key line reader rather than a YAML dependency: these files
-    have a fixed, flat shape, and if one ever grows a `tools:` key we want the
-    scan to ignore it rather than quietly honour it.
+    """Read a persona's frontmatter with a flat key reader, not a YAML library,
+    so a stray `tools:` key is ignored rather than honoured.
     """
     text = path.read_text(encoding="utf-8", errors="replace")
     if not text.startswith("---"):
@@ -71,13 +56,7 @@ def parse_persona(path: Path) -> dict | None:
 
 
 def scan_root(root: Path, source: str) -> list[dict]:
-    """Walk one install and return one dict per persona found.
-
-    A missing directory is an empty list, not an error. Only one of the two
-    roots is ever guaranteed to exist -- a machine with no agency-agents clone
-    and three hand-written personas is a perfectly ordinary machine -- so
-    "nothing here" has to be a normal answer rather than something the caller
-    has to catch.
+    """One dict per persona under `root`. A missing directory is an empty list.
     """
     if not root.is_dir():
         return []
@@ -110,19 +89,9 @@ def scan_root(root: Path, source: str) -> list[dict]:
 
 def scan(root: Path = DEFAULT_ROSTER_DIR,
          local: Path | None = LOCAL_ROSTER_DIR) -> list[dict]:
-    """Both roots, flattened into one list.
-
-    Local personas are appended after the agency ones and win a slug collision,
-    because a `slug` is `division/filename` and the person who wrote a file on
-    this machine outranks a clone they did not write. That is also the only
-    supported way to override an upstream persona: put a file with the same name
-    in the same division under `~/.colony-agents`, and leave the clone alone.
-
-    An entirely missing agency clone is fine and always has been the likely case
-    for anyone who is not the PO. What is not fine is *silently* empty, so the
-    caller gets `FileNotFoundError` only when neither root exists -- at which
-    point the roster genuinely has nowhere to come from and the panel should say
-    so rather than show zero.
+    """Both roots in one list. Local personas win a slug collision, which is
+    how to override an upstream one. Raises `FileNotFoundError` only when
+    neither root exists, so the panel can say so instead of showing zero.
     """
     agency = scan_root(root, "agency")
     mine = scan_root(local, "local") if local else []
@@ -140,11 +109,8 @@ def scan(root: Path = DEFAULT_ROSTER_DIR,
 
 def sync(conn: sqlite3.Connection, root: Path = DEFAULT_ROSTER_DIR,
          local: Path | None = LOCAL_ROSTER_DIR) -> dict:
-    """Upsert the scan into `roster`. Reports what changed upstream.
-
-    A changed `body_hash` means a `git pull` in the agency-agents repo rewrote a
-    persona we may already have hired. That is a fact the PO should see, not a
-    silent overwrite.
+    """Upsert the scan into `roster` and report personas whose `body_hash`
+    changed upstream, since one may already be hired.
     """
     personas = scan(root, local)
     before = {r["slug"]: r["body_hash"] for r in conn.execute("SELECT slug, body_hash FROM roster")}
@@ -189,22 +155,12 @@ def sync(conn: sqlite3.Connection, root: Path = DEFAULT_ROSTER_DIR,
 
 
 def digest(conn: sqlite3.Connection, *, desc_chars: int = 200) -> str:
-    """The whole roster, grouped by division, with how often each was picked.
+    """The whole roster by division, with hire counts.
 
-    All 270 of them, deliberately. The obvious economy is to search the roster
-    with terms from the story and show the top twenty. And that economy is the
-    bias. A search over the story text can only ever return personas whose
-    description already sounds like the story, which is how a colony ends up
-    with four engineers and no one who has ever thought about a user. The PO
-    asked for the opposite: "this environment needs to be diverse."
-
-    Roughly 70k characters, so about 18k tokens. That is a third of one grooming
-    run, paid once per hire, to make the choice from the actual field instead of
-    from a shortlist someone else drew.
-
-    `hired` is the count that makes the diversity rule checkable rather than
-    aspirational. It goes in front of the chooser, and it is still there
-    afterwards when someone asks why the same name keeps coming up.
+    All of it, not a search-ranked shortlist: searching on story text only
+    finds personas that already sound like the story, which narrows the
+    colony. About 18k tokens per hire. `hired` makes the diversity rule
+    checkable.
     """
     out: list[str] = []
     division = None
@@ -248,10 +204,7 @@ def search(conn: sqlite3.Connection, query: str, limit: int = 20) -> list[sqlite
 
 
 # -- writing a persona ---------------------------------------------------------
-# Everything above this line reads. These three write, and they write only ever
-# under `LOCAL_ROSTER_DIR` -- never into the agency clone, never anywhere else on
-# the disk. `_safe_name` is the entire enforcement of that, so it is stricter
-# than it needs to be rather than cleverer.
+# These write only under `LOCAL_ROSTER_DIR`, enforced by `_safe_name`.
 
 SAFE = "abcdefghijklmnopqrstuvwxyz0123456789-"
 
@@ -261,13 +214,8 @@ class BadPersona(ValueError):
 
 
 def _safe_name(raw: str, what: str) -> str:
-    """Fold a typed-in name down to `[a-z0-9-]`, or refuse.
-
-    This is a path component that arrives from a web request, so the failure
-    mode being designed against is `../../.ssh/authorized_keys`, not a stray
-    capital letter. Folding rather than rejecting keeps "Data Engineering" from
-    being an error the user has to solve; refusing the empty result keeps
-    "../.." from folding down to something that still traverses.
+    """Fold a typed name to `[a-z0-9-]`, or refuse an empty result. It is a
+    path component from a web request, so traversal is the threat.
     """
     name = "".join(c if c in SAFE else "-" for c in (raw or "").strip().lower())
     while "--" in name:
@@ -283,12 +231,8 @@ def _safe_name(raw: str, what: str) -> str:
 
 
 def persona_path(division: str, slug: str, root: Path = LOCAL_ROSTER_DIR) -> Path:
-    """The file a local persona lives at, with both components made safe.
-
-    Resolved and re-checked against the root afterwards. `_safe_name` already
-    makes traversal impossible, and this is the assertion that says so out loud
-    -- the cost of being wrong here is a web request writing anywhere on the
-    disk, which is worth two checks.
+    """The file for a local persona, re-checked against the root after
+    resolving.
     """
     path = (root / _safe_name(division, "division") /
             (_safe_name(slug, "file name") + ".md"))
@@ -304,35 +248,23 @@ def persona_path(division: str, slug: str, root: Path = LOCAL_ROSTER_DIR) -> Pat
 def write_persona(*, division: str, slug: str, name: str, description: str = "",
                   emoji: str = "", color: str = "", vibe: str = "", body: str = "",
                   overwrite: bool = False, root: Path = LOCAL_ROSTER_DIR) -> Path:
-    """Write one persona file. Returns the path it landed at.
+    """Write one persona file and return its path.
 
-    The frontmatter is rebuilt from the fields rather than passed through, so a
-    file that arrives with a `tools:` or `model:` key loses it here instead of
-    at scan time. `parse_persona` already ignores those keys, but a persona file
-    on disk claiming tool access it does not have is a document that will
-    eventually be believed by a person.
-
-    `overwrite=False` by default because the panel's import path takes a
-    dropped file, and a drop that silently replaces a persona already hired into
-    a running contract is the kind of loss nobody notices for a week.
+    Frontmatter is rebuilt from the fields, dropping any `tools:` or
+    `model:`. `overwrite=False` so a dropped import cannot replace a hired
+    persona.
     """
     if not (name or "").strip():
         raise BadPersona("a persona needs a name")
 
-    # The file name is optional in the panel, because "what should this file be
-    # called" is a question about the filesystem and the person filling the form
-    # is thinking about a colleague. Falling back here rather than only at the
-    # route keeps the two callers -- the panel and anything later -- from each
-    # needing to remember it.
+    # Filename defaults to the name; handled here so every caller gets it.
     path = persona_path(division, slug or name, root)
     if path.exists() and not overwrite:
         raise BadPersona(f"{path.name} already exists in {path.parent.name}. "
                          f"Rename it, or tick replace.")
 
     def one(key: str, value: str) -> str:
-        # Folded to one line: the frontmatter reader in `parse_persona` is a
-        # line reader, so a description with a newline in it would truncate the
-        # block and take the rest of the file with it.
+        # One line, because `parse_persona` reads frontmatter line by line.
         return f"{key}: {' '.join((value or '').split())}\n" if (value or "").strip() else ""
 
     front = ("---\n"
@@ -353,13 +285,9 @@ def write_persona(*, division: str, slug: str, name: str, description: str = "",
 
 def delete_persona(conn: sqlite3.Connection, slug: str,
                    root: Path = LOCAL_ROSTER_DIR) -> Path:
-    """Remove a local persona file and its roster row.
-
-    Refuses anything whose `source` is not 'local'. Deleting an agency persona
-    would delete a file out of somebody else's git clone, where the loss shows
-    up as a dirty working tree in a repo the user did not think they were
-    editing. The scan would also put it straight back on the next `git pull`,
-    so the button would look broken on top of being wrong.
+    """Remove a local persona file and its row. Agency personas are refused:
+    they live in someone else's clone and the next scan would restore them
+    anyway.
     """
     row = conn.execute("SELECT path, source FROM roster WHERE slug = ?", (slug,)).fetchone()
     if row is None:

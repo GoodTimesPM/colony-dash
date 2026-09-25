@@ -1,22 +1,9 @@
 """The colony's mark: a longhouse with the fire lit.
 
-Drawn rather than downloaded, for two reasons. The obvious one is that the
-default Python icon is the same icon as every other Python app on this machine,
-including the Balatro mod manager, and a taskbar where two different programs
-look identical is a taskbar you have to read instead of glance at. The less
-obvious one is that this file *is* the brand asset: no binary blob in the repo
-that nobody can edit, just twenty lines of geometry anyone can adjust.
-
-The subject is the project's own metaphor. A colony of agents with a Product
-Owner and a Scrum Master is a settlement, so the mark is the oldest thing a
-settlement has: a pitched roof, a doorway, and a fire inside it that tells you
-from across the valley whether anyone is home.
-
-Legibility at 16px drove every choice. One silhouette, one warm accent, no
-outline thinner than a pixel at the smallest size, and the details (smoke, the
-second hut) only appear at sizes large enough to hold them. Each frame is drawn
-at 4× and downsampled, because Pillow's polygon fill has no antialiasing of its
-own and a jagged roofline is exactly what a hand-drawn icon looks like.
+Drawn in code so it differs from every other Python app's icon and stays
+editable. Built for 16px first: one silhouette, one warm accent, detail only
+at larger sizes. Frames are drawn at 4x and downsampled, since Pillow's
+polygon fill has no antialiasing.
 """
 
 from __future__ import annotations
@@ -26,8 +13,7 @@ from pathlib import Path
 ICON_PATH = Path(__file__).resolve().parent / "ui" / "colony.ico"
 PNG_PATH = ICON_PATH.with_suffix(".png")
 
-# Windows asks for all of these; supplying them beats letting the shell scale
-# the 256 down to 16 and smear it.
+# Every size Windows asks for, so the shell never scales the 256 down.
 SIZES = [16, 20, 24, 32, 40, 48, 64, 128, 256]
 
 NIGHT = (18, 14, 11, 255)      # the ground the settlement sits on
@@ -61,18 +47,15 @@ def _draw(px: int):
     detail = px >= 40
 
     if detail:
-        # A second, smaller house behind. One house is a building, two are a
-        # settlement, and the whole point of this project is the second one.
+        # A second, smaller house behind.
         poly([(0.79, 0.33), (0.99, 0.53), (0.59, 0.53)], THATCH)
         box(0.67, 0.51, 0.94, 0.79, WALL)
 
-    # The longhouse. Roof eaves overhang the walls on both sides, which is what
-    # makes a triangle-on-a-rectangle look like a building.
+    # Overhanging eaves make the triangle read as a roof.
     poly([(0.40, 0.14), (0.78, 0.52), (0.02, 0.52)], THATCH)
     box(0.11, 0.50, 0.69, 0.82, WALL)
 
-    # The fire in the doorway. This is the one bright thing in the frame, and at
-    # 16px it is the pixel that says "somebody is home".
+    # The fire: the one bright pixel at 16px.
     box(0.32, 0.60, 0.48, 0.82, FIRE)
 
     if detail:
@@ -91,19 +74,15 @@ def build(path: Path = ICON_PATH) -> Path:
     frames = [_draw(s) for s in SIZES]
     big = frames[-1]
     big.save(PNG_PATH)
-    # append_images carries the hand-drawn small sizes into the .ico rather than
-    # letting Pillow generate them by scaling the 256.
+    # Carry the hand-drawn small sizes into the .ico instead of rescaled ones.
     big.save(path, format="ICO", sizes=[(s, s) for s in SIZES],
              append_images=frames[:-1])
     return path
 
 
 def ensure(path: Path = ICON_PATH) -> Path | None:
-    """The icon if we have one, built on demand, and never a crash.
-
-    A missing icon is a cosmetic problem; a dashboard that refuses to open
-    because Pillow is not installed is not. Callers treat `None` as "use the
-    default" (see desktop.py).
+    """The icon, built on demand, or None. A missing Pillow must not stop the
+    window opening.
     """
     try:
         if path.is_file():

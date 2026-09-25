@@ -1,29 +1,12 @@
 """Screenshots and files the PO pastes into a reply.
 
-A screenshot is frequently the entire message. "The title formatting broke" and
-a picture of the broken title are not the same sentence, and the second one is
-the one that can be acted on. Up to now the dashboard could only take the
-first, so every reply that was really about something *visible* had to be
-retyped into prose and lost most of what it was.
+  * Files live only under `.colony/attachments/`. `resolve` re-checks
+    containment, since the stored name round-trips through the browser.
+  * The stored name is random; the browser's name is only a label.
+  * Not in `control.py`: storing a file decides nothing.
 
-Three rules hold the feature down:
-
-  * **Files land under `.colony/attachments/` and nowhere else.** `resolve`
-    re-checks containment on the way back out rather than trusting the name it
-    stored, because the name makes a round trip through the browser and a value
-    that has left the process is an input again when it returns.
-  * **The stored name is generated, never the one the browser sent.** A pasted
-    screenshot is always called `image.png`, so the original name is decoration;
-    keeping it as the *label* and a random token as the *filename* means two
-    pastes never overwrite each other and nothing user-supplied ever reaches the
-    filesystem as a path.
-  * **Nothing here decides anything**, so it is not in `control.py`. Writing a
-    file is bookkeeping; the decision is the reply that references it.
-
-The agent reads them with the `Read` tool off an absolute path in its work
-order, rather than being handed base64 in the prompt: `.colony/` is inside the
-read scope already, an image costs the same either way, and a prompt that
-carries its evidence by reference stays readable in the ticket.
+Agents open them with `Read` by absolute path from the work order rather
+than receiving base64 in the prompt.
 """
 
 from __future__ import annotations
@@ -36,10 +19,7 @@ from pathlib import Path
 
 from .db import ATTACHMENTS_DIR
 
-# Eight megabytes is roughly a 4K screenshot as PNG. The ceiling exists because
-# the whole file arrives as base64 in one JSON body, and a request large enough
-# to matter should fail at the door with a sentence rather than somewhere deep
-# in the ledger.
+# Roughly a 4K PNG screenshot. The body is base64 JSON, so fail early.
 MAX_BYTES = 8 * 1024 * 1024
 MAX_PER_MESSAGE = 6
 
@@ -77,23 +57,9 @@ def save(label: str, data_url: str) -> dict:
 
 
 def for_story(conn, story_id: int | None) -> list[dict]:
-    """Every file the PO has attached anywhere in one story's thread.
-
-    Attachments were reachable from exactly one prompt: the reply that carried
-    them. That is the wrong scope by a long way. A conversation is scoped to the
-    story (`control.thread` says why), and the evidence in it belongs to the
-    story too. The screenshot the PO pasted on Tuesday is still the answer on
-    Thursday, to whichever agent is asking.
-
-    The cost of getting that wrong is not theoretical. Story #1 carries three
-    screenshots of the Notion tracker the PO was asked to describe, and the
-    groom that raised the blocker "the field list exists only as a screenshot,
-    it was never transcribed into text anywhere" was, at that moment, holding a
-    prompt that did not mention the screenshots. It asked them for a picture they
-    had already sent.
-
-    Rows whose file has gone missing are dropped rather than listed: a path in a
-    work order is a promise the agent can open it.
+    """Every file attached anywhere in one story's thread. Conversations are
+    scoped to the story, and so is their evidence. Rows whose file is gone
+    are dropped.
     """
     if not story_id:
         return []
@@ -122,12 +88,8 @@ def for_story(conn, story_id: int | None) -> list[dict]:
 
 
 def evidence(files: list[dict]) -> str:
-    """The prompt section. Empty string when there is nothing, so it can be
-    interpolated unconditionally.
-
-    Worded as an instruction rather than a listing because the failure mode is
-    not that the agent cannot open these, it can, `Read` renders an image, it
-    is that the agent never thinks to.
+    """The prompt section, or "" when there are none. Phrased as an
+    instruction, because agents otherwise forget to open them.
     """
     if not files:
         return ""
@@ -148,10 +110,9 @@ def evidence(files: list[dict]) -> str:
 
 
 def resolve(name: str) -> Path:
-    """The absolute path of a stored attachment, or `Rejected`.
-
-    Containment is checked against the resolved parent rather than by inspecting
-    the string, so `..`, a symlink and an absolute path all fail the same way.
+    """Absolute path of a stored attachment, or `Rejected`. Containment is
+    checked on the resolved path, so `..`, symlinks and absolute paths all
+    fail.
     """
     root = ATTACHMENTS_DIR.resolve()
     try:
