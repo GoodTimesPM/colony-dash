@@ -1141,6 +1141,8 @@ def _write_pulse_row(conn: sqlite3.Connection, ctx: dict, wake_report: dict | No
             finding += f"; drafted {len(wake_report['forged'])} skill(s)"
         if wake_report.get("staffed"):
             finding += f"; proposed {len(wake_report['staffed'])} hire(s)"
+        if wake_report.get("stopped"):
+            finding += f"; {wake_report['stopped']}"
         if wake_report["skipped"] and not (wake_report["groomed"] or wake_report.get("built")
                                            or wake_report.get("answered")
                                            or wake_report.get("forged")
