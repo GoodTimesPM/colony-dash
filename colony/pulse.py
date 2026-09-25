@@ -20,7 +20,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from . import (control, db, forge as forge_mod, notion, outbox,
-               projects as projects_mod, usage as usage_mod)
+               projects as projects_mod, usage as usage_mod, wording)
 from .mirror import load_env
 
 HALT_FILE = db.RUNTIME_DIR / "HALT"
@@ -293,12 +293,7 @@ def resume_delivered(conn: sqlite3.Connection, story_ids: list[int]) -> list[str
                VALUES (?, 'note', ?, ?)""",
             (row["id"],
              "brief grew after delivery. Back in the groom queue",
-             "The last batch was delivered and the Notion row still says "
-             "In Progress, so this edit is more scope on a running project "
-             "rather than a new one. The criteria written against the older "
-             "brief are cleared; the next wake re-reads the whole page.\n\n"
-             "Nothing already built was touched. File the row as Done or "
-             "Shelved in Notion when you want this to stop."),
+             wording.BRIEF_GREW),
         )
         resumed.append(row["title"])
     return resumed
@@ -322,13 +317,7 @@ def brief_changed(conn: sqlite3.Connection, story_ids: list[int]) -> list[str]:
             (
                 row["id"],
                 f'You edited "{row["title"]}" after the colony finished reading it.',
-                "Its acceptance criteria were written against the older version of "
-                "the brief, so nothing in the loop will pick this edit up on its "
-                "own. A story with criteria is not in the groom queue.\n\n"
-                "Reopen it if the edit is new scope: the criteria are cleared and "
-                "the next wake re-reads the whole brief from Notion. Leave it if "
-                "you were tidying prose. Either way this is asked once per version, "
-                "edit the page again and it comes back.",
+                wording.BRIEF_CHANGED,
                 row["notion_hash"],
             ),
         )
