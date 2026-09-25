@@ -1,22 +1,10 @@
-r"""The hourly pulse, installed as a Windows scheduled task that never shows itself.
+r"""The hourly pulse as a hidden Windows scheduled task.
 
-The first version of this ran `cmd.exe /c pulse.cmd`, which is the obvious thing
-and the wrong thing: an interactive scheduled task that launches a console
-application gets a real console window on the user's desktop, once an hour, and
-it stays up for as long as the pulse runs, which, on an hour that escalates to
-a wake, is minutes. A background heartbeat that steals focus is not a background
-heartbeat.
+  * pythonw.exe, so no console window appears each hour;
+  * `--log` for output, since there is no shell to redirect;
+  * the task is marked hidden.
 
-Three changes fix it, and all three are needed:
-
-  * the task runs **pythonw.exe**, which has no console to show;
-  * the pulse writes its own log through `--log`, because the redirect that
-    `pulse.cmd` was there to provide is exactly what required a shell;
-  * the task itself is marked hidden, so it does not flicker in the task list.
-
-The child processes a pulse starts, git, and the `claude` CLI on a wake, are
-suppressed separately in `proc.py`. Both halves are required: pythonw stops the
-parent window, `CREATE_NO_WINDOW` stops the children.
+Child processes (git, `claude`) are hidden separately by `proc.py`.
 """
 
 from __future__ import annotations
@@ -48,16 +36,12 @@ def _run_ps(script: str) -> str:
 def install(*, hour_interval: int = 1) -> str:
     """Create or replace the hourly task. Returns what the scheduler reports."""
     pythonw = shortcut.pythonw()
-    # The log path is quoted because this machine's project root has spaces in it.
-    # Unquoted, the scheduler hands pythonw `--log D:\ALL`, `STUFF\PROJECTS\...`,
-    # argparse rejects the strays, and the task exits 2 every hour. A heartbeat
-    # that dies on its own command line before it reaches any colony code.
+    # Quoted because the project root has spaces in it.
     args = f'-m colony pulse --log "{LOG_PATH}"'
     user = getpass.getuser()
 
-    # Register-ScheduledTask over schtasks.exe: the XML dialect of schtasks is
-    # unforgiving about paths with spaces, and this machine's project root has
-    # two of them.
+    # Register-ScheduledTask rather than schtasks.exe, whose XML chokes on
+    # spaces in paths.
     script = f"""
 $ErrorActionPreference = 'Stop'
 $act = New-ScheduledTaskAction -Execute {_ps(pythonw)} -Argument {_ps(args)} -WorkingDirectory {_ps(PROJECT_ROOT)}

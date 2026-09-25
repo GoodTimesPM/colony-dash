@@ -1,7 +1,5 @@
-"""`python -m colony <command>`. Inspect and operate the ledger.
-
-The dashboard (M2) is a read view over exactly these queries. Until it exists,
-this is the whole UI.
+"""`python -m colony <command>`. Inspect and operate the ledger from a
+terminal.
 """
 
 from __future__ import annotations
@@ -16,12 +14,9 @@ from pathlib import Path
 
 from . import db, roster as roster_mod, seed as seed_mod, usage as usage_mod
 
-# Dollars are always the grayed secondary; tokens are the unit. ARCHITECTURE.md §6.
-# Piped output gets no escapes. A log file full of \033[2m is worse than plain text.
-# `sys.stdout` is None under pythonw.exe, no console exists at all, and this
-# line runs at import, before main() can repair anything. A windowed launch died
-# here with exit code 1 and no traceback anywhere: the one stream that would
-# have reported the problem was the problem.
+# Tokens are the unit; dollars are the grey secondary (ARCHITECTURE.md §6). No
+# escapes when piped. `sys.stdout` is None under pythonw, and this runs at
+# import.
 _COLOR = bool(sys.stdout and sys.stdout.isatty()) and not os.environ.get("NO_COLOR")
 DIM = "\033[2m" if _COLOR else ""
 RESET = "\033[0m" if _COLOR else ""
@@ -75,10 +70,8 @@ def cmd_status(conn: sqlite3.Connection, args) -> int:
     ).fetchone()
 
     if sprint:
-        # By run date inside the sprint window, not by story.sprint_id: stories
-        # come from Notion without a sprint attached, so the join version summed
-        # nothing and the sprint always read as "— tok" no matter what was spent.
-        # Every token the colony burns in the window belongs to the window.
+        # By run date within the sprint window, not story.sprint_id: Notion
+        # stories arrive without a sprint.
         spent = conn.execute(
             """
             SELECT COALESCE(SUM(COALESCE(chargeable_tokens, total_tokens)), 0) AS tok,
@@ -86,9 +79,8 @@ def cmd_status(conn: sqlite3.Connection, args) -> int:
               FROM runs
              WHERE started_at >= ? AND started_at < ?
             """,
-            # Half-open on the instant, not the date. The allowance week turns
-            # at 05:00 on a Friday, so a date range counted the five hours
-            # before one reset and the whole day after the next.
+            # Half-open on the instant; the week turns at 05:00 Friday, not
+            # midnight.
             (sprint["starts_at"] or sprint["starts_on"] + " 00:00:00",
              sprint["ends_at"] or sprint["ends_on"] + " 00:00:00"),
         ).fetchone()
@@ -228,17 +220,15 @@ def cmd_mirror(conn: sqlite3.Connection, args) -> int:
 
 
 def cmd_dash(conn: sqlite3.Connection, args) -> int:
-    # The dashboard opens its own read-only connection to the ledger; this one
-    # exists only because every command gets handed one. Close it first so the
-    # window is never the reason a write is blocked.
+    # The dashboard opens its own connection; close this one so it blocks
+    # nothing.
     conn.close()
     from . import access, desktop, net
 
     try:
         host, kind = net.resolve(args.host)
-        # Asked here as well as in `serve()` so the refusal lands in the
-        # terminal you typed into, rather than inside a server thread whose
-        # only output is `.colony/dash.log`.
+        # Checked here too so the refusal prints in this terminal, not the
+        # server log.
         access.check(host)
     except (access.Unconfigured, net.NoAddress) as exc:
         print(str(exc))
@@ -255,12 +245,9 @@ def cmd_dash(conn: sqlite3.Connection, args) -> int:
 
 
 def cmd_halt(conn: sqlite3.Connection, args) -> int:
-    """The stop switch, from a terminal.
-
-    It exists here as well as on the dashboard because the moment you most need
-    dispatch stopped is the moment the window is wedged or the server is down.
-    `control.halt` writes a `.colony/HALT` file *and* a `controls` row for the
-    same reason: the one control that must never fail open is this one.
+    """The stop switch, for when the window is wedged or the server is down.
+    `control.halt` writes both `.colony/HALT` and a `controls` row so it
+    cannot fail open.
     """
     from . import control
 
@@ -328,9 +315,7 @@ def cmd_pulse(conn: sqlite3.Connection, args) -> int:
     try:
         return pulse_mod.run(conn, dry_run=args.dry_run, allow_wake=not args.no_wake)
     except control.Busy as exc:
-        # The scheduled task runs this every hour. A collision with a beat
-        # forced from the dashboard is a normal event, not a failed task, so it
-        # says so in the log and exits 0.
+        # A collision with a dashboard-forced beat is normal; exit 0.
         print(f"stood down {chr(8212)} {exc}")
         return 0
 
@@ -400,13 +385,9 @@ def cmd_schedule(conn: sqlite3.Connection, args) -> int:
 
 
 def _can_draw() -> bool:
-    """Whether this terminal can print half-block characters at all.
-
-    `_force_utf8` reconfigures with `errors="replace"`, which is right for every
-    other command -- a log line with a question mark in it is still a log line.
-    It is wrong here: a QR code with question marks where the dark modules go is
-    not a degraded QR code, it is a rectangle that will not scan, and it looks
-    like the feature working. So this asks first and falls back to the URL.
+    """Whether this terminal can print half blocks. `_force_utf8` replaces what
+    it cannot encode, which for a QR code yields something that looks right
+    and will not scan. Fall back to the URL instead.
     """
     try:
         "█▄▀".encode(getattr(sys.stdout, "encoding", None) or "ascii")
@@ -416,12 +397,8 @@ def _can_draw() -> bool:
 
 
 def cmd_phone(conn: sqlite3.Connection, args) -> int:
-    """Phone access as one command: turn it on, off, or look at it.
-
-    `autostart` is still the command that explains the scheduled task in detail.
-    This one is the front door: it answers "can I open the dashboard on my
-    phone right now, and how", and it prints the answer as something you point
-    a camera at rather than something you retype.
+    """Phone access in one command: on, off, or status, with a QR to scan.
+    `autostart` still explains the scheduled task in detail.
     """
     from . import access, autostart, firewall, net, phone, qr
 
@@ -445,9 +422,7 @@ def cmd_phone(conn: sqlite3.Connection, args) -> int:
         print()
 
     if args.rotate:
-        # Deliberately before `--on`, so `--rotate --on` means "new token, then
-        # bring it up with that token" rather than the other order, which would
-        # print a QR code and then invalidate it.
+        # Before `--on`, so `--rotate --on` brings it up with the new token.
         result = phone.rotate(args.port)
         print(f"rotated {access.TOKEN_ENV} in .env")
         print("  every paired phone is logged out until it scans the code below")
@@ -483,9 +458,7 @@ def cmd_phone(conn: sqlite3.Connection, args) -> int:
     if result["on"] and not result["unlimited"]:
         print("  ⚠ the task has a time limit and will be killed after three "
               "days; re-run `py -m colony autostart` to fix it")
-    # A blocked port is the failure with no error message: the phone's request
-    # is dropped rather than refused, so the browser shows a spinner and neither
-    # end logs anything at all. Say it here, where there is room to say it.
+    # A blocked port gives no error anywhere, only a spinner. Say so here.
     if result.get("firewall") == "blocked":
         print("  ⚠ Windows Firewall has no rule for this port, so the "
               "phone's request will be dropped")
@@ -526,12 +499,8 @@ def cmd_phone(conn: sqlite3.Connection, args) -> int:
 
 
 def cmd_tailscale(conn: sqlite3.Connection, args) -> int:
-    """Report Tailscale, and offer the two steps that make cellular work.
-
-    The same two buttons the phone panel draws, for the case where the dashboard
-    is not the thing you are looking at. `--login` blocks on purpose here: a
-    terminal is a place where waiting for a URL and then waiting for you to
-    visit it is the normal shape of a command.
+    """Report Tailscale and offer install and login, like the phone panel.
+    `--login` blocks here, which is fine in a terminal.
     """
     from . import net, qr, tailscale
 
@@ -662,11 +631,9 @@ def build_parser() -> argparse.ArgumentParser:
                    help="append all output to PATH instead of the console. This is how "
                         "the scheduled pulse gets a log without needing a shell to "
                         "redirect one, and therefore without needing a console at all")
-    # `--log` is accepted on either side of the subcommand. The scheduled task
-    # writes `-m colony pulse --log <path>`, which reads the way a person would
-    # write it; argparse only allows that if every subparser inherits the flag,
-    # and only SUPPRESS stops an absent subcommand copy from clobbering the
-    # top-level one with None.
+    # `--log` works before or after the subcommand. Every subparser inherits
+    # it, and SUPPRESS keeps an absent copy from overwriting the top-level
+    # value.
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--log", metavar="PATH", default=argparse.SUPPRESS,
                         help=argparse.SUPPRESS)
@@ -751,9 +718,8 @@ def build_parser() -> argparse.ArgumentParser:
                      help="queue a candidate for drafting on the next wake")
     frg.set_defaults(func=cmd_forge)
 
-    # `phone` is `autostart` with the four setup steps folded into one flag and
-    # a QR code on the end. `autostart` stays, because it is the command that
-    # shows what the scheduled task actually holds when something is wrong.
+    # `phone` folds the autostart steps into one flag and adds a QR;
+    # `autostart` stays for inspecting the task.
     phn = sub.add_parser("phone",
                          help="open the dashboard on your phone. State, or --on to set it up")
     phn.add_argument("--on", action="store_true",
@@ -798,17 +764,11 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _force_utf8() -> None:
-    """Redirected stdout on Windows defaults to cp1252, which cannot encode the
-    box-drawing and arrow characters this CLI prints. The scheduled pulse writes
-    to a log file, so without this a clean tick dies on its own output *after*
-    the ledger row is committed. A crash that means nothing and looks like
-    everything. Never let formatting decide whether a run succeeded.
+    """Make stdout and stderr safe to print to.
 
-    Under `pythonw.exe` there is no console at all and both streams are None, so
-    the *first* print raises and the process dies before it does anything. That
-    is how the dashboard is meant to be launched, windowed, no console behind
-    it, so the same rule applies twice over: output is never allowed to decide
-    whether a command runs.
+    Redirected output on Windows is cp1252 and cannot encode this CLI's box
+    and arrow characters; under pythonw both streams are None. Either way
+    output must never decide whether a command succeeds.
     """
     for name in ("stdout", "stderr"):
         stream = getattr(sys, name)
@@ -820,9 +780,8 @@ def _force_utf8() -> None:
         except (AttributeError, ValueError):
             pass
         try:
-            # A handle can exist and still be unwritable. A windowed launch with
-            # no redirect hands the child a stream that only fails on first use.
-            # Find that out here, once, instead of somewhere with a ledger open.
+            # A windowed launch can hand over a stream that fails only on first
+            # write.
             stream.write("")
             stream.flush()
         except OSError:

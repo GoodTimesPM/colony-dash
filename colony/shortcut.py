@@ -1,18 +1,9 @@
 """The desktop shortcut. `python -m colony shortcut`.
 
-A `.lnk` is a COM object, not a file format you can reasonably hand-write, so
-this shells out to `WScript.Shell` through PowerShell. The same thing every
-installer on Windows does, minus the installer.
-
-Two details that matter more than they look:
-
-  * the target is **pythonw.exe**, not python.exe. `python.exe` would leave a
-    console window sitting behind the dashboard for as long as it is open, and
-    the whole point of the pywebview shell is that this is a desktop app rather
-    than a script someone is running.
-  * the working directory is the project root. The ledger, the `.env` and the
-    runtime folder are all resolved relative to it, so a shortcut launched from
-    the desktop has to arrive in the same place a terminal launch would.
+A `.lnk` is a COM object, so this goes through `WScript.Shell` in
+PowerShell. The target is pythonw.exe (no console behind the window), and
+the working directory is the project root, where the ledger and `.env` are
+resolved.
 """
 
 from __future__ import annotations
@@ -36,12 +27,8 @@ def pythonw() -> Path:
 
 
 def desktop_dir() -> Path:
-    """Where the shortcut goes.
-
-    OneDrive redirects the Desktop on most Windows installs and leaves the
-    original folder in place but empty, so a shortcut written to
-    `%USERPROFILE%\\Desktop` would land somewhere the user never looks. Prefer
-    the redirected one when it exists.
+    """Where the shortcut goes: the OneDrive-redirected Desktop when it exists,
+    since the original folder is often left empty.
     """
     home = Path(os.path.expanduser("~"))
     onedrive = os.environ.get("OneDrive") or os.environ.get("OneDriveConsumer")
@@ -59,9 +46,8 @@ def create(directory: Path | None = None, *, port: int = 8787) -> Path:
     ico = icon_mod.ensure() or ""
     args = f'-m colony dash --port {port}'
 
-    # Single-quoted PowerShell strings, with any literal quote doubled. These
-    # paths come from the filesystem, not from a person, but a path with an
-    # apostrophe in it would otherwise end the string mid-word.
+    # Single-quoted PowerShell strings with quotes doubled, for paths
+    # containing an apostrophe.
     def ps(value) -> str:
         return "'" + str(value).replace("'", "''") + "'"
 
