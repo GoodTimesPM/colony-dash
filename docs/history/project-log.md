@@ -1,3 +1,7 @@
+<!-- The PROJECT.md journal through 2026-09-04, moved here on 2026-09-25 when
+PROJECT.md was cut to status and TODOs. Dated entries, not kept current. Mentions of
+app.js and a single server.py predate the split into colony/ui/js and colony/web. -->
+
 # Colony Dash — Master Memory
 
 **Status:** **M0 → M5 shipped.** The loop is live and grooming on the hour, there is a window
