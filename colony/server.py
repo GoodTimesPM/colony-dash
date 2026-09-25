@@ -1158,36 +1158,43 @@ PAGE_CSP = ("default-src 'self'; script-src 'self'; "
             "base-uri 'none'; form-action 'self'; frame-ancestors 'none'")
 
 
+# UI files, keyed on their mtime and size. `no-cache` makes the browser ask
+# every load, so an edit shows on the next refresh, and the ETag turns an
+# unchanged file into a 304 with no disk read.
+_asset_cache: dict[str, tuple[tuple[int, int], bytes, str]] = {}
+
+
+def _asset(name: str, media_type: str, request: Request,
+           headers: dict[str, str] | None = None) -> Response:
+    path = UI_DIR / name
+    st = path.stat()
+    stamp = (st.st_mtime_ns, st.st_size)
+    cached = _asset_cache.get(name)
+    if cached is None or cached[0] != stamp:
+        body = path.read_bytes()
+        cached = (stamp, body, '"%s"' % hashlib.sha256(body).hexdigest()[:16])
+        _asset_cache[name] = cached
+    _, body, etag = cached
+    out = {"Cache-Control": "no-cache", "ETag": etag, **(headers or {})}
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers=out)
+    return Response(body, media_type=media_type, headers=out)
+
+
 @app.get("/", response_class=HTMLResponse)
-def index() -> HTMLResponse:
-    return HTMLResponse((UI_DIR / "index.html").read_text(encoding="utf-8"),
-                        headers={"Content-Security-Policy": PAGE_CSP})
-
-
-# The stylesheet and the script used to live inside index.html, which made it a
-# 6,957-line file that no editor would syntax-check and no diff would read.
-# They are two more files off the same folder now.
-#
-# `no-store` on both, matching what the page already got by being re-read from
-# disk on every request. This is a dashboard being edited while it is open;
-# a cached `app.js` means a change that does not appear until a hard refresh,
-# which is a debugging session spent on nothing.
-def _asset(name: str, media_type: str) -> Response:
-    return Response(
-        (UI_DIR / name).read_text(encoding="utf-8"),
-        media_type=media_type,
-        headers={"Cache-Control": "no-store"},
-    )
+def index(request: Request) -> Response:
+    return _asset("index.html", "text/html; charset=utf-8", request,
+                  {"Content-Security-Policy": PAGE_CSP})
 
 
 @app.get("/app.css")
-def app_css() -> Response:
-    return _asset("app.css", "text/css; charset=utf-8")
+def app_css(request: Request) -> Response:
+    return _asset("app.css", "text/css; charset=utf-8", request)
 
 
 @app.get("/app.js")
-def app_js() -> Response:
-    return _asset("app.js", "text/javascript; charset=utf-8")
+def app_js(request: Request) -> Response:
+    return _asset("app.js", "text/javascript; charset=utf-8", request)
 
 
 # ── the phone ────────────────────────────────────────────────────────────────
@@ -1202,13 +1209,13 @@ def app_js() -> Response:
 # control `/` — the single most common way this is got wrong.
 
 @app.get("/manifest.webmanifest")
-def manifest() -> Response:
-    return _asset("manifest.webmanifest", "application/manifest+json")
+def manifest(request: Request) -> Response:
+    return _asset("manifest.webmanifest", "application/manifest+json", request)
 
 
 @app.get("/sw.js")
-def service_worker() -> Response:
-    return _asset("sw.js", "text/javascript; charset=utf-8")
+def service_worker(request: Request) -> Response:
+    return _asset("sw.js", "text/javascript; charset=utf-8", request)
 
 
 # Icons are the one thing here worth caching: they are bytes that change when

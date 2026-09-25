@@ -40,13 +40,35 @@ class TestAttachmentHeaders(unittest.TestCase):
         self.assertTrue(resp.headers["content-disposition"].startswith("attachment"))
 
 
+def _get(path: str, etag: str | None = None):
+    from starlette.requests import Request
+    headers = [(b"if-none-match", etag.encode())] if etag else []
+    return Request({"type": "http", "method": "GET", "path": path,
+                    "headers": headers, "query_string": b""})
+
+
 class TestPageCsp(unittest.TestCase):
     def test_index_sends_a_policy_without_inline_script(self):
-        resp = server.index()
+        resp = server.index(_get("/"))
         csp = resp.headers["content-security-policy"]
         self.assertIn("script-src 'self'", csp)
         self.assertNotIn("unsafe-inline';", csp.split("script-src")[1].split(";")[0] + ";")
         self.assertIn("frame-ancestors 'none'", csp)
+
+
+class TestAssetCaching(unittest.TestCase):
+    def test_an_unchanged_file_is_a_304(self):
+        first = server.app_js(_get("/app.js"))
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(first.headers["cache-control"], "no-cache")
+        again = server.app_js(_get("/app.js", first.headers["etag"]))
+        self.assertEqual(again.status_code, 304)
+        self.assertEqual(again.body, b"")
+
+    def test_a_stale_etag_gets_the_file(self):
+        resp = server.app_css(_get("/app.css", '"old"'))
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.body)
 
 
 if __name__ == "__main__":
