@@ -34,19 +34,36 @@ def _env_value(key: str) -> str | None:
     live = os.environ.get(key)
     if live:
         return live
+    return _env_file_values().get(key) or None
+
+
+# `.env` parsed once and re-read only when its mtime or size moves.
+_env_cache: dict = {"stamp": None, "values": {}}
+
+
+def _env_file_values() -> dict[str, str]:
     env_file = PROJECT_DIR / ".env"
     try:
-        lines = env_file.read_text(encoding="utf-8").splitlines()
+        st = env_file.stat()
     except OSError:
-        return None
-    for line in lines:
-        line = line.strip()
-        if line.startswith("#") or "=" not in line:
-            continue
-        name, _, value = line.partition("=")
-        if name.strip() == key:
-            return value.strip().strip("\"'") or None
-    return None
+        return {}
+    stamp = (str(env_file), st.st_mtime_ns, st.st_size)
+    if _env_cache["stamp"] != stamp:
+        values: dict[str, str] = {}
+        try:
+            lines = env_file.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            return {}
+        for line in lines:
+            line = line.strip()
+            if line.startswith("#") or "=" not in line:
+                continue
+            name, _, value = line.partition("=")
+            value = value.strip().strip("\"'")
+            if name.strip() not in values:
+                values[name.strip()] = value
+        _env_cache.update(stamp=stamp, values=values)
+    return _env_cache["values"]
 
 
 def set_env_value(key: str, value: str, path: Path | None = None,
