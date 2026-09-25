@@ -770,7 +770,8 @@ colony/
   agent.py        the one place an agent is spawned, and the tool denylist
   worktree.py     disposable checkouts
   control.py      halt, allowance, approvals, scope: the PO's levers
-  server.py       FastAPI, loopback by default
+  server.py       FastAPI, loopback by default: the app, the gate, serve()
+  web/            the routes, one router per area of the page
   access.py       the gate that arms when the bind stops being loopback
   net.py          which address on this machine a phone can actually reach
   tailscale.py    the private network that makes that address work off your wifi

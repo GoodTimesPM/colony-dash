@@ -168,8 +168,8 @@ class TheQuitRoute(unittest.TestCase):
         import tempfile
         from pathlib import Path
 
-        from colony import server
-        self.server = server
+        from colony.web import controls
+        self.controls = controls
         # On disk rather than in memory: the route closes the connection it is
         # handed, and `:memory:` disappears with the first close.
         tmp = tempfile.TemporaryDirectory()
@@ -190,7 +190,7 @@ class TheQuitRoute(unittest.TestCase):
         self.db = fresh()
         self.addCleanup(self.db.close)
         self.exits = []
-        self.enter = mock.patch.object(server, "_conn", fresh)
+        self.enter = mock.patch.object(controls, "_conn", fresh)
         self.timer = mock.patch("threading.Timer",
                                 lambda *a, **k: mock.Mock(start=lambda: self.exits.append(1)))
         self.enter.start(); self.addCleanup(self.enter.stop)
@@ -199,7 +199,7 @@ class TheQuitRoute(unittest.TestCase):
     def quit_from(self, host):
         req = mock.Mock()
         req.client.host = host
-        return self.server.act_quit(req, x_colony="1")
+        return self.controls.act_quit(req, x_colony="1")
 
     def test_a_quiet_dashboard_on_loopback_stops(self):
         out = self.quit_from("127.0.0.1")
@@ -238,7 +238,7 @@ class TheQuitRoute(unittest.TestCase):
         """Captured at import, never recomputed. Asking the filesystem again
         would answer for the checkout and every server would look current --
         which is the entire bug."""
-        self.assertEqual(self.server.BUILD_STAMP, self.quit_from("127.0.0.1")["stamp"])
+        self.assertEqual(self.controls.BUILD_STAMP, self.quit_from("127.0.0.1")["stamp"])
 
 
 if __name__ == "__main__":

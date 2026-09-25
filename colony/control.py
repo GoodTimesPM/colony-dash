@@ -1,6 +1,6 @@
 """PO actions: the only writes the dashboard may make.
 
-Nothing else in `server.py` takes a write connection, so what the dashboard
+Nothing else in `server.py` or `web/` takes a write connection, so what the dashboard
 can do to the colony is the list of public functions here. Two rules hold
 for each:
 

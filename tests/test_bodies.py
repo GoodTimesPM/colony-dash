@@ -6,7 +6,7 @@ import unittest
 
 from fastapi import HTTPException
 
-from colony import server
+from colony.web import common, controls, stories
 
 
 class ActionBodies(unittest.TestCase):
@@ -17,21 +17,21 @@ class ActionBodies(unittest.TestCase):
         return caught.exception.status_code
 
     def test_a_missing_id_is_a_400(self):
-        self.assertEqual(self._status(server.act_retire, {}), 400)
+        self.assertEqual(self._status(controls.act_retire, {}), 400)
 
     def test_a_non_numeric_id_is_a_400(self):
-        self.assertEqual(self._status(server.act_retire, {"agent_id": "seven"}), 400)
+        self.assertEqual(self._status(controls.act_retire, {"agent_id": "seven"}), 400)
 
     def test_a_boolean_is_not_an_id(self):
-        self.assertEqual(self._status(server.act_retire, {"agent_id": True}), 400)
+        self.assertEqual(self._status(controls.act_retire, {"agent_id": True}), 400)
 
     def test_a_missing_decision_is_a_400(self):
-        self.assertEqual(self._status(server.act_decide, {"escalation_id": 1}), 400)
+        self.assertEqual(self._status(stories.act_decide, {"escalation_id": 1}), 400)
 
     def test_zero_snooze_hours_is_kept(self):
-        self.assertEqual(server._num({"snooze_hours": 0}, "snooze_hours", float, 8), 0.0)
-        self.assertEqual(server._num({}, "snooze_hours", float, 8), 8)
-        self.assertEqual(server._num({"h": "1.5"}, "h", float), 1.5)
+        self.assertEqual(common._num({"snooze_hours": 0}, "snooze_hours", float, 8), 0.0)
+        self.assertEqual(common._num({}, "snooze_hours", float, 8), 8)
+        self.assertEqual(common._num({"h": "1.5"}, "h", float), 1.5)
 
 
 if __name__ == "__main__":
