@@ -42,6 +42,8 @@ from __future__ import annotations
 
 import ipaddress
 import secrets
+import socket
+from urllib.parse import urlsplit
 
 from . import db
 
@@ -80,6 +82,56 @@ def is_loopback(host: str) -> bool:
         return ipaddress.ip_address(host).is_loopback
     except ValueError:
         return False
+
+
+ALLOWED_HOSTS_ENV = "COLONY_ALLOWED_HOSTS"
+
+
+def _hostname(value: str) -> str:
+    """The name part of a Host header or an origin's netloc, lowercased."""
+    try:
+        return (urlsplit("//" + value.strip()).hostname or "").rstrip(".")
+    except ValueError:
+        return ""
+
+
+def host_allowed(host_header: str | None) -> bool:
+    """True when a request's Host header names this machine.
+
+    DNS rebinding points an attacker's hostname at 127.0.0.1, and the browser
+    then sends that hostname in Host. An IP literal cannot be rebound, so any
+    address is fine. Names are limited to localhost, this machine's own name,
+    MagicDNS names under ts.net and whatever COLONY_ALLOWED_HOSTS lists.
+    """
+    name = _hostname(host_header or "")
+    if not name:
+        return False
+    try:
+        ipaddress.ip_address(name)
+        return True
+    except ValueError:
+        pass
+    if name == "localhost" or name.endswith(".ts.net"):
+        return True
+    own = socket.gethostname().lower()
+    if name == own or name.split(".", 1)[0] == own:
+        return True
+    extra = db._env_value(ALLOWED_HOSTS_ENV) or ""
+    return name in {h.strip().lower() for h in extra.split(",") if h.strip()}
+
+
+def origin_matches(origin: str | None, host_header: str | None) -> bool:
+    """True when a request carries no Origin, or one naming the same host.
+
+    A browser sends Origin on every cross-site POST. A request without one came
+    from something that is not a browser page, which the Host check has already
+    judged.
+    """
+    if origin is None:
+        return True
+    if origin == "null":
+        return False
+    return urlsplit(origin).netloc.lower() == (host_header or "").strip().lower()
 
 
 def matches(supplied: str | None) -> bool:

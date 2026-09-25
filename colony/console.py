@@ -26,9 +26,11 @@ So: a second door, deliberately unlike the first one.
     `console_turns`, and clearing the chat starts a new epoch rather than
     deleting the rows.
 
-The guards that remain are the ones that were never about the agent: the server
-binds to 127.0.0.1, and `/api/console/*` needs the `X-Colony` header like every
-other write route. Nothing off this machine can knock on this door at all.
+The guards that remain are on the server. Every request must name this machine
+in its Host header (DNS rebinding), writes need `X-Colony` and a same-host
+Origin, and `/api/console/*` answers only peers on this machine unless the PO
+turns on `COLONY_CONSOLE_REMOTE` from the desk. When phone access is on the
+server also listens on a LAN or tailnet address behind the access token.
 """
 
 from __future__ import annotations

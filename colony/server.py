@@ -13,14 +13,17 @@ forbid. The set of things this dashboard can do to the colony is the list of
 routes in the "PO actions" section below, and it is meant to stay short enough
 to read in one screen.
 
-Two safeguards on the write door, since the server now has one:
+The server binds 127.0.0.1 by default. With phone access on it also binds a
+LAN or tailnet address, and every request from off the machine needs the access
+token (see `gate` and `access.py`). On top of that:
 
-  * it is bound to 127.0.0.1 and nothing else (`desktop.py`), so nothing off
-    this machine can reach it at all;
-  * every action requires an `X-Colony` header. A form on a web page can POST
-    across origins without asking; it cannot set a custom header without a
-    preflight the browser will refuse. That turns "any page you visit could
-    click your HALT button" into "no page but this one can".
+  * `same_host` refuses any request whose Host header is not this machine,
+    which is what stops DNS rebinding, and any write whose Origin is another
+    site;
+  * every action requires an `X-Colony` header, which a cross-site form cannot
+    set without a preflight the browser refuses;
+  * `/api/console/*` and token rotation answer only peers on this machine
+    (`_desk_only`), because the console is a real shell.
 
 Live updates are server-sent events. The pulse writes hourly from a separate
 process, so the server polls its own snapshot on a short timer and pushes only
@@ -2770,6 +2773,22 @@ async def gate(request: Request, call_next):
         return _login_page(next_path=request.url.path)
     return Response('{"detail":"access token required"}', status_code=401,
                     media_type="application/json")
+
+
+# Registered after `gate`, so it runs first. The token gate and `_desk_only`
+# both reason about who is connecting; this one is about which page. A request
+# whose Host is not this machine is a DNS rebinding attempt, and a write whose
+# Origin is another site is a cross-site request.
+@app.middleware("http")
+async def same_host(request: Request, call_next):
+    host = request.headers.get("host")
+    if not access.host_allowed(host):
+        return Response('{"detail":"unknown host"}', status_code=403,
+                        media_type="application/json")
+    if request.method not in ("GET", "HEAD", "OPTIONS") and             not access.origin_matches(request.headers.get("origin"), host):
+        return Response('{"detail":"cross-origin request refused"}',
+                        status_code=403, media_type="application/json")
+    return await call_next(request)
 
 
 def _set_cookie(response: Response, value: str) -> None:
