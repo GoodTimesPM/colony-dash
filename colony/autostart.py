@@ -1,29 +1,16 @@
-r"""The dashboard, already running when you pick up your phone.
+r"""A logon task that starts the dashboard server and keeps it up, so the phone
+can reach it without a terminal open on the desk.
 
-Reaching the dashboard from a phone worked the moment the server could bind a
-network address, and then did not work in practice, for a boring reason: it only
-ran while a terminal was open on the desktop. The phone is the device you use
-*because* you are not at the desk, so "first go to the desk and start it" is the
-whole feature cancelling itself out.
+Same shape as the pulse task in `schedule.py` (pythonw, hidden, `--log`),
+with three differences:
 
-So this registers a second scheduled task, beside the hourly pulse, that starts
-the server at logon and leaves it up. It is deliberately the same shape as
-`schedule.py`. Pythonw so there is no console, hidden so it does not flicker in
-the task list, `--log` because a background process with nowhere to print is a
-process you debug by guessing. And it differs in exactly three ways, each of
-which is a bug if you get it wrong:
+  * No execution time limit. The default kills the task after three days.
+  * `--host auto`, since the address is a fact about the network at boot
+    (see `net.py`).
+  * Restart on failure, three times a minute apart, for losing the race with
+    the network at logon.
 
-  * **No execution time limit.** The default is three days, after which Task
-    Scheduler kills the task. A server that stops on the third Tuesday and comes
-    back at the next logon is worse than one that never started, because you
-    will not notice until you are away from the machine.
-  * **`--host auto`, not a literal address.** The task is written once and runs
-    for months; the address is a fact about the network at boot. See `net.py`.
-  * **Restart on failure**, three times, a minute apart. The one failure this
-    actually covers is losing the race with the network at logon.
-
-The task holds no secret. It names the project directory and a flag; the access
-token stays in `.env`, read at startup by the process the task launches.
+The task holds no secret; the token stays in `.env`.
 """
 
 from __future__ import annotations
@@ -37,18 +24,14 @@ from .schedule import PROJECT_ROOT, _ps, _run_ps
 TASK_NAME = "Colony Dash Server"
 LOG_PATH = db.RUNTIME_DIR / "dash.log"
 
-# Long enough for Tailscale or wifi to have come up, short enough that the
-# dashboard is there before you are. `--host auto` resolves after this delay,
-# which is the entire reason the delay exists.
+# Long enough for Tailscale or wifi to come up before `--host auto` resolves.
 START_DELAY = "PT45S"
 
 
 def preflight(host: str = "auto", port: int = 8787) -> tuple[str, str]:
-    """Refuse now, in the terminal, rather than at 7am in a log nobody reads.
-
-    Resolves what `--host auto` will resolve to and asks `access.check` the same
-    question the server will ask. Returns the address and its kind. Raises
-    `net.NoAddress` or `access.Unconfigured`, both of which carry the fix.
+    """Fail in the terminal now rather than in a log at 7am. Resolves the host
+    and asks `access.check` what the server will ask. Raises `net.NoAddress`
+    or `access.Unconfigured`.
     """
     address, kind = net.resolve(host)
     access.check(address)
@@ -59,9 +42,7 @@ def install(*, host: str = "auto", port: int = 8787) -> str:
     """Create or replace the logon task. Returns what the scheduler reports."""
     preflight(host, port)
     pythonw = shortcut.pythonw()
-    # Quoted for the same reason as the pulse task: this machine's project root
-    # has spaces in it, and unquoted the scheduler hands pythonw `--log D:\ALL`
-    # plus two strays that argparse rejects.
+    # Quoted because the project root has spaces in it.
     args = f'-m colony dash --serve --host {host} --port {port} --log "{LOG_PATH}"'
     user = getpass.getuser()
 
@@ -116,10 +97,8 @@ $t.Actions[0].Arguments
 
 
 def unlimited(task: dict) -> bool:
-    """True when the task will not be killed after three days.
-
-    Task Scheduler spells 'no limit' as an empty limit or `PT0S`, and spells the
-    dangerous default as `P3D`.
+    """True when the task has no time limit (empty or `PT0S`; the default is
+    `P3D`).
     """
     return task.get("time_limit", "") in ("", "PT0S")
 

@@ -1,32 +1,14 @@
-r"""The rule that decides whether the phone's request ever reaches the server.
+r"""Whether Windows Firewall lets the phone's requests reach the server.
 
-This module exists because of a failure with no error message anywhere. The
-dashboard bound a network address, said so in its log, answered on that address
-from the machine itself -- and the phone sat on a blank tab spinning until it
-gave up. Nothing was logged, because nothing arrived: Windows Firewall dropped
-the packet. A dropped packet is not a refused connection. A refusal comes back
-in a few milliseconds and the browser says so; a drop looks exactly like a
-server that is thinking about it, forever.
+A dropped packet has no error at either end; the phone just spins. The trap
+is that `python.exe` gets an "allow" prompt and a rule the first time it
+binds, but the logon task and shortcut run `pythonw.exe`, a different file
+with no window to prompt from. So it works from a terminal and fails
+unattended.
 
-What makes it easy to get wrong here is that Python has two executables.
-Starting the dashboard from a terminal runs `python.exe`, and the first time it
-binds a network address Windows shows the "allow this app" box and writes a rule
-for `python.exe`. Everything works. The logon task and the desktop shortcut both
-run `pythonw.exe` -- the windowless twin, a different file, therefore a
-different rule, and one that will never be created by a prompt, because a hidden
-background task has no window to prompt in front of. So the feature works when
-you test it from a terminal and fails on the machine you actually walk away
-from, which is the worst shape a bug can have.
-
-Adding a rule needs administrator rights, and the dashboard is not going to have
-them: a web request that could elevate itself would be a much worse thing than
-an unreachable phone. So this module does what it can unelevated -- it reads --
-and hands back the exact command for the rest. `allow()` is called only from the
-CLI, where a UAC prompt is a thing the person at the keyboard asked for.
-
-The rule is deliberately narrow: one port, TCP, inbound, private profiles only.
-Not "allow pythonw.exe", which would open every port any Python script on this
-machine ever binds, on any network it is on.
+Adding a rule needs admin, which the dashboard must never have. This module
+reads unelevated and hands back the command; only the CLI's `allow()`
+elevates. The rule is narrow: one TCP port, inbound, private profiles only.
 """
 
 from __future__ import annotations
@@ -40,10 +22,8 @@ RULE_NAME = "Colony Dash"
 
 
 def _quiet_ps(script: str) -> str:
-    """`_run_ps` without the raise. Reading the firewall is best-effort.
-
-    Parts of the firewall API refuse to answer an unelevated caller, and a
-    dashboard that cannot report on a rule must still draw a page.
+    """`_run_ps` without the raise. Unelevated reads can be refused, and the
+    page must still draw.
     """
     try:
         return _run_ps(script)
@@ -60,13 +40,9 @@ def rule_command(port: int = 8787) -> str:
 
 
 def state(port: int = 8787) -> str:
-    """One of `open`, `blocked`, or `unknown`.
-
-    `unknown` is its own answer and not a synonym for `blocked`. The port
-    filters are one of the parts an unelevated caller cannot read, so on a
-    locked-down machine this cannot tell an open port from a closed one -- and
-    telling someone their firewall is the problem when it is not sends them off
-    to fight the wrong thing with an admin prompt open.
+    """One of `open`, `blocked` or `unknown`. Unelevated callers cannot always
+    read port filters, and `unknown` must not send someone to fix the wrong
+    thing.
     """
     script = f"""
 $ErrorActionPreference = 'Stop'
@@ -87,11 +63,9 @@ foreach ($rule in $r) {{
 
 
 def allow(port: int = 8787) -> None:
-    """Add the rule, elevating once. Raises with the manual command on refusal.
-
-    `Start-Process -Verb RunAs` is the UAC prompt. `-Wait` matters: without it
-    the outer PowerShell returns success the moment the prompt is *shown*, and
-    the caller would report the port open while the box is still on screen.
+    """Add the rule through one UAC prompt. Raises with the manual command on
+    refusal. `-Wait` stops PowerShell returning success while the prompt is
+    still showing.
     """
     inner = rule_command(port).replace("'", "''")
     script = (
@@ -111,9 +85,5 @@ def allow(port: int = 8787) -> None:
 
 
 def program() -> str:
-    """The executable the phone's packets are actually addressed to.
-
-    Only used in messages. It is the single most confusing fact in this file --
-    the rule Windows already wrote is for the other one.
-    """
+    """The executable the rule must name. Only used in messages."""
     return str(shortcut.pythonw())

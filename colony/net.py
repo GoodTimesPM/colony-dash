@@ -1,30 +1,15 @@
-"""Which address on this machine a phone can actually reach.
+"""Which address on this machine a phone can reach, resolved at every launch so
+the logon task never holds a stale literal.
 
-`--host` used to be something you looked up and typed. That is fine once and
-wrong forever after: an address is a fact about the machine at the moment it
-boots, and the one place it has to be right is a task that runs at logon with
-nobody watching. A scheduled task holding a literal `100.x.y.z` fails silently
-on the first day that address changes, and the failure looks like "the phone
-stopped working" rather than "the bind failed".
+`--host auto` accepts, in order:
 
-So `--host auto` resolves at launch, every launch, and it is deliberately picky
-about what it will accept:
+  * a tailnet address (`100.64.0.0/10`), where the token is a second lock;
+  * a private LAN address (RFC 1918), announced as such because a laptop
+    cannot tell home wifi from a coffee shop's;
+  * nothing else. If neither exists, `auto()` raises rather than guess.
 
-  * a **tailnet** address (`100.64.0.0/10`, the CGNAT range Tailscale and
-    friends hand out) is preferred, because that network is already private and
-    the access token is a second lock rather than the only one;
-  * a **private LAN** address (RFC 1918) is the fallback, and it is a real
-    fallback rather than a consolation, a phone and a desktop on the same home
-    wifi is the ordinary case, but it is announced differently, because "your
-    home network" and "the coffee shop's network" are the same sentence to a
-    laptop;
-  * anything else, including a public address, is **never** chosen. If neither
-    of the two above exists, `auto()` raises. Guessing here would put the ledger
-    on whatever network happened to be attached.
-
-`0.0.0.0` remains available and remains spelled out in full. It is the one
-answer this module will not reach on its own, because "every interface" is a
-decision, not a discovery.
+`0.0.0.0` must be spelled out; "every interface" is a decision, not a
+discovery.
 """
 
 from __future__ import annotations
@@ -35,11 +20,7 @@ import time
 
 TAILNET = ipaddress.ip_network("100.64.0.0/10")
 
-# Spelled out rather than asked for with `.is_private`, which is a much broader
-# question than it sounds: Python counts the documentation and benchmarking
-# ranges as private too, so `203.0.113.7` and `198.18.0.1` both answer True. An
-# address being reserved is not the same as it being your house, and the whole
-# point of this module is refusing to guess about that.
+# Not `.is_private`, which also counts documentation and benchmarking ranges.
 RFC1918 = tuple(ipaddress.ip_network(n) for n in
                 ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"))
 
@@ -51,11 +32,9 @@ class NoAddress(RuntimeError):
 def _candidates() -> list[str]:
     """Every IPv4 address this machine answers to, best effort.
 
-    Two sources, because neither is complete on Windows. `getaddrinfo` on the
-    hostname finds the addresses DNS knows about and routinely misses a
-    Tailscale interface; the UDP trick finds whichever interface the default
-    route would use and misses everything else. No packet is sent. Connecting a
-    UDP socket only picks a route.
+    `getaddrinfo` often misses the Tailscale interface; the UDP-connect
+    trick finds only the default route. Together they cover it. No packet is
+    sent.
     """
     found: list[str] = []
 
@@ -94,12 +73,7 @@ def tailnet() -> str | None:
 
 
 def lan() -> str | None:
-    """This machine's RFC 1918 address, or None.
-
-    Only the three ranges a home or office network actually hands out. Loopback
-    and link-local fall outside them anyway, which is correct twice over: an
-    address another device cannot reach is not an answer to this question.
-    """
+    """This machine's RFC 1918 address, or None."""
     for value in _candidates():
         try:
             address = ipaddress.ip_address(value)
@@ -110,10 +84,8 @@ def lan() -> str | None:
     return None
 
 
-# `_candidates` opens a socket and asks DNS, and `is_this_machine` is called
-# from a route the console polls every 1.5 seconds. What it answers changes only
-# when an interface comes or goes, so it is cached for a minute rather than
-# recomputed per request.
+# Cached for a minute: the console polls a route that calls this every 1.5s,
+# and the answer changes only when an interface does.
 _LOCAL_CACHE: tuple[float, frozenset[str]] | None = None
 _LOCAL_TTL_S = 60.0
 
@@ -130,23 +102,12 @@ def local_addresses() -> frozenset[str]:
 
 
 def is_this_machine(host: str) -> bool:
-    """True when an inbound peer address belongs to the machine we run on.
+    """True when a peer address belongs to this machine.
 
-    Loopback is the obvious case and not the only one. When the server binds a
-    tailnet or LAN address, a connection opened *on this machine* to that
-    address gets that same address as its source, the kernel picks the
-    interface it is routing out of, so the peer the server sees is its own
-    address, not `127.0.0.1`. A check that only knows about loopback reads that
-    as a stranger, which is how the console managed to lock out the desktop it
-    was running on.
-
-    This does not widen what a remote device can claim. A peer address is where
-    the TCP handshake's replies go, so a machine across the network cannot
-    present this machine's own address and still complete a connection: the
-    replies would be delivered here rather than to it.
-
-    An address that will not parse is not this machine, same as everywhere else
-    in this module. The unknown case fails towards asking for a token.
+    A connection from here to our own tailnet or LAN address arrives with
+    that address as its source, not 127.0.0.1. A remote machine cannot spoof
+    it and still complete the handshake. Unparseable addresses are not this
+    machine.
     """
     host = (host or "").strip().strip("[]")
     if not host:
@@ -162,9 +123,8 @@ def is_this_machine(host: str) -> bool:
 
 
 def auto() -> tuple[str, str]:
-    """The address to bind and which kind it is: `("100.1.2.3", "tailnet")`.
-
-    Raises `NoAddress` rather than returning a public address or a guess.
+    """The address to bind and its kind, e.g. `("100.1.2.3", "tailnet")`.
+    Raises `NoAddress` rather than returning a public address.
     """
     address = tailnet()
     if address:
@@ -182,11 +142,8 @@ def auto() -> tuple[str, str]:
 
 
 def resolve(host: str | None) -> tuple[str, str]:
-    """Turn whatever `--host` said into an address and a label.
-
-    Anything that is not the literal string `auto` is passed straight through;
-    this is a convenience, not a policy layer. `access.check` still decides
-    whether the resulting bind is allowed.
+    """Turn `--host` into an address and a label. Anything but `auto` passes
+    through; `access.check` still decides whether the bind is allowed.
     """
     if host is None:
         return "127.0.0.1", "loopback"
@@ -200,10 +157,8 @@ def resolve(host: str | None) -> tuple[str, str]:
 
 def advice(kind: str) -> str:
     """One line about what the chosen network means. Empty when it means nothing."""
-    # A tailnet bind stays deliberately silent. Every caller prints this as a
-    # warning, and "this is working correctly" printed behind a warning sign is
-    # how a panel teaches people to stop reading it. The good news about a
-    # tailnet is said by the Tailscale block instead, where it is not a warning.
+    # Silent for a tailnet bind: callers print this as a warning, and a good
+    # result behind a warning sign teaches people to ignore it.
     if kind == "lan":
         return ("this address only exists inside your building. The phone can "
                 "reach it on the same wifi and nowhere else. Not on cellular, "

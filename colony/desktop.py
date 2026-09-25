@@ -1,16 +1,7 @@
-"""The window. A pywebview shell around the local server.
-
-It runs as a real desktop window rather than a browser tab so it can live on the
-second monitor without chrome around it (ARCHITECTURE.md §9.1). The same trick
-the tray app uses. `http://127.0.0.1:8787` still works if you'd rather, and
-`--serve` gives you exactly that with no window at all, which is also the
-fallback on a machine with no WebView2 runtime.
-
-The server binds 127.0.0.1 unless it is told otherwise, and being told otherwise
-is deliberately hard: `--host` on a non-loopback address requires an access
-token to be configured or the process refuses to start (`access.py`). The ledger
-holds project notes and run transcripts, so the default has to be the safe one
-and the network has to be asked for out loud.
+"""The window: a pywebview shell around the local server, so the dashboard can
+live on a second monitor without browser chrome (ARCHITECTURE.md §9.1).
+`--serve` runs the server with no window, which is also the fallback without
+WebView2. Binding beyond 127.0.0.1 requires an access token (`access.py`).
 """
 
 from __future__ import annotations
@@ -32,21 +23,15 @@ HOST = "127.0.0.1"
 DEFAULT_PORT = 8787
 LOG_PATH = db.RUNTIME_DIR / "dash.log"
 
-# Where a running server records the address it actually bound. `_port_is_free`
-# can only ask about one address, and the autostart task binds a network address
-# rather than loopback -- so a server started at logon is completely invisible to
-# a shortcut that only probes 127.0.0.1, and double-clicking the icon would raise
-# a second server on the same port on a different interface. Two dashboards, one
-# ledger, and no error anywhere. The file is a hint and never a fact: it is only
-# ever believed after the port behind it answers.
+# The address a running server actually bound. The logon task binds a network
+# address, so a shortcut probing only loopback would start a second server on
+# the same port. Only believed after the port behind it answers.
 ADDRESS_PATH = db.RUNTIME_DIR / "dash.url"
 WEBVIEW_PROFILE = db.RUNTIME_DIR / "webview"
 
 
 def log(message: str) -> None:
-    """Windowed launches have no console to print to, so the window keeps its own
-    log. A GUI that dies silently is a GUI you debug by guessing.
-    """
+    """Windowed launches have no console, so the window keeps its own log."""
     try:
         LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
         with LOG_PATH.open("a", encoding="utf-8") as fh:
@@ -56,24 +41,15 @@ def log(message: str) -> None:
     print(message)
 
 
-# What counts as source for the purpose of "is the running dashboard this
-# build". Python because it is the server, and the three web types because the
-# page is served off disk and a change to `app.js` alone is a change a person
-# would absolutely expect a restart to pick up.
+# Source files that mean "the running dashboard is stale" when they change.
 SOURCE_SUFFIXES = (".py", ".js", ".css", ".html")
 
 
 def stamp() -> str:
-    """A short hash of the code this process would run right now.
+    """A short hash of path, size and mtime for every source file.
 
-    Path, size and mtime of every source file in the package. Contents are not
-    read: this runs on every launch, and no editor writes a change that leaves
-    both the size and the mtime alone.
-
-    The server captures this once, at import, and answers with the captured
-    value forever. That is the entire trick. Computing it per request would read
-    the files as they are now and every server would always look current, which
-    is the bug this exists to catch.
+    The server captures it once at import and reports that value forever;
+    computing it per request would always look current.
     """
     root = Path(__file__).resolve().parent
     h = hashlib.sha256()
@@ -91,11 +67,8 @@ def stamp() -> str:
 
 def _ask(address: str, port: int, path: str, method: str = "GET",
          timeout_s: float = 3.0) -> dict | None:
-    """One local API call, or None if the server would not answer it.
-
-    None is deliberately the answer to every failure, including a 403 and a
-    machine that has no such route. A dashboard that cannot be identified is one
-    this process must not stop, so every unknown collapses to "leave it alone".
+    """One local API call, or None on any failure. An unidentified dashboard
+    must never be stopped.
     """
     req = urllib.request.Request(f"http://{address}:{port}{path}", method=method)
     req.add_header("x-colony", "1")
@@ -118,25 +91,15 @@ def _ask(address: str, port: int, path: str, method: str = "GET",
 def _stale(address: str, port: int) -> bool:
     """Is the dashboard on this port running code that is no longer on disk?
 
-    A server older than the checkout is the reason "I restarted it" and "it
-    picked up my change" stopped being the same sentence. The window is a shell
-    around whatever process owns the port, `app.js` is read off disk on every
-    request, and Python is not. So a stale server serves a new page wired to
-    routes it has never heard of, and the only symptom is a 404 on a button that
-    visibly exists.
-
-    Unreachable, unauthenticated or too old to have the route all answer False.
-    Not knowing is not the same as knowing it is stale, and the cost of guessing
-    wrong here is killing a working dashboard.
+    `app.js` is read per request and Python is not, so a stale server serves
+    new buttons wired to routes it lacks. Unreachable or unauthenticated
+    answers False: killing a working dashboard is the worse mistake.
     """
     got = _ask(address, port, "/api/build")
     if not got:
         return False
-    # No such route. Every build that can answer this question has one, so a
-    # dashboard that 404s here is by definition older than the build asking --
-    # and this is the only signal available for exactly the upgrade that
-    # introduces the route. Without it the first restart after installing this
-    # change is the one restart that still silently does nothing.
+    # A 404 means a build older than `/api/build` itself, so stale by
+    # definition.
     if got.get("status") == 404:
         return True
     if not got.get("stamp"):
@@ -145,14 +108,10 @@ def _stale(address: str, port: int) -> bool:
 
 
 def _stop(address: str, port: int, timeout_s: float = 12.0) -> bool:
-    """Ask the dashboard on this port to exit, and wait until the port frees.
+    """Ask the dashboard on this port to exit, and wait for the port to free.
 
-    Asking rather than killing. The server knows its own pid for certain and
-    this process would be guessing at one, and a guess that lands on a recycled
-    pid kills something that has nothing to do with the colony. It also lets the
-    server refuse: an agent run in flight is a write in progress, and dropping
-    the interpreter under it is exactly the sort of thing a restart should not
-    quietly do.
+    Asking, not killing: the server knows its own pid, and it can refuse
+    while an agent run is writing.
     """
     got = _ask(address, port, "/api/act/quit", method="POST", timeout_s=6.0)
     if got is None:
@@ -197,12 +156,9 @@ def _mark(address: str, port: int) -> None:
 
 
 def _already_serving(port: int) -> str | None:
-    """The address of a live dashboard on this machine, or None.
-
-    Stale markers are the normal case -- the file outlives the process that
-    wrote it every single time -- so the port is always probed before the file
-    is believed. A marker for a different port is ignored rather than trusted,
-    because two dashboards on two ports is a thing someone may have meant.
+    """The address of a live dashboard on this machine, or None. The marker
+    usually outlives its process, so the port is probed first; other ports
+    are ignored.
     """
     try:
         recorded = ADDRESS_PATH.read_text(encoding="utf-8").strip()
@@ -215,22 +171,12 @@ def _already_serving(port: int) -> str | None:
 
 
 def _reusable(local: str, port: int) -> str | None:
-    """The address of a live dashboard that satisfies a request to serve `local`.
+    """The address of a live dashboard that can serve `local`, or None.
 
-    The port is asked about directly first, which settles it whenever the answer
-    is yes. The marker file is a fallback for one specific case and only that
-    one: a desktop shortcut probes loopback, while the logon task may have put
-    the dashboard on a network address, and starting a second server on the same
-    port on a different interface would leave two dashboards on one ledger.
-
-    Consulting the marker in the *other* direction was a bug, and a silent one.
-    The logon task asked for 10.0.0.57, found the desktop dashboard answering on
-    127.0.0.1, concluded it was already serving and exited. The log said the
-    dashboard was up. The dashboard was up. And the phone spun on a blank tab
-    forever, because nothing had ever listened on the address in the QR code.
-
-    A loopback server does not satisfy a request for a network address. It is
-    the whole point of the request.
+    The marker is consulted only for a loopback request, to find the logon
+    task's network-bound server. A loopback server never satisfies a request
+    for a network address; the phone needs something listening on the QR's
+    address.
     """
     if not _port_is_free(local, port):
         return local
@@ -238,18 +184,11 @@ def _reusable(local: str, port: int) -> str | None:
 
 
 def _set_window_icon(title: str, tries: int = 40) -> None:
-    """Hang the colony's mark on the window frame.
+    """Set the colony's icon on the window via WM_SETICON.
 
-    pywebview only accepts an `icon=` on its GTK and Qt backends; on Windows the
-    frame takes whatever icon the host process has, which is `pythonw.exe`. The
-    same generic snake as every other Python program on this machine, which is
-    the collision that started this. So the icon is set the Windows way, by
-    finding the window once it exists and sending it WM_SETICON.
-
-    Entirely cosmetic, and it runs on its own thread polling for the window,
-    because `webview.start()` blocks and the window does not exist until it
-    does. Every failure path is a silent return: a dashboard that will not open
-    because its icon did not load would be a much worse bug than a plain icon.
+    pywebview only takes `icon=` on GTK and Qt; on Windows the frame shows
+    pythonw's icon. Runs on its own thread polling for the window, and every
+    failure is a silent return.
     """
     path = icon_mod.ensure()
     if not path:
@@ -280,12 +219,7 @@ def _set_window_icon(title: str, tries: int = 40) -> None:
 
 
 def _idle() -> int:
-    """Hold the process open for the daemon server thread it owns.
-
-    The server runs on a daemon thread, so returning from `launch` would take it
-    down with the interpreter. Only a process that actually bound the port has a
-    reason to sit here.
-    """
+    """Keep the process alive for the daemon server thread it owns."""
     try:
         while True:
             time.sleep(3600)
@@ -297,49 +231,35 @@ def launch(port: int = DEFAULT_PORT, *, host: str = HOST, window: bool = True,
            replace: bool = False) -> int:
     from . import server
 
-    # The window always points at loopback even when the server is bound wider.
-    # `0.0.0.0` is an address to listen on, not one to connect to, and the
-    # desktop shell is on the machine doing the listening either way.
+    # The window always connects via loopback; `0.0.0.0` is not a connect
+    # address.
     local = HOST if host in ("0.0.0.0", "::") else host
 
-    # Whether *this* process ended up owning the port. It decides what happens
-    # when there is no window to hold the process open: an owner has a server
-    # thread to keep alive, and a non-owner has nothing left to do.
+    # Whether this process owns the port. An owner stays alive for its server
+    # thread; a non-owner has nothing to do without a window.
     serving = False
 
     live = _reusable(local, port)
 
-    # Reuse is right when the server on the port is this build. It is wrong when
-    # it is not, and it was wrong silently: launching the app found a live
-    # dashboard, pointed a window at it and reported success, so the one thing a
-    # person means by "restart it" -- run the code I just changed -- was the one
-    # thing a restart could not do. Stopping the old process and taking the port
-    # is what that sentence has to mean.
+    # Replace the live server when it is stale, so "restart it" runs the new
+    # code.
     if live and (replace or _stale(live, port)):
         why = "asked to restart" if replace else "running code older than this checkout"
         log(f"the dashboard on {live}:{port} is {why}. Stopping it")
         if _stop(live, port):
             live = None
         else:
-            # It would not go, and it still answers. Attaching to it is better
-            # than leaving nothing up, but the log has to say which build is
-            # actually being served or the next hour is spent debugging a fix
-            # that is on disk and not in the process.
-            #
-            # The usual reason is a dashboard started before `/api/act/quit`
-            # existed, which is a one-time problem per machine and worth naming
-            # precisely: "it will not stop" sends someone reading logs, and
-            # "close the window, then start it again" ends it.
+            # It would not stop and still answers. Attach, but say which build
+            # is served; the usual cause is a dashboard older than
+            # `/api/act/quit`.
             log("could not stop it. The dashboard now up is NOT running your "
                 "latest changes. Close the Colony Dash window (or end the "
                 f"pythonw.exe serving port {port}) and start it again; from then "
                 "on a restart replaces it on its own.")
 
     if live:
-        # Someone already has it. Almost always a dashboard you forgot was open,
-        # or the one the logon task started on a network address. Opening a
-        # second server would leave two windows claiming to be the dashboard, so
-        # point at the live one instead.
+        # Already served, usually a forgotten window or the logon task. Reuse
+        # it.
         local = live
         log(f"already serving on http://{local}:{port}. Reusing it")
     else:
@@ -347,12 +267,9 @@ def launch(port: int = DEFAULT_PORT, *, host: str = HOST, window: bool = True,
             try:
                 server.serve(host=host, port=port)
             except SystemExit:
-                # uvicorn's answer to a failed bind: one ERROR line naming the
-                # address, then `sys.exit(3)`. Letting that reach the handler
-                # below wrote forty lines of asyncio internals into the log for
-                # an event that is usually not a failure at all, and buried the
-                # ones that are. Whether it mattered is decided by the caller,
-                # who is the only party that can ask whether the port answers.
+                # uvicorn exits 3 on a failed bind. Swallowed here; the caller
+                # checks whether the port answers, which decides whether it
+                # mattered.
                 pass
             except BaseException:
                 log("server thread died:\n" + traceback.format_exc())
@@ -364,15 +281,8 @@ def launch(port: int = DEFAULT_PORT, *, host: str = HOST, window: bool = True,
             return 1
         _mark(local, port)
 
-        # The port answers. That is not the same as "this process is serving
-        # it": `_reusable` asked whether the address was free and the bind
-        # happened a moment later, and two callers aim straight at that window
-        # -- the logon task, and the phone switch binding the address from the
-        # process it was pressed in. One of them loses the race, and losing is
-        # the correct outcome, because there is one dashboard on one ledger
-        # either way. A dead serving thread is how this process learns it was
-        # the loser, and the right response is the one `_reusable` would have
-        # given a second earlier: use theirs, and say so in a single line.
+        # The port answers but our thread died: we lost the bind race with
+        # another launch. Use theirs and say so in one line.
         thread.join(timeout=0.5)
         if not thread.is_alive():
             log(f"another dashboard bound {local}:{port} first. Reusing it")
@@ -383,26 +293,13 @@ def launch(port: int = DEFAULT_PORT, *, host: str = HOST, window: bool = True,
                 log("this is reachable from the network. The access token is "
                     "required on every request that is not the login page")
 
-                # And loopback as well, so this machine can always reach its own
-                # dashboard by the name that means "here". `--host auto` binds
-                # one address and one only, which left the logon task serving a
-                # tailnet address with nothing on 127.0.0.1: the window then had
-                # to open the tailnet address, every request from it arrived
-                # looking like it came off the network, and the console -- which
-                # is scoped to the machine rather than to the token -- refused
-                # the desktop it was running on.
-                #
-                # A failure here is not fatal. The dashboard on the network
-                # address is up and works; what is lost is the shortcut being
-                # able to point at loopback, so it is logged and carried on
-                # from rather than raised.
+                # Also bind loopback, so the window can reach its own dashboard
+                # as local. With only the tailnet address, the console treated
+                # the desktop as remote. Not fatal if it fails.
                 try:
                     server.serve_extra(HOST, port)
                     local = HOST
-                    # Re-recorded, because `_mark` ran a few lines up with the
-                    # network address and the marker is what the *next* launch
-                    # reuses. Leaving it would point tomorrow's window back at
-                    # the tailnet address and undo this on the next restart.
+                    # Re-mark with loopback so the next launch reuses it.
                     _mark(local, port)
                     log(f"also serving http://{HOST}:{port} for this machine")
                 except Exception as exc:
@@ -411,13 +308,8 @@ def launch(port: int = DEFAULT_PORT, *, host: str = HOST, window: bool = True,
 
     if not window:
         if not serving:
-            # Losing the race is the correct outcome, but for a headless launch
-            # it used to be an outcome with no exit. The process logged "reusing
-            # it", fell into the sleep below and stayed there, holding a console
-            # and a Python interpreter for a server it did not own. Nine of them
-            # had piled up before anyone looked. There is nothing to keep alive
-            # here: the dashboard that answers on this port lives in another
-            # process, and this one is done.
+            # Headless and not the owner: exit rather than sleep holding an
+            # interpreter.
             return 0
         return _idle()
 
@@ -434,25 +326,15 @@ def launch(port: int = DEFAULT_PORT, *, host: str = HOST, window: bool = True,
         height=940,
         min_size=(960, 640),
         background_color="#0B0F14",
-        # pywebview defaults `text_select` to False and enforces it by injecting
-        # `user-select: none` over the entire document. So nothing on the page
-        # could be highlighted or copied, including the one thing a dashboard
-        # exists to produce: a number or a sentence you want to paste somewhere
-        # else. It is a kiosk default living in a tool, and it made a read-only
-        # panel of findings unreadable in the only way that matters.
+        # pywebview disables text selection by default; a dashboard must allow
+        # copying.
         text_select=True,
     )
     threading.Thread(target=_set_window_icon, args=("Colony Dash",), daemon=True).start()
     try:
-        # pywebview defaults to `private_mode=True`, which hands WebView2 an
-        # incognito profile: every localStorage key the page writes is thrown
-        # away when the window closes. The theme, the text size, the palette and
-        # the tile layout all live there, deliberately, because how you read the
-        # page is not the colony's business (ARCHITECTURE.md §9.2), so the
-        # default silently reset the dashboard's whole appearance on every
-        # launch, and looked like a bug in the picker rather than in the shell.
-        # The profile goes next to the ledger, under .colony/, so it is scoped to
-        # this project and disappears with it.
+        # pywebview's default private mode discards localStorage, where theme,
+        # text size and layout live (ARCHITECTURE.md §9.2). The profile sits
+        # under .colony/.
         webview.start(private_mode=False, storage_path=str(WEBVIEW_PROFILE))
     except Exception:  # no WebView2 runtime, no display, etc.
         log("could not open a window; falling back to the browser URL\n"

@@ -1,23 +1,8 @@
-"""The Notion outbox: queue here, send from the tick.
+"""The Notion outbox: queue here, send from the tick (ARCHITECTURE.md §5.4).
 
-Two modules are not allowed to make network calls. `control.py` is one. A
-dashboard button must be instant, must be transactional, and must not fail
-because Notion had a bad minute. `wake.py` is the other in spirit: it spends
-tokens and should spend them on thinking, not on HTTP.
-
-So a write to Notion is queued as a row and flushed by the tick, which already
-talks to Notion and already runs every hour for free. That buys three things a
-direct call could not:
-
-* **Retries.** A failed send stays queued with its error on it, and the next
-  tick tries again. Nothing is lost because the wifi was out at 3am.
-* **An audit trail.** "I marked that Done from my phone" is a row with a
-  timestamp, not a memory.
-* **A kill switch.** `controls.notion_write = 0` stops every upward write
-  colony-wide without touching a line of code, and the queue simply grows until
-  it is turned back on.
-
-ARCHITECTURE.md §5.4.
+Dashboard actions must be instant and must not fail because Notion is down,
+so writes are queued as rows and the hourly tick sends them. That gives
+retries, an audit trail, and a kill switch (`controls.notion_write = 0`).
 """
 
 from __future__ import annotations
@@ -28,26 +13,16 @@ from typing import Any
 
 from . import notion
 
-# How many messages one tick will send. The tick is supposed to be quick and
-# free; a backlog of two hundred comments should drain over an hour, not stall
-# the heartbeat while it does.
+# Per tick, so a backlog drains over time without stalling the heartbeat.
 FLUSH_LIMIT = 12
 
-# After this many failures a row stops being retried. Something that has been
-# refused eleven times is not going to succeed on the twelfth, and a permanently
-# poisoned row would otherwise consume the whole flush budget forever.
+# Stop retrying after this many failures so a bad row cannot eat every flush.
 MAX_ATTEMPTS = 11
 
 
 def _reason(exc: Exception) -> str:
-    """What to write on a failed row, for a person reading a tile at a glance.
-
-    Notion's own refusals already read as sentences. "403 restricted_resource:
-    Insufficient permissions for this endpoint" names both the problem and the
-    fix. So stamping `NotionError:` in front of them only spends characters the
-    tile does not have. Anything else keeps its class name, because a bare
-    `[Errno 11001] getaddrinfo failed` needs the word that says it came from
-    Python and not from Notion.
+    """The error text for a failed row's tile. Notion's refusals are already
+    sentences; other errors keep their class name so their origin is clear.
     """
     if isinstance(exc, (notion.NotionError, notion.NotionRefused)):
         return str(exc)[:400]
@@ -56,12 +31,8 @@ def _reason(exc: Exception) -> str:
 
 def queue(conn: sqlite3.Connection, *, story_id: int | None, page_id: str,
           kind: str, payload: dict, source: str = "dashboard") -> int:
-    """Write one intention down. Returns the outbox row id.
-
-    Deliberately does no validation of `payload` beyond it being JSON-able: the
-    validation that matters lives in `notion.py`, at the moment of the actual
-    call, so a rule change never leaves a queue full of rows that were legal
-    when they were written and are not now.
+    """Queue one write and return its row id. Validation happens at send time
+    in `notion.py`, so a rule change cannot strand queued rows.
     """
     cur = conn.execute(
         """INSERT INTO notion_outbox (story_id, page_id, kind, payload, source)
@@ -98,9 +69,8 @@ def _send(row: sqlite3.Row, payload: dict, status_kind: str) -> None:
     elif kind == "comment":
         notion.add_comment(row["page_id"], payload["text"])
     elif kind == "check":
-        # The block id is resolved at send time, not at queue time. A checkbox
-        # the PO deleted between the click and the flush should be a skip, and
-        # a stored id would instead be a 404 retried eleven times.
+        # Resolve the block at send time; a deleted checkbox becomes a skip,
+        # not a 404.
         block = payload.get("block_id") or notion.find_block(row["page_id"], payload["item"])
         if not block:
             raise notion.NotionRefused(
@@ -113,10 +83,8 @@ def _send(row: sqlite3.Row, payload: dict, status_kind: str) -> None:
 
 def flush(conn: sqlite3.Connection, *, enabled: bool = True,
           limit: int = FLUSH_LIMIT) -> dict[str, Any]:
-    """Send what is waiting. Returns what the pulse log should say about it.
-
-    Never raises. A tick that dies because Notion was slow is a tick that stops
-    doing the eleven other free things it was going to do.
+    """Send what is waiting and return a summary for the pulse log. Never
+    raises.
     """
     result: dict[str, Any] = {"sent": 0, "failed": 0, "held": 0, "error": None}
     rows = pending(conn, limit)

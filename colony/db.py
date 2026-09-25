@@ -15,21 +15,17 @@ PACKAGE_DIR = Path(__file__).resolve().parent
 PROJECT_DIR = PACKAGE_DIR.parent
 RUNTIME_DIR = PROJECT_DIR / ".colony"
 LEDGER_PATH = RUNTIME_DIR / "ledger.db"
-# Screenshots and files the PO pastes into a reply. Under `.colony/` with the
-# ledger, because they are part of the same conversation and should be thrown
-# away by the same `rm -rf`.
+# Pasted screenshots and files live beside the ledger under `.colony/`.
 ATTACHMENTS_DIR = RUNTIME_DIR / "attachments"
 MIGRATIONS_DIR = PACKAGE_DIR / "migrations"
 
 
 def _env_value(key: str) -> str | None:
-    """One value out of the environment, falling back to one line of `.env`.
+    """One value from the environment, else from `.env`.
 
-    Deliberately not `mirror.load_env`, which loads the *whole* file into
-    `os.environ`. This module is imported by everything, and everything includes
-    the console, which hands its environment to a `claude` subprocess. Loading
-    `NOTION_TOKEN` here would put the token in front of an agent that is not
-    allowed to read `.env`. So: read one key, mutate nothing.
+    Not `mirror.load_env`: that loads all of `.env` into `os.environ`, which
+    the console passes to its `claude` subprocess. Read one key, mutate
+    nothing.
     """
     live = os.environ.get(key)
     if live:
@@ -68,32 +64,14 @@ def _env_file_values() -> dict[str, str]:
 
 def set_env_value(key: str, value: str, path: Path | None = None,
                   comment: str | None = None) -> bool:
-    """Set one key in `.env`, in place. Returns True if a line was replaced.
+    """Set one key in `.env` in place. Returns True if a line was replaced.
 
-    Factored out of `phone.rotate`, which held the only copy, once a second
-    caller appeared. Duplicating it would have been the worse option by some
-    distance: this file holds the Notion token, it is the only copy of a
-    credential typed in by hand, and a second slightly-different rewrite of it
-    is how one of the two eventually loses a line.
+      * Only `KEY=` lines change; every other byte, comment and CRLF survives.
+      * Written to a temp file and moved with `os.replace`, so a crash cannot
+        truncate the credentials.
 
-    Two properties, both of which are the point:
-
-      * **Only lines starting `KEY=` change.** Every other line is written back
-        byte for byte, in order, comments and blank lines included. The file is
-        never parsed into a dict and re-serialised, because that is the step
-        that reformats quoting, drops comments and reorders keys. CRLF endings
-        survive for the same reason: a rewrite that reflows the whole file makes
-        every future diff of a credential file unreadable, and an unreadable
-        diff is one nobody checks.
-      * **The replacement is atomic.** New text goes to a temporary file beside
-        the target and is moved over it with `os.replace`, so a crash midway
-        leaves the old file whole rather than a truncated one with a token cut
-        in half.
-
-    `os.environ` is deliberately untouched. `_env_value` prefers the live
-    environment, so a caller that needs the new value to win inside this process
-    has to say so itself -- and it should think about that first, because this
-    process hands its environment to the `claude` subprocess the console spawns.
+    `os.environ` is left alone; the console passes it to `claude`
+    subprocesses.
     """
     env_path = path or (PROJECT_DIR / ".env")
     prefix = key + "="
@@ -125,14 +103,9 @@ def set_env_value(key: str, value: str, path: Path | None = None,
 
 
 
-# Read scope for every agent, structural or hired. Write scope is always narrower
-# and always set per ticket. ARCHITECTURE.md §8.1.
-#
-# The default is the folder that *contains* this checkout, which is the shape the
-# colony was built for: a directory of sibling projects with `colony-dash` as one
-# of them. Set `COLONY_PROJECTS_ROOT` (environment or `.env`) to point it
-# anywhere else. It was a literal path until 2026-08-27, which worked on exactly
-# one machine.
+# Read scope for every agent (ARCHITECTURE.md §8.1); write scope is set per
+# ticket. Defaults to the folder containing this checkout; override with
+# `COLONY_PROJECTS_ROOT`.
 PROJECTS_ROOT = Path(_env_value("COLONY_PROJECTS_ROOT") or PROJECT_DIR.parent)
 
 
@@ -155,20 +128,9 @@ def connect(path: Path | str = LEDGER_PATH, *, read_only: bool = False) -> sqlit
     return conn
 
 
-# Hashes of earlier versions of applied migrations, accepted once and then
-# replaced by the current hash.
-#
-# Every entry here is a comment rewrite. Preparing this repo to be published
-# meant removing one person's name and gendered pronouns from every comment in
-# it, and ten of those comments sit in migrations that had already run on a live
-# ledger. The schema those files produce did not change; only the prose above it
-# did. The check in `migrate` compares bytes, so it saw a schema fork that was
-# not there.
-#
-# This forgives specific bytes, not a class of edit. A migration altered in any
-# way that is not one of these exact earlier versions still stops the process,
-# which is the behaviour worth keeping: two installs quietly disagreeing about
-# what a table looks like is a much worse failure than a refusal to boot.
+# Earlier hashes of applied migrations whose only change was comment text.
+# Accepted once, then replaced with the current hash. Only these exact bytes
+# are forgiven; any other edit to an applied migration still refuses to boot.
 SUPERSEDED: dict[str, tuple[str, ...]] = {
     "001_initial.sql": (
         "69d9abf93aef4795a310082067bfba836f00c8a87ff5b8e890c7c0a5011f8626",),
@@ -206,10 +168,8 @@ def _ensure_migrations_table(conn: sqlite3.Connection) -> None:
 
 
 def migrate(conn: sqlite3.Connection, *, verbose: bool = True) -> list[str]:
-    """Apply every migration not yet recorded. Returns the ones applied.
-
-    Each file runs inside its own transaction, so a broken migration leaves the
-    ledger on the last good schema rather than half-way between two.
+    """Apply every unrecorded migration, each in its own transaction. Returns
+    the names applied.
     """
     _ensure_migrations_table(conn)
     applied = {r["filename"]: r["sha256"] for r in conn.execute("SELECT * FROM _migrations")}
@@ -232,25 +192,17 @@ def migrate(conn: sqlite3.Connection, *, verbose: bool = True) -> list[str]:
                              (digest, sql_file.name))
             continue
 
-        # Foreign keys off for the duration. A migration that widens a CHECK
-        # has to rebuild the table -- SQLite cannot alter a constraint in place
-        # -- and dropping a table other tables point at trips the constraint
-        # even though the rename puts every reference back. This is what
-        # SQLite's own "making other kinds of table schema changes" procedure
-        # says to do. `defer_foreign_keys` is not a substitute: it counts
-        # violations rather than re-checking them, and a DROP raises a count
-        # that recreating the parent never lowers.
-        #
-        # The pragma is a no-op inside a transaction, so it goes outside one.
+        # Foreign keys off while migrating: widening a CHECK means rebuilding
+        # the table, and dropping a referenced table trips the constraint
+        # (SQLite's documented procedure). The pragma is a no-op inside a
+        # transaction.
         conn.execute("PRAGMA foreign_keys = OFF")
         try:
             conn.executescript(f"BEGIN;\n{text}\nCOMMIT;")
         finally:
             conn.execute("PRAGMA foreign_keys = ON")
 
-        # And now check what the constraint would have checked. This is new:
-        # before, a migration could leave a reference pointing at nothing and
-        # the ledger would carry the damage silently.
+        # Then check what the constraint would have.
         broken = conn.execute("PRAGMA foreign_key_check").fetchall()
         if broken:
             raise RuntimeError(
