@@ -311,5 +311,76 @@ class TestArrivals(unittest.TestCase):
         self.assertEqual((seen["accepted"], seen["refused"]), (1, 1))
 
 
+class TestSameHost(unittest.TestCase):
+    """DNS rebinding: a page on evil.example resolves itself to 127.0.0.1 and
+    calls the API. Its requests arrive with `Host: evil.example`."""
+
+    def test_addresses_and_known_names_pass(self):
+        for host in ("127.0.0.1:8787", "localhost:8787", "[::1]:8787",
+                     "100.94.3.11:8787", "desk.tail1234.ts.net:8787",
+                     "192.168.1.40"):
+            with self.subTest(host=host):
+                self.assertTrue(access.host_allowed(host))
+
+    def test_foreign_names_are_refused(self):
+        for host in ("evil.example", "evil.example:8787", "127.0.0.1.evil.example",
+                     "", None):
+            with self.subTest(host=host):
+                self.assertFalse(access.host_allowed(host))
+
+    def test_the_env_list_extends_the_names(self):
+        with mock.patch.object(access.db, "_env_value",
+                               lambda key: "colony.lan, other.lan"):
+            self.assertTrue(access.host_allowed("colony.lan:8787"))
+            self.assertFalse(access.host_allowed("evil.example"))
+
+    def test_origin_must_match_host(self):
+        self.assertTrue(access.origin_matches(None, "127.0.0.1:8787"))
+        self.assertTrue(access.origin_matches("http://127.0.0.1:8787", "127.0.0.1:8787"))
+        self.assertFalse(access.origin_matches("http://evil.example", "127.0.0.1:8787"))
+        self.assertFalse(access.origin_matches("null", "127.0.0.1:8787"))
+
+    def _run(self, host, *, method="GET", origin=None, path="/api/console/send"):
+        import asyncio
+
+        from fastapi.responses import PlainTextResponse
+        from starlette.requests import Request
+
+        headers = [(b"host", host.encode())]
+        if origin:
+            headers.append((b"origin", origin.encode()))
+        request = Request({
+            "type": "http", "http_version": "1.1", "method": method,
+            "scheme": "http", "path": path, "raw_path": path.encode(),
+            "root_path": "", "query_string": b"", "headers": headers,
+            "server": ("127.0.0.1", 8787), "client": ("127.0.0.1", 51234),
+            "app": server.app,
+        })
+
+        async def call_next(_request):
+            return PlainTextResponse("PASSED")
+
+        return asyncio.run(server.same_host(request, call_next))
+
+    def test_a_rebound_host_gets_403_before_any_route(self):
+        response = self._run("evil.example:8787", method="POST")
+        self.assertEqual(response.status_code, 403)
+
+    def test_a_cross_origin_write_gets_403(self):
+        response = self._run("127.0.0.1:8787", method="POST",
+                             origin="http://evil.example")
+        self.assertEqual(response.status_code, 403)
+
+    def test_the_dashboard_itself_passes(self):
+        response = self._run("127.0.0.1:8787", method="POST",
+                             origin="http://127.0.0.1:8787")
+        self.assertEqual(response.body, b"PASSED")
+
+    def test_the_middleware_runs_before_the_token_gate(self):
+        """Starlette runs the last-registered middleware first."""
+        names = [m.kwargs.get("dispatch").__name__ for m in server.app.user_middleware]
+        self.assertEqual(names[0], "same_host")
+
+
 if __name__ == "__main__":
     unittest.main()
