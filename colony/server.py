@@ -1071,9 +1071,19 @@ def _act(fn, *args, **kwargs) -> dict[str, Any]:
         conn.close()
 
 
+# The page builds its DOM with textContent and loads only its own files, so
+# the policy can be tight. Inline style attributes in index.html are the one
+# allowance.
+PAGE_CSP = ("default-src 'self'; script-src 'self'; "
+            "style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; "
+            "connect-src 'self'; font-src 'self' data:; object-src 'none'; "
+            "base-uri 'none'; form-action 'self'; frame-ancestors 'none'")
+
+
 @app.get("/", response_class=HTMLResponse)
 def index() -> HTMLResponse:
-    return HTMLResponse((UI_DIR / "index.html").read_text(encoding="utf-8"))
+    return HTMLResponse((UI_DIR / "index.html").read_text(encoding="utf-8"),
+                        headers={"Content-Security-Policy": PAGE_CSP})
 
 
 # The stylesheet and the script used to live inside index.html, which made it a
@@ -1666,13 +1676,35 @@ def upload(body: dict = Body(...), x_colony: str | None = Header(None)) -> dict[
         raise HTTPException(400, str(exc))
 
 
+# Types a browser may show inline. SVG is left out because it can carry script.
+INLINE_TYPES = {"image/png", "image/jpeg", "image/gif", "image/webp", "image/bmp",
+                "application/pdf", "text/plain"}
+
+
 @app.get("/api/attachment/{name}")
 def attachment(name: str) -> FileResponse:
-    """Serve one stored file back to the page, for the thumbnail in the thread."""
+    """Serve one stored file back to the page, for the thumbnail in the thread.
+
+    Anything outside `INLINE_TYPES` downloads instead of rendering, and every
+    response is sandboxed, so an uploaded .html or .svg cannot run on the
+    dashboard's origin.
+    """
+    import mimetypes
+
     try:
-        return FileResponse(attach.resolve(name))
+        path = attach.resolve(name)
     except attach.Rejected as exc:
         raise HTTPException(404, str(exc))
+    media = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+    inline = media in INLINE_TYPES
+    return FileResponse(
+        path,
+        media_type=media if inline else "application/octet-stream",
+        content_disposition_type="inline" if inline else "attachment",
+        filename=path.name,
+        headers={"Content-Security-Policy": "default-src 'none'; sandbox",
+                 "X-Content-Type-Options": "nosniff"},
+    )
 
 
 def _thread_state(conn: sqlite3.Connection, escalation_id: int | None,
@@ -2726,7 +2758,8 @@ def _login_page(*, error: str = "", next_path: str = "/") -> HTMLResponse:
     # The only value that reaches the page is a path this server produced, but
     # it is still quoted rather than trusted -- a value interpolated into markup
     # is a value that gets escaped, every time, or the rule stops being a rule.
-    return HTMLResponse(html.replace("__NEXT__", html_escape(next_path or "/")))
+    return HTMLResponse(html.replace("__NEXT__", html_escape(next_path or "/")),
+                        headers={"Content-Security-Policy": PAGE_CSP})
 
 
 @app.middleware("http")
@@ -2788,7 +2821,10 @@ async def same_host(request: Request, call_next):
     if request.method not in ("GET", "HEAD", "OPTIONS") and             not access.origin_matches(request.headers.get("origin"), host):
         return Response('{"detail":"cross-origin request refused"}',
                         status_code=403, media_type="application/json")
-    return await call_next(request)
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+    return response
 
 
 def _set_cookie(response: Response, value: str) -> None:
