@@ -39,6 +39,7 @@ import json
 import os
 import sqlite3
 import threading
+import time
 import urllib.parse
 from datetime import datetime, timedelta
 from html import escape as html_escape
@@ -130,7 +131,7 @@ def snapshot() -> dict[str, Any]:
             "completed": _completed(conn),
             "forge": _forge(conn),
             "spend": _spend(conn),
-            "roster": _roster_summary(conn),
+            "roster": _roster_head(conn),
             "controls": _controls(conn),
             "projects": _projects_cached(),
         }
@@ -985,6 +986,23 @@ def _roster_summary(conn: sqlite3.Connection) -> dict[str, Any]:
     }
 
 
+# The full roster is two thirds of the state payload and changes only on a
+# hire, a retire or a rescan. The snapshot carries its hash, and the page
+# fetches `/api/roster/summary` when the hash moves.
+_roster_cache: dict[str, Any] = {"rev": None, "text": "{}"}
+_roster_lock = threading.Lock()
+
+
+def _roster_head(conn: sqlite3.Connection) -> dict[str, Any]:
+    """The roster's counts and revision, for the snapshot."""
+    summary = _roster_summary(conn)
+    text = json.dumps(summary, sort_keys=True, default=str)
+    rev = hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+    with _roster_lock:
+        _roster_cache.update(rev=rev, text=text)
+    return {"total": summary["total"], "mine": summary["mine"], "rev": rev}
+
+
 def _controls(conn: sqlite3.Connection) -> dict[str, Any]:
     band = control.effective_allowance(conn)
     recent = rows(
@@ -1013,9 +1031,7 @@ def _controls(conn: sqlite3.Connection) -> dict[str, Any]:
 
 
 def _projects_cached() -> list[dict[str, Any]]:
-    import time as _time
-
-    now = _time.monotonic()
+    now = time.monotonic()
     if now - _project_cache["at"] > PROJECT_TTL_S:
         try:
             _project_cache["rows"] = projects_mod.scan()
@@ -1032,9 +1048,34 @@ def fingerprint(state: dict[str, Any]) -> str:
     browser from `started_at`; if it were part of this hash, every poll would
     push a frame and the feed would be a clock, not a change feed.
     """
-    return hashlib.sha256(
-        json.dumps(state, sort_keys=True, default=str).encode("utf-8")
-    ).hexdigest()
+    return _serialize(state)[0]
+
+
+def _serialize(state: dict[str, Any]) -> tuple[str, str]:
+    """The state as JSON, and that JSON's hash. One dump serves both."""
+    text = json.dumps(state, sort_keys=True, default=str)
+    return hashlib.sha256(text.encode("utf-8")).hexdigest(), text
+
+
+# One snapshot per interval, shared by every client. Each open page used to
+# build its own every two seconds.
+_frame: dict[str, Any] = {"at": 0.0, "fp": None, "text": ""}
+_frame_lock = threading.Lock()
+
+
+def frame() -> tuple[str, str]:
+    """The current state's (hash, JSON), rebuilt at most once per SSE interval."""
+    with _frame_lock:
+        if _frame["fp"] is None or time.monotonic() - _frame["at"] >= SSE_INTERVAL_S * 0.9:
+            _frame["fp"], _frame["text"] = _serialize(snapshot())
+            _frame["at"] = time.monotonic()
+        return _frame["fp"], _frame["text"]
+
+
+def _expire_frame() -> None:
+    """Make the next `frame()` rebuild. Called after an action changes state."""
+    with _frame_lock:
+        _frame["at"] = 0.0
 
 
 # ── app ───────────────────────────────────────────────────────────────────────
@@ -1093,6 +1134,7 @@ def _act(fn, *args, **kwargs) -> dict[str, Any]:
             conn.execute("ROLLBACK")
             raise
         conn.execute("COMMIT")
+        _expire_frame()
         return {"ok": True, **(out if isinstance(out, dict) else {"result": out})}
     except control.Refused as exc:
         raise HTTPException(409, str(exc))
@@ -1182,8 +1224,24 @@ def favicon() -> FileResponse:
 
 
 @app.get("/api/state")
-def api_state() -> dict[str, Any]:
-    return snapshot()
+def api_state() -> Response:
+    return Response(frame()[1], media_type="application/json")
+
+
+@app.get("/api/roster/summary")
+def api_roster_summary(request: Request) -> Response:
+    """Every division and persona. Sent in full only when its ETag has moved."""
+    with _roster_lock:
+        rev, text = _roster_cache["rev"], _roster_cache["text"]
+    if rev is None:
+        frame()
+        with _roster_lock:
+            rev, text = _roster_cache["rev"], _roster_cache["text"]
+    etag = f'"{rev}"'
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers={"ETag": etag})
+    return Response(text, media_type="application/json",
+                    headers={"ETag": etag, "Cache-Control": "no-cache"})
 
 
 @app.get("/api/story/{story_id}")
@@ -2709,11 +2767,10 @@ async def events() -> StreamingResponse:
     async def stream():
         last = None
         while True:
-            state = await asyncio.to_thread(snapshot)
-            fp = fingerprint(state)
+            fp, text = await asyncio.to_thread(frame)
             if fp != last:
                 last = fp
-                yield f"event: state\ndata: {json.dumps(state, default=str)}\n\n"
+                yield f"event: state\ndata: {text}\n\n"
             else:
                 yield ": keepalive\n\n"
             await asyncio.sleep(SSE_INTERVAL_S)
