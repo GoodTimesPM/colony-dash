@@ -8,7 +8,7 @@
   * Drafting is queued: the button records a request and the next wake
     writes it under the budget guard, since `control.py` never spends tokens.
   * Promotion is a human gate: `promote()` is the only disk write and only a
-    PO action reaches it (ARCHITECTURE.md §7, §8.2).
+    PO action reaches it (docs/design.md §7, §8.2).
 
 Value is measured in tokens saved, the same unit as the budget.
 """

@@ -3,7 +3,7 @@
 A tick decides whether this hour is worth a model; this module does the
 work. Its jobs, in order: answer PO replies, draft requested skills,
 **groom** stories (read-only, ending at the PO's criteria gate,
-ARCHITECTURE.md §4.2), propose staffing, then **build** dispatched stories
+docs/design.md §4.2), propose staffing, then **build** dispatched stories
 via `build.py`.
 """
 

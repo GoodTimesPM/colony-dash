@@ -14,7 +14,7 @@ from pathlib import Path
 
 from . import db, roster as roster_mod, seed as seed_mod, usage as usage_mod
 
-# Tokens are the unit; dollars are the grey secondary (ARCHITECTURE.md §6). No
+# Tokens are the unit; dollars are the grey secondary (docs/design.md §6). No
 # escapes when piped. `sys.stdout` is None under pythonw, and this runs at
 # import.
 _COLOR = bool(sys.stdout and sys.stdout.isatty()) and not os.environ.get("NO_COLOR")
@@ -103,7 +103,7 @@ def cmd_status(conn: sqlite3.Connection, args) -> int:
     elif usage:
         print(f"  week   {usage['seven_day_pct']:.1f}% used   resets {usage['seven_day_resets_at']}")
     else:
-        print(f"  week   {DIM}no usage sample yet. See ARCHITECTURE.md §6.2{RESET}")
+        print(f"  week   {DIM}no usage sample yet. See docs/design.md §6.2{RESET}")
 
     rule("board")
     counts = conn.execute("SELECT status, COUNT(*) n FROM stories GROUP BY status").fetchall()

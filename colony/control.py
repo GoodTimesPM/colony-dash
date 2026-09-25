@@ -9,7 +9,7 @@ for each:
      to it.
   2. **Nothing here spends tokens.** Approving a story marks it dispatchable;
      the next wake decides. A mis-click costs nothing and the budget guard
-     still gets its say (ARCHITECTURE.md §4.4, §6.2).
+     still gets its say (docs/design.md §4.4, §6.2).
 
 HALT writes a file *and* a control row, because a file on disk cannot be
 blocked by a locked database or an unresponsive server.

@@ -2,7 +2,7 @@
 
 `investigator` and `reviewer` are hand-written rather than hired: they are the
 loop's own safety machinery, not specialists, and their contracts must not drift
-with an upstream persona repo. ARCHITECTURE.md §2.
+with an upstream persona repo. docs/design.md §2.
 """
 
 from __future__ import annotations

@@ -3,7 +3,7 @@
 The only place Colony Dash spends tokens, so the guards live here: a tool
 allowlist, a working directory, a timeout, and a `runs` row written before
 the process starts. Tools and model come from the `agents` contract, never
-from the persona (ARCHITECTURE.md §2.1, §8).
+from the persona (docs/design.md §2.1, §8).
 """
 
 from __future__ import annotations

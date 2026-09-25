@@ -1,4 +1,4 @@
-"""The Notion outbox: queue here, send from the tick (ARCHITECTURE.md §5.4).
+"""The Notion outbox: queue here, send from the tick (docs/design.md §5.4).
 
 Dashboard actions must be instant and must not fail because Notion is down,
 so writes are queued as rows and the hourly tick sends them. That gives

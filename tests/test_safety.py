@@ -1,6 +1,6 @@
 """The safety model, asserted rather than promised.
 
-ARCHITECTURE.md §8 says three things: an agent can never reach the shell, write
+docs/design.md §8 says three things: an agent can never reach the shell, write
 tools need two independent facts to be true, and nothing writes outside one
 named project folder. Those are the three things this file checks, because a
 safety property that is only written down in a document is a safety property

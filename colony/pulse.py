@@ -1,4 +1,4 @@
-"""The heartbeat, in two tiers so an idle hour is free (ARCHITECTURE.md §4).
+"""The heartbeat, in two tiers so an idle hour is free (docs/design.md §4).
 
     tick   pure Python, no model, ZERO tokens. Runs every hour, always.
     wake   Ordis actually runs. Only when the tick found something.
@@ -31,7 +31,7 @@ PULSE_INTERVAL = timedelta(hours=1)
 STALE_RUN_AFTER = timedelta(minutes=20)
 
 # Folders the colony may be pointed at. Read is the whole tree; write is always
-# one of these, per ticket, after approval. ARCHITECTURE.md §8.1.
+# one of these, per ticket, after approval. docs/design.md §8.1.
 PROJECTS_ROOT = db.PROJECTS_ROOT
 
 

@@ -7,7 +7,7 @@ project tree and a HALT button.
 
 The token is one bearer secret for one operator. It is compared in constant
 time, carried in an HttpOnly cookie and never logged. There are no accounts;
-multi-tenancy is a separate program (see PROJECT.md). The intended transport
+multi-tenancy is a separate program (see docs/history/build-log.md §10.19). The intended transport
 is a tailnet, where this token is the second lock rather than the only one.
 """
 
