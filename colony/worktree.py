@@ -1,23 +1,14 @@
-r"""Write isolation. An agent never edits the tree you are working in.
+r"""Write isolation: an agent never edits the tree you are working in.
 
-A write-capable run gets its own `git worktree`: a full checkout at
-`.colony/worktrees/ticket-<id>`, on its own branch, sharing the object store but
-nothing else. The agent's write scope is one project folder *inside* that
-checkout, so the worst thing a runaway run can do is make a mess in a directory
-we are about to delete.
+A write-capable run gets its own `git worktree` at
+`.colony/worktrees/ticket-<id>` on its own branch, and its write scope is
+one project folder inside it. The result comes back as a patch in
+`.colony/patches/` with a `write-approval` escalation. If approved, the
+patch is applied to the live tree **uncommitted**, and the PO commits it.
+The colony never commits to master, pushes or rewrites history
+(ARCHITECTURE.md §8.3).
 
-The handoff back is a **patch, not a merge**. When the run finishes we take a
-diff, park it in `.colony/patches/`, and raise a `write-approval` escalation. If
-the PO approves, the patch is applied to the live tree and left **uncommitted**.
-The PO reviews it in their own editor and commits it themselves. The colony never
-runs `git commit` on master, never pushes, and never rewrites history. That is
-not a policy the agents are asked to follow; it is a capability they were not
-given (ARCHITECTURE.md §8.3).
-
-Why a worktree and not a copy: a copy loses the git context an agent needs to
-work sensibly, and a copy's changes cannot be turned into a reviewable diff
-without reinventing diff. The worktree gives isolation and reviewability from
-the same mechanism.
+A worktree rather than a copy keeps the git context and makes the diff free.
 """
 
 from __future__ import annotations
@@ -35,9 +26,7 @@ PATCH_DIR = db.RUNTIME_DIR / "patches"
 BASE_DIR = db.RUNTIME_DIR / "bases"
 GIT_TIMEOUT_S = 120
 
-# One untracked file bigger than this is not source, and copying it into every
-# worktree costs more than it is worth. `personal-desktop-projects` holds
-# 590 MB of untracked binaries; without a limit a build there would copy them.
+# Untracked files above this are not source and are not copied.
 MAX_SEED_FILE_BYTES = 2 * 1024 * 1024
 MAX_SEED_TOTAL_BYTES = 64 * 1024 * 1024
 
@@ -45,18 +34,9 @@ MAX_SEED_TOTAL_BYTES = 64 * 1024 * 1024
 # contains the worktree we are filling.
 SEED_SKIP_DIRS = {".git", ".colony", "__pycache__", "node_modules", ".venv", "venv"}
 
-# Git-ignored files are not all build output. Some of them are the state the
-# code reads at runtime: `data/notion_sync_state.json` is the dedupe cache
-# `apply.main auto` consults before it syncs anything, and a build agent that
-# cannot see it cannot say one true thing about what the sync has already
-# consumed. Ticket #80's agent reported the file "isn't in this worktree" and
-# stopped there, which is why this pass exists.
-#
-# Generated directories are still left out, and they are told apart by count
-# rather than by name: `packets/` holds over two thousand ignored files and is
-# plainly output, `data/` holds two and is plainly state. A group above the
-# threshold is skipped whole and named in the report so the agent is told what
-# it is missing rather than left to guess.
+# Git-ignored runtime state (e.g. a sync's dedupe cache) is copied so the agent
+# can read it. Groups above this count are generated output, skipped and named
+# in the report.
 MAX_IGNORED_PER_GROUP = 12
 
 
@@ -65,13 +45,8 @@ class WorktreeError(RuntimeError):
 
 
 class PatchConflict(WorktreeError):
-    """The patch landed, but part of it needs the PO to finish the merge.
-
-    A separate type because the caller has to say something different. Every
-    other failure means nothing changed on disk; this one means most of the
-    patch is already in the working tree and some files have conflict markers
-    in them. Telling the PO "the patch would not apply" when this happens sends
-    them back to an editor full of files they think are untouched.
+    """The patch landed, but some files have conflict markers. Separate from
+    other failures because most of the change is already on disk.
     """
 
     def __init__(self, message: str, paths: list[str]):
@@ -130,11 +105,8 @@ def _side(value: str, prefix: str) -> str | None:
 
 
 def patch_files(text: str) -> list[str]:
-    """The paths a patch touches, after the change, in the order it lists them.
-
-    Read from the `+++ b/` line, or `--- a/` for a deletion. A binary or
-    mode-only entry has neither, so it falls back to `rename to`, then to the
-    header, whose two halves are the same path when nothing was renamed.
+    """Paths a patch touches, in order: `+++ b/`, `--- a/` for deletions, then
+    `rename to`, then the header.
     """
     out: list[str] = []
     block: dict[str, str | None] | None = None
@@ -211,14 +183,9 @@ def _untracked_in(scope: list[str]) -> list[str]:
 
 
 def _ignored_in(scope: list[str]) -> tuple[list[str], list[str]]:
-    """Git-ignored files in scope that are runtime state, not build output.
-
-    Returns the files worth copying and a description of each group that was
-    skipped for being too numerous to be anything but generated output.
-
-    Credential files are excluded here at every size. They have their own gate,
-    `sees_secrets` on the contract, and a second door into the same room
-    would make that gate a decoration.
+    """Git-ignored runtime state in scope, and a description of each group
+    skipped as generated. Credential files are never included;
+    `sees_secrets` is their gate.
     """
     if not scope:
         return [], []
@@ -247,12 +214,8 @@ def _ignored_in(scope: list[str]) -> tuple[list[str], list[str]]:
 
 
 def _secret_files(scope: list[str]) -> list[str]:
-    """Credential files worth handing to a contract that is allowed them.
-
-    Gathered from the top-level project containing each scope folder, not from
-    the scope folder alone. `job-search/assisted-apply` reads
-    `job-search/job-radar/.env` on purpose -- same integration, same database --
-    and a scope-only search would miss the file the code actually loads.
+    """Credential files for a contract allowed them, gathered from each scope's
+    top-level project, since subprojects share their parent's `.env`.
     """
     roots = {f.split("/")[0] for f in scope}
     found: list[str] = []
@@ -285,11 +248,8 @@ def base_tree(ticket_id: int) -> str:
 
 def seed(ticket_id: int, scope: list[str], secrets: bool = False) -> dict:
     """Bring the checkout up to what is on disk, then record that as the base.
-
-    Order matters. Everything git should diff against goes in first and gets
-    written into a tree; the credential files go in after that, so they are not
-    in the base and cannot appear in a patch as a deletion either -- `diff`
-    removes them again before it looks.
+    Credential files go in after the base tree, so they never appear in a
+    patch.
     """
     path = path_for(ticket_id)
     scope = [f.strip("/") for f in (scope or []) if f.strip("/")]
@@ -316,10 +276,8 @@ def seed(ticket_id: int, scope: list[str], secrets: bool = False) -> dict:
         total += _copy_into(rel, path)
         report["untracked"] += 1
 
-    # Ignored state last of the three content passes, and still before the tree
-    # is written. `git add -A` honours .gitignore, so none of this reaches the
-    # base tree and none of it can turn up in a patch. The agent reads these
-    # files and cannot ship them, which is exactly the arrangement `.env` has.
+    # Ignored state before the tree is written; `git add -A` skips it, so it
+    # can be read but never shipped.
     keep, dropped = _ignored_in(scope)
     report["ignored_skipped"] = dropped
     for rel in keep:
@@ -347,12 +305,8 @@ def seed(ticket_id: int, scope: list[str], secrets: bool = False) -> dict:
 
 
 def create(ticket_id: int) -> Path:
-    """Open an isolated checkout for one ticket.
-
-    Branched from the current HEAD rather than from a remote: the colony works
-    on what is on this machine right now, which is what the PO can actually
-    review. A stale worktree from a previous attempt is torn down first. A
-    half-finished checkout is not evidence worth keeping.
+    """Open an isolated checkout for one ticket, branched from local HEAD. A
+    stale one from an earlier attempt is removed first.
     """
     path = path_for(ticket_id)
     if path.exists():
@@ -368,12 +322,8 @@ def create(ticket_id: int) -> Path:
 
 
 def _drop_secrets(ticket_id: int) -> None:
-    """Take the credential files back out before git is allowed to look.
-
-    They were copied in after the base tree was written, so git has never seen
-    them. Removing them here keeps it that way whatever the agent did to them:
-    a patch can never carry a key, and an agent that edited a `.env` finds the
-    edit simply did not happen, which is the right answer.
+    """Remove the credential files before git looks, so a patch can never carry
+    a key and edits to them are dropped.
     """
     path = path_for(ticket_id)
     for found in list(path.rglob("*")):
@@ -385,11 +335,8 @@ def _drop_secrets(ticket_id: int) -> None:
 
 
 def diff(ticket_id: int) -> str:
-    """Everything the run changed, as a patch against the seeded base.
-
-    Against the base and not HEAD: the checkout was brought up to the PO's
-    uncommitted state before the agent started, so diffing against HEAD would
-    hand back their own edits as though the agent had written them.
+    """Everything the run changed, as a patch against the seeded base, not
+    HEAD, which would include the PO's own uncommitted edits.
     """
     path = path_for(ticket_id)
     if not path.is_dir():
@@ -430,14 +377,10 @@ def conflicted() -> list[str]:
 def apply_patch(ticket_id: int, scope: list[str] | None = None) -> dict:
     """Land an approved patch in the live tree, uncommitted.
 
-    Three passes, strictest first. `git apply --index` is all-or-nothing and
-    exact. A plain worktree apply covers the case where the PO has staged work
-    on a file the patch touches. `--3way` merges a patch written against an
-    older tree, and it can leave conflict markers on disk, so a conflict is
-    raised as `PatchConflict` naming the files rather than as a refusal.
-
-    With `scope`, a patch that touches anything outside those folders is
-    refused before git runs. The work order states the scope; this enforces it.
+    Three passes, strictest first: `git apply --index`, then a worktree-only
+    apply (for files with staged work), then `--3way`, which can leave
+    conflict markers and raises `PatchConflict`. With `scope`, a patch
+    touching anything outside it is refused before git runs.
     """
     patch = PATCH_DIR / f"ticket-{ticket_id}.patch"
     if not patch.is_file():
@@ -463,17 +406,9 @@ def apply_patch(ticket_id: int, scope: list[str] | None = None) -> dict:
     except WorktreeError:
         pass
 
-    # Both index-aware passes refuse with "does not match index" as soon as one
-    # file the patch touches has staged work sitting on top of different
-    # worktree content. `MM` in `git status`. That is the PO's ordinary state
-    # in assisted-apply, and it says nothing about whether the patch fits: the
-    # same patch that git called unappliable passed `git apply --check` against
-    # the worktree on the first try.
-    #
-    # So try the worktree on its own before reaching for the merge. This is
-    # still all-or-nothing and still exact, every context line has to match
-    # what is on disk, it just leaves the result unstaged, which is where an
-    # applied patch was going to sit anyway.
+    # Index-aware applies refuse when a touched file has staged changes (`MM`),
+    # even though the patch fits the worktree. Try the worktree alone before
+    # merging.
     try:
         _git("apply", "--check", str(patch))
         _git("apply", str(patch))
@@ -498,12 +433,7 @@ def apply_patch(ticket_id: int, scope: list[str] | None = None) -> dict:
 
 
 def remove(ticket_id: int) -> None:
-    """Tear down the checkout. The branch and the saved patch survive.
-
-    The patch is the record of what was proposed and has to outlive the
-    scaffolding that produced it. A rejected change you can no longer read is a
-    decision you cannot revisit.
-    """
+    """Remove the checkout. The branch and saved patch stay as the record."""
     path = path_for(ticket_id)
     try:
         _git("worktree", "remove", "--force", str(path))

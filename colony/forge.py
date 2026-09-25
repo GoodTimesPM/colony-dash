@@ -1,35 +1,16 @@
-"""The skill forge. Where a run that went well becomes a procedure.
-
-This is the piece that makes the colony compound rather than merely repeat.
-A memory is a *fact* ("the Notion database was renamed"); a skill is a
-*procedure* ("here is how to reconcile a schema drift, including the two ways
-it usually fails"). The forge only produces the second kind.
+"""The skill forge: a run that went well becomes a reusable procedure.
 
     agent runs --> detect --> candidate --> Ordis drafts --> PO promotes --> active
                                                                               |
                                                     retired <-- win rate decays
 
-Three properties hold, and each of them is a decision that could have gone the
-other way:
+  * Detection is free: `detect()` is SQL over runs already paid for.
+  * Drafting is queued: the button records a request and the next wake
+    writes it under the budget guard, since `control.py` never spends tokens.
+  * Promotion is a human gate: `promote()` is the only disk write and only a
+    PO action reaches it (ARCHITECTURE.md §7, §8.2).
 
-**Detection is free.** `detect()` is pure SQL over runs the colony already paid
-for. It can run on every wake without a budget conversation, which is what lets
-the signal accumulate quietly instead of being something we remember to look
-for.
-
-**Drafting is queued, not immediate.** The PO asks for a draft; the next wake
-writes it. `control.py` does not spend tokens (its module docstring is the
-rule), so the button records a request and the spender picks it up on its own
-schedule, behind the budget guard. A mis-click costs nothing.
-
-**Promotion is a human gate.** Auto-promotion is how a system teaches itself a
-bad habit and then applies it colony-wide. `promote()` is the only path here
-that writes a file to disk, and it is only ever reached from a PO action
-(ARCHITECTURE.md §7, §8.2, the third gate).
-
-Value is measured in tokens the skill stops the colony from spending, which is
-the same currency as the budget, so the forge has to pay for itself in the unit
-everything else is already denominated in.
+Value is measured in tokens saved, the same unit as the budget.
 """
 
 from __future__ import annotations
@@ -43,17 +24,13 @@ from typing import Any
 
 from . import agent, db, voice
 
-# Where a promoted skill lands. The project root rather than colony-dash,
-# because a skill is for the whole colony *and* for Ordis. A Claude Code
-# session opened anywhere under PROJECTS should be able to load it. This is the
-# "learned from the agents, passed on to the Scrum Master" path in §7 step 4.
+# At the projects root so any Claude Code session there, Ordis included, can
+# load it (§7 step 4).
 SKILLS_DIR = db.PROJECTS_ROOT / ".claude" / "skills"
 
 SLUG_OK = re.compile(r"^[a-z0-9][a-z0-9-]{1,60}$")
 
-# Detection thresholds. Deliberately conservative: a false candidate costs a
-# draft's worth of tokens and a PO's attention, and the second of those is the
-# scarce one.
+# Conservative: a false candidate costs the PO's attention, the scarce part.
 REPEAT_MIN = 3          # same ticket class solved this many times = a procedure
 SHORTCUT_SAMPLE = 4     # this many runs before a "low outlier" means anything
 SHORTCUT_RATIO = 0.5    # <= half the class median is a shortcut worth writing down
@@ -80,11 +57,8 @@ def _median(values: list[int]) -> int:
 
 
 def class_stats(conn: sqlite3.Connection) -> dict[tuple[str, str], dict]:
-    """Per ticket class: how often it succeeded, and what it usually costs.
-
-    The class is (intent, role) rather than the ticket title, because a skill is
-    a procedure for a *kind* of work. Two grooming runs on different stories are
-    the same class; the same story investigated and then implemented is not.
+    """Success rate and typical cost per ticket class, keyed by (intent, role),
+    since a skill is a procedure for a kind of work.
     """
     rows = conn.execute(
         """
@@ -101,9 +75,8 @@ def class_stats(conn: sqlite3.Connection) -> dict[tuple[str, str], dict]:
     for row in rows:
         key = (row["intent"], row["role"])
         stat = out.setdefault(key, {"ok": [], "failed": [], "tokens": [], "tickets": {}})
-        # A run killed over budget still produced its answer (§10.2). It is a
-        # success that cost too much, and excluding it would hide the very runs
-        # a shortcut skill would most help.
+        # Over-budget runs still answered (§10.2) and are what a skill would
+        # help most.
         if row["status"] in ("ok", "over-budget"):
             stat["ok"].append(row["run_id"])
             if row["tokens"]:
@@ -127,12 +100,8 @@ def baseline_for(conn: sqlite3.Connection, intent: str, role: str) -> int:
 
 def _propose(conn: sqlite3.Connection, *, slug: str, name: str, detector: str,
              summary: str, evidence: list[int], baseline: int) -> dict | None:
-    """Insert a candidate, or top up the evidence on one already waiting.
-
-    A slug that exists in any status other than `candidate` is left completely
-    alone. Re-proposing a retired skill would quietly resurrect a thing the PO
-    already judged and rejected; re-proposing an active one would mean the
-    detector has no idea what it already produced.
+    """Insert a candidate or add evidence to a waiting one. Slugs in any other
+    status are left alone, so a retired skill is not quietly proposed again.
     """
     existing = conn.execute("SELECT * FROM skills WHERE slug = ?", (slug,)).fetchone()
     if existing:
@@ -219,9 +188,7 @@ def detect(conn: sqlite3.Connection) -> list[dict]:
                 if hit:
                     found.append(hit)
 
-    # 4. The PO correcting the same thing over and over. The highest-signal
-    #    source there is: it is the colony being wrong in a way a human had to
-    #    keep fixing by hand.
+    # 4. The PO correcting the same thing repeatedly: the strongest signal.
     corrections = {
         "reject": "rejecting what the colony proposed",
         "confirm-project": "naming the project folder by hand",
@@ -261,12 +228,8 @@ def pending_drafts(conn: sqlite3.Connection) -> list[sqlite3.Row]:
 
 
 def _evidence_brief(conn: sqlite3.Connection, skill: sqlite3.Row) -> str:
-    """What the drafting agent is shown.
-
-    Deliberately *not* the raw transcripts. A transcript is tens of thousands of
-    tokens of a model talking to itself, and the forge's whole promise is that it
-    costs less than it saves. The work order, the findings, and the verdict are
-    what actually carry the procedure.
+    """What the drafting agent sees: work order, findings and verdict, not raw
+    transcripts, which would cost more than the skill saves.
     """
     runs = json.loads(skill["evidence_runs"] or "[]")
     if not runs:
@@ -377,9 +340,8 @@ def draft(conn: sqlite3.Connection, skill_id: int, terms: dict) -> dict:
     )
 
     if not answer.get("worth_it", True):
-        # The forge is allowed to talk itself out of a candidate, and this is the
-        # cheapest place a bad idea can die: before a file exists, and before the
-        # PO is asked to read one.
+        # The cheapest place to drop a bad candidate: before a file or a PO
+        # read.
         why = (answer.get("why_not") or "the evidence held no procedure")[:400]
         conn.execute(
             "UPDATE skills SET status='retired', retired_at=datetime('now','localtime'), "
@@ -414,12 +376,8 @@ def skill_path(slug: str) -> Path:
 
 
 def write_skill_file(slug: str, body: str) -> Path:
-    """The one place in the forge that touches disk.
-
-    The slug is re-validated here rather than trusted from the row, because this
-    function is where a database string becomes a filesystem path, and that is
-    exactly the conversion where a whitelist has to be enforced at the point of
-    use rather than at the point of origin.
+    """The forge's only disk write. The slug is re-validated here, where a
+    string becomes a path.
     """
     path = skill_path(slug)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -428,13 +386,8 @@ def write_skill_file(slug: str, body: str) -> Path:
 
 
 def attach(conn: sqlite3.Connection, slug: str, roles: list[str]) -> list[str]:
-    """Add the skill to each named agent contract. 'ordis' is a legal role here.
-
-    Ordis has no row in `agents`, the Scrum Master is this codebase, not a hired
-    colonist, so attaching to Ordis means the file exists under
-    `.claude/skills/`, which any Claude Code session opened under PROJECTS will
-    find. That is the whole mechanism, and it is why the file lands at the
-    project root instead of inside colony-dash.
+    """Attach the skill to each named contract. 'ordis' has no `agents` row;
+    for it, the file under `.claude/skills/` is the attachment.
     """
     touched: list[str] = []
     for role in roles:
@@ -484,12 +437,8 @@ def preamble(skills: list[sqlite3.Row]) -> str:
 
 def record_uses(conn: sqlite3.Connection, *, skills: list[sqlite3.Row], run_id: int | None,
                 tokens: int, ok: bool) -> None:
-    """One row per skill per run, with the baseline it is being judged against.
-
-    `tokens_saved` on the skill is kept as a running total for the dashboard, but
-    it is only ever the sum of `skill_uses.saved`. The detail is the truth and
-    the total is the convenience. A saving may be negative: a skill that makes
-    runs *more* expensive has to be able to say so.
+    """One `skill_uses` row per skill per run, with its baseline. The skill's
+    `tokens_saved` is only their sum, and savings can be negative.
     """
     for row in skills:
         baseline = row["baseline_tokens"] or 0
@@ -510,11 +459,8 @@ def record_uses(conn: sqlite3.Connection, *, skills: list[sqlite3.Row], run_id: 
 
 
 def decaying(conn: sqlite3.Connection) -> list[sqlite3.Row]:
-    """Active skills whose win rate has fallen below the bar on a real sample.
-
-    Flagged, never auto-retired: the forge proposes and the PO disposes, in both
-    directions. A skill removing itself is the same failure mode as a skill
-    promoting itself, pointed the other way.
+    """Active skills whose win rate fell below the bar on a real sample.
+    Flagged for the PO, never auto-retired.
     """
     return conn.execute(
         """SELECT *, (wins * 1.0 / NULLIF(wins + losses, 0)) AS win_rate

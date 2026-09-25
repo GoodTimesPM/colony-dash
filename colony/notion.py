@@ -1,18 +1,14 @@
-"""Read the Notion intake board, and, since M5, write back to it.
+"""Read the Notion intake board, and write a little back to it.
 
-The MCP server Ordis uses interactively is not available to a scheduled Python
-process, so the tick talks to the Notion REST API directly with an integration
-token. Config (a .env in this folder, never committed):
+The tick uses the REST API with an integration token from `.env`:
 
     NOTION_TOKEN=ntn_...
     NOTION_DATABASE_ID=1d23280a-add3-41cb-bd14-67c771ee6d88
 
-The write half is deliberately small. The colony may set a row's Status, tick a
-checkbox it has verified as done, and leave a comment. It may not create rows,
-delete rows, or edit the brief: the board is where the PO states intent, and a
-loop that can rewrite its own instructions has no human gate in it. Nothing here
-is called from control.py. Writes are queued into `notion_outbox` and flushed
-by the tick, the same separation 007 drew for skill drafts.
+Writes are narrow: set a row's Status, tick a verified checkbox, comment. No
+creating, deleting or editing the brief, since the board is where the PO
+states intent. Writes go through `notion_outbox` and the tick, never
+control.py.
 """
 
 from __future__ import annotations
@@ -34,14 +30,8 @@ DEFAULT_DATABASE_ID = "1d23280a-add3-41cb-bd14-67c771ee6d88"
 WORKABLE_STATUS = "In Progress"
 RESEARCH_STATUS = "Exploring"
 
-# The other five options on the Notion select, and what they mean here.
-#
-# Only two of the seven statuses are an instruction to the colony. The rest are
-# the PO filing something, finished, parked, or not begun, and a row being
-# filed is the *absence* of a request. Treating them as work was the loop's
-# loudest mistake: an idea the PO wrote down and left alone came back an hour
-# later as a question in their Inbox asking which folder it belonged to, which is
-# the colony inventing an obligation out of a note.
+# The other five statuses file a row (finished, parked, not begun). A filed row
+# is the absence of a request and must not become work.
 SETTLED_STATUS = {
     "Done":        "done",
     "Shipped":     "done",
@@ -52,29 +42,15 @@ SETTLED_STATUS = {
 
 
 def ledger_status(notion_status: str | None) -> str:
-    """Where in the colony's own workflow a Notion row lands.
-
-    This is orthogonal to whether the row is filed, `stories.settled_as` holds
-    that, so a story parked as Done and later reopened comes back to the
-    workflow status it actually had rather than to a guess.
+    """The colony workflow status for a Notion row. Independent of filing,
+    which `stories.settled_as` records, so a reopened story gets its old
+    status back.
     """
     return "backlog" if notion_status == WORKABLE_STATUS else "needs-criteria"
 
-# What may be set from this dashboard, in board order.
-#
-# "In Progress" is on the list now, at the PO's request. The rule it used to be
-# kept off the list to enforce, the colony must never move a row into its own
-# intake filter, or it can feed itself work it invented, is still the right
-# rule and is still enforced, just somewhere better: the only two callers of
-# `queue_notion` are a button in the story drawer and the drop dialog, and both
-# of them are the PO's hand on a control. No agent, wake or tick queues a
-# status. What the omission was actually preventing was *the PO* starting work
-# from the dashboard, which was never the thing to prevent.
-#
-# "Archived" used to be in here and is not an option on the real Status select.
-# Notion answers an unknown select option by **creating** it, so the one list
-# whose whole job is to bound what the colony writes was the thing that would
-# have added an eighth status to the board.
+# Statuses the dashboard may set, in board order. Only the PO's own buttons
+# queue a status, so no agent can move a row into its own intake filter. Every
+# entry must exist on the real select: Notion creates unknown options.
 WRITABLE_STATUS = ("In Progress", "Exploring", "Done", "Shipped", "Shelved",
                    "New", "Not started")
 
@@ -100,9 +76,8 @@ class NotionError(RuntimeError):
 
 def _why(exc: urllib.error.HTTPError) -> str:
     """Notion's `code` and `message` for a failed call, or the bare status.
-
-    Every field here is Notion's own prose about its own API. Nothing from the
-    request, and so nothing from the Authorization header, can reach it.
+    Nothing from the request, including the Authorization header, can reach
+    it.
     """
     try:
         body = json.loads(exc.read())
@@ -153,12 +128,9 @@ def _retry_after(exc: urllib.error.HTTPError) -> float:
 
 
 def _raise_for(exc: urllib.error.HTTPError) -> None:
-    """Raise with Notion's own explanation from the response body.
-
-    urllib drops the body, and a bare "403 Forbidden" reads the same for a
-    read-only integration, a sharing problem and an expired token. The body's
-    `restricted_resource: Insufficient permissions` names the fix, and it ends
-    up on the outbox row where the person reads it.
+    """Raise with Notion's explanation from the response body, which urllib
+    drops; a bare 403 cannot tell permissions from sharing from an expired
+    token.
     """
     raise NotionError(_why(exc)) from None
 
@@ -187,15 +159,9 @@ def _prop(props: dict, name: str) -> object:
 
 
 def fetch_page_content(page_id: str) -> dict:
-    """The page body is the brief. But a brief has two halves.
-
-    Returns the flattened text *and* the checklist split into what is already
-    done and what is not. Flattening `- [x]` and `- [ ]` to the same kind of
-    string is how the Inbox ended up asking the PO to decide things they had
-    already decided: the ledger could see the sentence but not the checkbox.
-
-    `blocks` carries the block id of every to-do, so a later tick can tick one
-    without re-reading the whole page.
+    """The page body as the brief: flattened text plus the checklist split into
+    done and not done, so the Inbox never asks about a ticked box. `blocks`
+    maps each to-do to its block id for later ticking.
     """
     lines: list[str] = []
     done: list[str] = []
@@ -243,26 +209,11 @@ def fetch_page_body(page_id: str) -> str:
 def fetch_board(database_id: str | None = None, *, with_bodies: bool = True) -> list[dict]:
     """Every row on the board, whatever its status.
 
-    This used to filter the query to `In Progress OR Exploring`, which was the
-    right answer to "what may the colony work on" and the wrong answer to "what
-    is on the board". And the sync needs the second. A row moved to Done simply
-    vanished from the result set, so the sync never learned it had moved and the
-    story sat in the ledger frozen at its last workable status forever. **A
-    status change you filter out is a status change you cannot observe**, and
-    filing only exists as a concept because the colony can see it happen.
-
-    The cost of reading everything is bounded by not reading the *bodies* of
-    rows the colony may not act on: one request for the page list, plus a body
-    request only for rows that are In Progress or Exploring. That is the same
-    number of body fetches the filtered version made.
-
-    Returns dicts shaped for the `stories` table. `hash` covers everything the
-    colony reads, so an unchanged row costs the wake tier nothing. And since
-    M5 that includes the checklist, because a box getting ticked in Notion is
-    exactly the kind of change the colony must notice. `body_fetched` says
-    whether the body fields in the dict are real or placeholders, because
-    writing a blank description over a real one is how a filed story loses its
-    brief on the way to the shelf.
+    Unfiltered so the sync sees a row move to Done; a filtered query cannot
+    observe a status change. Bodies are fetched only for In Progress and
+    Exploring rows. `hash` covers everything the colony reads, checklist
+    included. `body_fetched` says whether body fields are real, so a
+    placeholder never overwrites a filed story's brief.
     """
     load_env()
     database_id = database_id or os.environ.get("NOTION_DATABASE_ID", DEFAULT_DATABASE_ID)
@@ -313,20 +264,13 @@ def fetch_board(database_id: str | None = None, *, with_bodies: bool = True) -> 
 
 
 # ── the write half ────────────────────────────────────────────────────────────
-#
-# Everything below is only ever reached from the tick, flushing `notion_outbox`.
-# Each function does one API call and raises on anything unexpected, because the
-# outbox row is what handles the retry. Swallowing the error here would mark a
-# message sent that nobody ever received.
+# Called only from the tick when flushing `notion_outbox`. Each does one call
+# and raises on anything unexpected; the outbox row handles retries.
 
 
 def status_property_kind(database_id: str | None = None) -> str:
-    """Is `Status` a `select` or a `status` property on this database?
-
-    Notion has both and they take different payloads. The read path guesses
-    `select` in its filter and has been right since M0, but guessing wrong on a
-    write is a 400 rather than a filter that quietly matches nothing, so the
-    write path asks first. One call per flush, not one per message.
+    """Is `Status` a `select` or a `status` property? They take different write
+    payloads, so ask once per flush.
     """
     load_env()
     database_id = database_id or os.environ.get("NOTION_DATABASE_ID", DEFAULT_DATABASE_ID)
@@ -351,11 +295,8 @@ def set_status(page_id: str, status: str, *, kind: str = "select") -> dict:
 
 
 def add_comment(page_id: str, text: str) -> dict:
-    """Say something on the page. How a question reaches the PO when they are out.
-
-    Prefixed so a comment from the loop is never mistaken for one the PO left
-    themselves. The board is shared with their own thinking, and an unattributed
-    machine voice in the middle of it is worse than no comment at all.
+    """Comment on the page, prefixed "Ordis ·" so it is never mistaken for the
+    PO's.
     """
     body = f"Ordis · {text.strip()}"[:1900]
     return _request("/comments", {"parent": {"page_id": page_id},
@@ -363,20 +304,15 @@ def add_comment(page_id: str, text: str) -> dict:
 
 
 def check_item(block_id: str, checked: bool = True) -> dict:
-    """Tick a to-do the colony has verified as done.
-
-    The narrowest write in the system and the one with the most trust in it:
-    ticking a box is the colony asserting a fact about the world. It is only
-    ever queued off an accepted story, never off an agent's own say-so.
+    """Tick a to-do. Only queued from an accepted story, never on an agent's
+    word.
     """
     return _request(f"/blocks/{block_id}",
                     {"to_do": {"checked": bool(checked)}}, method="PATCH")
 
 
 def find_block(page_id: str, item_text: str) -> str | None:
-    """The block id for one to-do, matched by its text.
-
-    Text is a weak key and this knows it. The fallback is `None` and a skipped
-    tick, never a guess at a neighbouring checkbox.
+    """The block id for a to-do, matched by text. None means skip, never a
+    guess.
     """
     return fetch_page_content(page_id)["blocks"].get(item_text.strip())
