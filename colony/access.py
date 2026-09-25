@@ -212,7 +212,7 @@ def check(host: str) -> bool:
     return True
 
 
-# ── who has actually arrived ────────────────────────────────────────────────
+# ── who has actually arrived ──────────────────────────────────────────────────
 #
 # The failure this exists for has no error message at either end. The server
 # binds a network address, answers on it from this machine, reports the

@@ -1967,7 +1967,7 @@ function renderMacros(c) {
   box.append(al);
   box.append(el("hr", "macro-rule"));
 
-  // ── the upward direction ────────────────────────────────────────────────
+  // ── the upward direction ──────────────────────────────────────────────────
   //
   // Its own switch, separate from HALT, and the separation is the point. HALT
   // means "spend nothing"; a comment on a Notion page is not a token. A halted
@@ -2241,7 +2241,7 @@ async function openSkill(id) {
   }
 }
 
-// ── the spend chart ───────────────────────────────────────────────
+// ── the spend chart ─────────────────────────────────────────────────────────
 // This was a 34px sparkline over the last fourteen days: the right size for
 // "is it going up", the wrong one for any question with a number in it. The
 // grain now goes from an hour to a year, both shapes are available, and the
@@ -2722,7 +2722,7 @@ async function openPersonaNew() {
     return blk(label, input);
   };
 
-  // the PO sorts their roster by department, so the division is the categorisation
+  // The PO sorts their roster by department, so the division is the categorisation
   // and it is required. A datalist rather than a select: the existing divisions
   // are the suggestion, but "the 17 folders a stranger happened to ship" is not
   // a closed set of the departments anyone could want.
@@ -2950,7 +2950,7 @@ function jsonList(raw) {
   try { const v = JSON.parse(raw); return Array.isArray(v) ? v : []; } catch (_) { return []; }
 }
 
-// ── console ─---------------------------------------------------------------
+// ── console ─────────────────────────────────────────────────────────────────
 //
 // A shell, in a drawer, in the Ordis panel. Everything else on this page is a
 // message left for a loop that reads it on the hour; this is a terminal that
@@ -3265,7 +3265,7 @@ async function openConsole() {
   };
 }
 
-// ── story drawer ─-------------------------------------------------------------
+// ── story drawer ────────────────────────────────────────────────────────────
 
 async function openStory(id) {
   const body = openDrawer("story #" + id, "", { nav: { kind: "story", arg: id, label: "story #" + id } });
@@ -3359,7 +3359,7 @@ async function openStory(id) {
   }
   body.append(gate);
 
-  // ── the checklist, both halves ──────────────────────────────────────────
+  // ── the checklist, both halves ────────────────────────────────────────────
   //
   // This is the block that stops the loop from asking about finished work. The
   // ledger keeps the ticked and unticked to-dos apart now, so the drawer can
@@ -3373,7 +3373,7 @@ async function openStory(id) {
     body.append(blk(`to-dos · ${done.length} of ${done.length + open.length} done`, list));
   }
 
-  // ── talking back to Notion ──────────────────────────────────────────────
+  // ── talking back to Notion ────────────────────────────────────────────────
   //
   // Everything here queues; nothing here sends. The button writes a row to the
   // outbox and the next pulse performs the HTTP, which is the same rule that

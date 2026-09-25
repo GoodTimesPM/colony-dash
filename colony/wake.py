@@ -699,7 +699,7 @@ def answer_po(conn: sqlite3.Connection, terms: dict, projects: list[str]) -> lis
             conn.execute("UPDATE escalations SET recommendation = ? WHERE id = ?",
                          (control.card_text(answer["recommendation"]), esc["id"]))
 
-        # ── what the reply changed ───────────────────────────────────────────
+        # ── what the reply changed ────────────────────────────────────────────
         #
         # Before this, a reply could write prose and nothing else, and that is
         # what it mostly did: Ordis would work out the right next step, say so
