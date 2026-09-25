@@ -1,6 +1,6 @@
 // Phone access: pairing, the QR code and the access switch.
 
-import { $, act, el, toast } from "./core.js";
+import { $, act, btn, el, toast } from "./core.js";
 import { blk, getJSON, openDrawer } from "./drawer.js";
 import { confirmThen } from "./details.js";
 import { openAppearance } from "./appearance.js";
@@ -182,14 +182,7 @@ export function openPhone() {
         : "the firewall rules could not be read, which usually means this "
           + "process is not allowed to. If the phone loads forever, check "
           + "this first."));
-      const cmd = el("div", "mono", "py -m colony phone --allow-firewall");
-      cmd.style.wordBreak = "break-all";
-      cmd.style.cursor = "pointer";
-      cmd.title = "click to copy";
-      cmd.onclick = () => navigator.clipboard.writeText(cmd.textContent)
-        .then(() => toast("copied", ""))
-        .catch(() => toast("this browser would not copy it. Select it instead", "bad"));
-      warn.append(cmd);
+      warn.append(copyLine("py -m colony phone --allow-firewall"));
       set.append(warn);
     }
 
@@ -264,14 +257,7 @@ export function openPhone() {
     }
 
     if (info.url) {
-      const link = el("div", "mono", info.url);
-      link.style.wordBreak = "break-all";
-      link.title = "click to copy";
-      link.style.cursor = "pointer";
-      link.onclick = () => navigator.clipboard.writeText(info.url)
-        .then(() => toast("copied", ""))
-        .catch(() => toast("this browser would not copy it. Select it instead", "bad"));
-      set.append(blk("open this on the phone", link));
+      set.append(blk("open this on the phone", copyLine(info.url)));
 
       if (info.svg) {
         // Parsed rather than set via innerHTML, as a rule that does not depend
@@ -338,3 +324,11 @@ export function openPhone() {
 $("open-appearance").onclick = () => openAppearance();
 $("open-manual").onclick = () => { $("filemenu").open = false; openManual(); };
 $("open-phone").onclick = () => { $("filemenu").open = false; openPhone(); };
+
+// A command or address the PO will paste somewhere else. A button, so it is
+// reachable from the keyboard; it still reads as the text itself.
+function copyLine(text) {
+  return btn(text, "copy mono", "click to copy", () => navigator.clipboard.writeText(text)
+    .then(() => toast("copied", ""))
+    .catch(() => toast("this browser would not copy it. Select it instead", "bad")));
+}

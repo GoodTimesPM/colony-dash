@@ -77,6 +77,13 @@ export function el(tag, cls, text) {
   return n;
 }
 
+// Text that a live region reads out. Writing the same string again would
+// still replace the text node, and some screen readers announce that, so a
+// repaint with nothing new writes nothing.
+export function setText(n, text) {
+  if (n.textContent !== text) n.textContent = text;
+}
+
 // `h("button.act.go", { title, onclick }, "apply")`. Classes ride on the tag.
 // `role`, `aria-*` and `data-*` keys become attributes, everything else a
 // property. Children that are strings become text nodes, never markup. Falsy
