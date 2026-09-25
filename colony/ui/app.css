@@ -833,6 +833,13 @@ section.panel {
 [data-panel="flight"]  { --section-hue: var(--h-flight); }
 .panel .body { padding: 11px 13px 13px; display: flex; flex-direction: column; gap: 9px; }
 .empty { color: var(--ink-dim); font-size: var(--step--1); padding: 2px 0 4px; }
+.empty .why {
+  width: 1.4em; height: 1.4em; padding: 0; margin-left: 2px; border-radius: 50%;
+  border: 1px solid var(--rule); background: none; color: var(--ink-dim);
+  font: inherit; font-size: .85em; line-height: 1; cursor: help; vertical-align: 1px;
+}
+.empty .why:hover { color: var(--ink); border-color: var(--ink-dim); }
+.empty .why:focus-visible { outline: 2px solid var(--violet); outline-offset: 1px; }
 
 /* ── Ordis ────────────────────────────────────────────────────────────────────
    The Scrum Master is the loop, not a row in `agents`, so it gets its own

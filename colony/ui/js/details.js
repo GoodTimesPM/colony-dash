@@ -1,7 +1,7 @@
 // Agent, pulse, project and patch views in the drawer, plus confirmations,
 // dropping a story and roster search.
 
-import { $, act, ago, el, toast, toks, usd } from "./core.js";
+import { $, act, ago, el, empty, toast, toks, usd } from "./core.js";
 import { stamp, tag, when } from "./render.js";
 import { tierOf } from "./composer.js";
 import { personaButton } from "./roster.js";
@@ -15,7 +15,7 @@ export async function openAgent(id) {
   const mine = HERE;
   let a;
   try { a = await getJSON("/api/agent/" + id); }
-  catch { body.replaceChildren(el("div", "empty", "could not load that contract")); return; }
+  catch { body.replaceChildren(empty("could not load that contract")); return; }
   $("d-eyebrow").textContent = `agent · ${a.status}`;
   $("d-title").textContent = a.role;
   mine.label = a.role;
@@ -172,7 +172,7 @@ export async function openPulse(id) {
   const body = openDrawer("pulse #" + id, "", { nav: { kind: "pulse", arg: id, label: "the beat" } });
   let p;
   try { p = await getJSON("/api/pulse/" + id); }
-  catch { body.replaceChildren(el("div", "empty", "could not load that beat")); return; }
+  catch { body.replaceChildren(empty("could not load that beat")); return; }
   // "escalated", not "wake": a wake was considered and nothing was spent.
   const escalated = p.tier === "wake" && !p.acted;
   $("d-eyebrow").textContent =
@@ -190,7 +190,7 @@ export async function openPulse(id) {
   body.append(facts);
 
   if (p.detail) body.append(sectionBlock("what this beat saw", p.detail));
-  else body.append(el("div", "empty", "this beat predates the long-form log (M3)"));
+  else body.append(empty("no long-form log", "this beat is older than the long-form pulse log, so only its one-line finding was kept"));
 
   if (p.changes && p.changes.length) body.append(blk("what moved on disk", movedList(p.changes)));
   body.append(sectionBlock("raw record", JSON.stringify(p.actions_json, null, 2)));
@@ -200,7 +200,7 @@ export async function openProject(name) {
   const body = openDrawer("project", name, { nav: { kind: "project", arg: name, label: name } });
   let p;
   try { p = await getJSON("/api/project?name=" + encodeURIComponent(name)); }
-  catch { body.replaceChildren(el("div", "empty", "could not read that folder")); return; }
+  catch { body.replaceChildren(empty("could not read that folder")); return; }
   const st = p.state, repo = p.head || {};
   // Branch and sha belong to the repo, not the folder.
   $("d-eyebrow").textContent = repo.branch ? `${repo.branch} · ${repo.sha}` : "project";
@@ -495,7 +495,7 @@ $("roster-q").addEventListener("input", (e) => {
     divs.style.display = "none";
     const rows = await getJSON("/api/roster?q=" + encodeURIComponent(q) + "&limit=14").catch(() => []);
     box.replaceChildren();
-    if (!rows.length) { box.append(el("div", "empty", "no persona matches")); return; }
+    if (!rows.length) { box.append(empty("no persona matches")); return; }
     for (const p of rows) box.append(personaButton(p));
   }, 140);
 });

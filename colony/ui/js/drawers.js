@@ -1,6 +1,7 @@
 // Story, completed and persona views in the drawer.
 
-import { $, STATUS_LABEL, act, clock, el, longText, parseTs, toast, toks, usd } from "./core.js";
+import { $, act, clock, el, empty, longText, parseTs, STATUS_LABEL, toast,
+  toks, usd } from "./core.js";
 import { STATE, stamp } from "./render.js";
 import { openCompose, projectSelect } from "./composer.js";
 import { ALL_PROJECTS, HERE, blk, closeDrawer, getJSON, jsonList, openDrawer,
@@ -14,7 +15,7 @@ export async function openStory(id) {
   const mine = HERE;
   let data;
   try { data = await getJSON("/api/story/" + id); }
-  catch { body.replaceChildren(el("div", "empty", "could not load story " + id)); return; }
+  catch { body.replaceChildren(empty("could not load story " + id)); return; }
 
   const s = data.story;
   setAllProjects(data.projects || ALL_PROJECTS);
@@ -248,7 +249,7 @@ export async function openStory(id) {
   // we find out, and when". `story_events` exists to make this readable.
   const tl = el("div", "blk");
   tl.append(el("div", "lb", "timeline"));
-  if (!data.events.length) tl.append(el("div", "empty", "nothing has happened to this story yet"));
+  if (!data.events.length) tl.append(empty("nothing has happened to this story yet"));
   for (const e of data.events) {
     const row = el("div", "ev");
     row.dataset.kind = e.kind;
@@ -281,7 +282,7 @@ export async function openCompleted(arg) {
   const mine = HERE;
   let d;
   try { d = await getJSON("/api/completed/detail?kind=" + encodeURIComponent(kind) + "&id=" + id); }
-  catch { body.replaceChildren(el("div", "empty", "could not load this record")); return; }
+  catch { body.replaceChildren(empty("could not load this record")); return; }
 
   $("d-eyebrow").textContent = (kind === "dispatch" ? "delivered" : "filed " + (d.settled_as || ""))
                              + "  ·  " + d.ref;
@@ -383,7 +384,7 @@ export async function openCompleted(arg) {
   const tl = el("div", "blk");
   tl.append(el("div", "lb", "everything that happened  ·  " + d.timeline.length + " entries"));
   if (!d.timeline.length) {
-    tl.append(el("div", "empty", "nothing was said between the last delivery and this one"));
+    tl.append(empty("nothing was said between the last delivery and this one"));
   }
   for (const e of d.timeline) {
     const row = el("div", "ev");
@@ -446,7 +447,7 @@ export async function openPersona(slug) {
   const mine = HERE;
   let p;
   try { p = await getJSON("/api/persona?slug=" + encodeURIComponent(slug)); }
-  catch { body.replaceChildren(el("div", "empty", "could not read that persona")); return; }
+  catch { body.replaceChildren(empty("could not read that persona")); return; }
 
   $("d-eyebrow").textContent = `${p.division} · standby`;
   $("d-title").textContent = `${p.emoji || ""} ${p.name}`.trim();
@@ -467,7 +468,7 @@ export async function openPersona(slug) {
   body.append(facts);
 
   if (p.description) body.append(el("div", null, p.description));
-  if (p.error) body.append(el("div", "empty", p.error));
+  if (p.error) body.append(empty(p.error));
 
   body.append(hireForm(p));
 

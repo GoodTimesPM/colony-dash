@@ -1,7 +1,7 @@
 // Theme, text size, hand-mixed colours, tile layout and the appearance
 // drawer.
 
-import { $, act, el, store, toast } from "./core.js";
+import { $, act, el, empty, store, toast } from "./core.js";
 import { STATE, render } from "./render.js";
 import { blk, closeDrawer, openDrawer } from "./drawer.js";
 
@@ -615,7 +615,7 @@ export function openAppearance() {
   const names = Object.keys(all).sort((a, b) => a.localeCompare(b));
   const box = el("div", "presets");
   if (!names.length) {
-    box.append(el("div", "empty", "nothing saved yet. Mix a palette above and name it"));
+    box.append(empty("no presets yet", "mix a palette above, name it, and it is saved here"));
   }
   for (const name of names) {
     const row = el("div", "preset");

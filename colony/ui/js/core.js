@@ -115,10 +115,12 @@ export const row = (tag, ...kids) => {
 export const card = (cls, props, ...kids) => h("div.tile" + (cls ? "." + cls : ""), props, ...kids);
 
 // An empty state is one line. The longer why sits behind a "?" for whoever
-// wants it.
+// wants it: a tooltip on hover, and a toast on tap, since a phone never shows
+// a title.
 export function empty(text, more) {
   const n = h("div.empty", null, text);
-  if (more) n.append(" ", h("span.why", { title: more, tabIndex: 0, role: "note", "aria-label": more }, "?"));
+  if (more) n.append(" ", h("button.why", { type: "button", title: more, "aria-label": more,
+                                           onclick: () => toast(more, "") }, "?"));
   return n;
 }
 

@@ -1,8 +1,8 @@
 // The frame loop: which panel redraws when its slice of state changes, plus
 // the board, the filed and dropped lists, and the file tree.
 
-import { $, STATUS_LABEL, act, ago, clock, el, hhmm, parseTs, store, toks,
-  until, usd } from "./core.js";
+import { $, act, ago, clock, el, empty, hhmm, parseTs, STATUS_LABEL, store, toks, until,
+  usd } from "./core.js";
 import { drawAvatar } from "./avatars.js";
 import { renderCompleted, renderFlight, renderInbox } from "./panels.js";
 import { renderForge, renderMacros, renderPulses } from "./composer.js";
@@ -223,7 +223,7 @@ export function renderColony(c) {
       tokens: null, ceiling: a.max_tokens_run, live: false, agent: a,
     }));
   }
-  if (!box.children.length) box.append(el("div", "empty", "nobody hired yet. Open a persona in Standby to hire"));
+  if (!box.children.length) box.append(empty("nobody hired yet", "open a persona in Standby to hire it"));
   tickElapsed();   // paint now; the ticker only refreshes from the next second
 }
 
@@ -315,7 +315,7 @@ export function renderBoard(b) {
   box.replaceChildren();
   const shown = b.stories.filter((s) => !filter || s.status === filter);
   if (!shown.length) {
-    box.append(el("div", "empty", filter ? "nothing in " + STATUS_LABEL[filter] : "board empty"));
+    box.append(empty(filter ? "nothing in " + STATUS_LABEL[filter] : "board empty"));
     renderFiled(b.settled || []);
     renderDropped(b.dropped || []);
     return;
@@ -458,7 +458,7 @@ export function renderProjects(rows) {
   for (const b of document.querySelectorAll("[data-sort]")) {
     b.setAttribute("aria-pressed", b.dataset.sort === PROJ_SORT ? "true" : "false");
   }
-  if (!rows.length) { box.append(el("div", "empty", "every project matches its last commit")); return; }
+  if (!rows.length) { box.append(empty("every project matches its last commit")); return; }
 
   const max = Math.max(...rows.map((r) => r.dirty_files || 1), 1);
   for (const r of rows.slice().sort(PROJ_SORTS[PROJ_SORT] || PROJ_SORTS.changes)) {
@@ -491,13 +491,13 @@ export function setTreeFilter(q) { TREE_FILTER = q; }
 
 export async function renderTree() {
   const box = $("tree");
-  box.replaceChildren(el("div", "empty", "reading the tree…"));
+  box.replaceChildren(empty("reading the tree…"));
   try {
     const root = await getJSON("/api/tree?path=");
     box.replaceChildren();
     box.append(await treeLevel(root, ""));
   } catch {
-    box.replaceChildren(el("div", "empty", "could not read the projects folder"));
+    box.replaceChildren(empty("could not read the projects folder"));
   }
 }
 
@@ -514,7 +514,7 @@ export async function treeLevel(data, path) {
     if (!path && q && !f.name.toLowerCase().includes(q)) continue;
     frag.append(treeFile(f));
   }
-  if (!frag.childNodes.length) frag.append(el("div", "empty", "nothing here"));
+  if (!frag.childNodes.length) frag.append(empty("nothing here"));
   return frag;
 }
 
@@ -535,13 +535,13 @@ export async function treeDir(d) {
   wrap.append(kids);
 
   const load = async () => {
-    kids.replaceChildren(el("div", "empty", "…"));
+    kids.replaceChildren(empty("…"));
     try {
       const data = await getJSON("/api/tree?path=" + encodeURIComponent(d.path));
       kids.replaceChildren();
       kids.append(await treeLevel(data, d.path));
     } catch {
-      kids.replaceChildren(el("div", "empty", "could not open that folder"));
+      kids.replaceChildren(empty("could not open that folder"));
     }
   };
   if (TREE_OPEN.has(d.path)) load();
@@ -583,10 +583,10 @@ export async function openFile(f) {
   try {
     const data = await getJSON("/api/file?path=" + encodeURIComponent(f.path));
     blocks.push(data.text == null
-      ? el("div", "empty", data.why || "nothing to show")
+      ? empty(data.why || "nothing to show")
       : blk("contents", el("pre", "detail tall", data.text)));
   } catch {
-    blocks.push(el("div", "empty", "this dashboard will not open that file"));
+    blocks.push(empty("this dashboard will not open that file"));
   }
   body.replaceChildren(...blocks);
 }

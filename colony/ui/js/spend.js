@@ -1,6 +1,6 @@
 // The spend chart.
 
-import { $, el, store, toks, usd } from "./core.js";
+import { $, el, empty, store, toks, usd } from "./core.js";
 
 // ── the spend chart ─────────────────────────────────────────────────────────
 // The spend chart: grains from an hour to a year, bar or line, with the value
@@ -345,5 +345,5 @@ export function renderSpend(sp) {
              el("span", "dim", `${toks(r.total_tokens)} incl. cache reads`));
     box.append(d);
   }
-  if (!box.children.length) box.append(el("div", "empty", "nothing spent yet"));
+  if (!box.children.length) box.append(empty("nothing spent yet"));
 }
