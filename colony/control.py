@@ -26,7 +26,7 @@ import threading
 from datetime import datetime, timedelta
 from typing import Any
 
-from . import attachments as attach, db, proc
+from . import attachments as attach, db, proc, wording
 
 HALT_FILE = db.RUNTIME_DIR / "HALT"
 
@@ -630,12 +630,7 @@ def _raise_failed_run(conn: sqlite3.Connection, story_id: int,
            VALUES (?,'needs-info',?,?,?)""",
         (story_id,
          f'"{story["title"]}" is stuck: the command it was verified with failed.',
-         card_text(
-             f"$ {command}\n\n{why.capitalize()}.\n\n"
-             "The whole transcript is on the story, under the run that produced "
-             "it. Nothing was accepted on the strength of that run. Fix what it "
-             "found and dispatch again, or answer here that the criterion no "
-             "longer needs the command."),
+         card_text(wording.VERIFY_FAILED.format(command=command, why=why.capitalize())),
          story["notion_hash"]))
 
 
@@ -688,12 +683,7 @@ def _settle_patch(conn: sqlite3.Connection, esc: sqlite3.Row, decision: str,
         if story_id:
             _event(conn, story_id, "note",
                    f"patch applied with {len(exc.paths)} conflict(s). Needs your merge",
-                   "The rest of the patch is in your working tree already. These "
-                   "files have conflict markers in them:\n\n"
-                   + "\n".join(exc.paths)
-                   + "\n\nA conflict here means the patch and your own uncommitted "
-                     "work changed the same lines. Resolve them, then press Apply "
-                     "again to close this card.")
+                   wording.PATCH_CONFLICT.format(paths="\n".join(exc.paths)))
         raise Refused(str(exc))
     except Exception as exc:
         # An escalation that cannot be actioned must stay open. Closing it would
@@ -707,17 +697,12 @@ def _settle_patch(conn: sqlite3.Connection, esc: sqlite3.Row, decision: str,
         conn.execute(
             "UPDATE stories SET status = 'accepted', updated_at = datetime('now','localtime') "
             "WHERE id = ?", (story_id,))
-        how = ""
-        if not applied.get("staged", True):
-            # A touched file already had staged work, so `git diff --cached` is
-            # not the whole picture.
-            how = ("\n\nThis one went in unstaged: something the patch touches "
-                   "was already staged with different content in your working "
-                   "tree, so git would not let the patch near the index. "
-                   "`git diff` shows what landed.")
+        # A touched file already had staged work, so `git diff --cached` is not
+        # the whole picture.
+        how = "" if applied.get("staged", True) else wording.PATCH_UNSTAGED
         _event(conn, story_id, "accepted",
                f"PO approved the patch. {applied['files']} file(s) applied, uncommitted",
-               "Review and commit it yourself; the colony does not commit." + how)
+               wording.PATCH_APPLIED + how)
     tail = "" if applied.get("staged", True) else " and unstaged (you had staged work on it)"
     return f"{applied['files']} file(s) applied to your working tree, uncommitted" + tail
 
@@ -1116,11 +1101,8 @@ def create_project(conn: sqlite3.Connection, name: str, *, why: str = "") -> dic
     stub = path / "PROJECT.md"
     if not stub.exists():
         stub.write_text(
-            f"# {parts[-1]}\n\n"
-            f"**Status:** new. Folder created from the Colony Dash Inbox on "
-            f"{_today(conn)}.\n\n"
-            f"{(why or 'No brief yet.').strip()}\n\n"
-            "## Next\n\n- Say what this project is for.\n",
+            wording.NEW_PROJECT_STUB.format(
+                name=parts[-1], day=_today(conn), why=(why or "No brief yet.").strip()),
             encoding="utf-8",
         )
     _record(conn, "confirm-project", "story", None,
