@@ -20,6 +20,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import time
 import urllib.error
 import urllib.request
 
@@ -79,6 +80,11 @@ WRITABLE_STATUS = ("In Progress", "Exploring", "Done", "Shipped", "Shelved",
 
 PRIORITY_RANK = {"High": 1, "Medium": 2, "Low": 3}
 
+# Notion rate-limits at about three requests a second and answers 429 with a
+# Retry-After header. A few short waits keep a busy flush from failing rows.
+RATE_LIMIT_RETRIES = 3
+RATE_LIMIT_MAX_WAIT_S = 10.0
+
 
 class NotionUnconfigured(RuntimeError):
     """No token. The tick reports this and carries on — it is not a failure."""
@@ -125,20 +131,36 @@ def _request(path: str, payload: dict | None = None, *, method: str | None = Non
             "Content-Type": "application/json",
         },
     )
-    try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            return json.loads(resp.read())
-    except urllib.error.HTTPError as exc:
-        # Notion says *why* in the response body, and urllib throws that body
-        # away: an integration with read-only capabilities fails every write
-        # with a bare "HTTP Error 403: Forbidden", which is indistinguishable
-        # from a sharing problem, a wrong page id or an expired token. The body
-        # says `restricted_resource — Insufficient permissions for this
-        # endpoint`, which names the fix. That sentence is worth more than the
-        # number, so it goes on the exception and from there onto the outbox
-        # row and the In Flight tile.
-        raise NotionError(_why(exc)) from None
+    for attempt in range(RATE_LIMIT_RETRIES + 1):
+        try:
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                return json.loads(resp.read())
+        except urllib.error.HTTPError as exc:
+            if exc.code == 429 and attempt < RATE_LIMIT_RETRIES:
+                time.sleep(_retry_after(exc))
+                continue
+            _raise_for(exc)
+    raise AssertionError("unreachable")
 
+
+def _retry_after(exc: urllib.error.HTTPError) -> float:
+    """Seconds Notion asked us to wait, capped so a pulse never stalls long."""
+    try:
+        wait = float(exc.headers.get("Retry-After") or 1)
+    except (TypeError, ValueError):
+        wait = 1.0
+    return max(0.0, min(wait, RATE_LIMIT_MAX_WAIT_S))
+
+
+def _raise_for(exc: urllib.error.HTTPError) -> None:
+    """Raise with Notion's own explanation from the response body.
+
+    urllib drops the body, and a bare "403 Forbidden" reads the same for a
+    read-only integration, a sharing problem and an expired token. The body's
+    `restricted_resource: Insufficient permissions` names the fix, and it ends
+    up on the outbox row where the person reads it.
+    """
+    raise NotionError(_why(exc)) from None
 
 
 def _plain(rich: list[dict] | None) -> str:

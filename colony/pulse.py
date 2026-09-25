@@ -467,17 +467,29 @@ def stale_escalations(conn: sqlite3.Connection, story_id: int, new_hash: str) ->
     return marked
 
 
-def sync_notion(conn: sqlite3.Connection) -> dict:
-    """Upsert the board into `stories`. Returns what actually changed."""
+def fetch_board_rows() -> tuple[list[dict] | None, dict]:
+    """The network half of `sync_notion`: the rows, or None and what went wrong."""
     load_env()
+    try:
+        return notion.fetch_board(), {}
+    except notion.NotionUnconfigured as exc:
+        return None, {"configured": False, "error": str(exc)}
+    except Exception as exc:  # network, auth, schema drift: reportable, not fatal
+        return None, {"error": f"{type(exc).__name__}: {exc}"}
+
+
+def sync_notion(conn: sqlite3.Connection,
+                fetched: tuple[list[dict] | None, dict] | None = None) -> dict:
+    """Upsert the board into `stories`. Returns what actually changed.
+
+    `fetched` is what `fetch_board_rows` returned. The pulse fetches before it
+    opens its transaction, so the write lock is never held across a request.
+    """
     result = {"configured": True, "seen": 0, "new": [], "changed": [], "error": None,
               "staled": 0, "ticked": [], "filed": [], "revived": [], "changed_ids": []}
-    try:
-        rows = notion.fetch_board()
-    except notion.NotionUnconfigured as exc:
-        return {**result, "configured": False, "error": str(exc)}
-    except Exception as exc:  # network, auth, schema drift — all reportable, none fatal
-        return {**result, "error": f"{type(exc).__name__}: {exc}"}
+    rows, problem = fetched if fetched is not None else fetch_board_rows()
+    if rows is None:
+        return {**result, **problem}
 
     existing = {
         r["notion_page_id"]: r
@@ -773,11 +785,9 @@ def run(conn: sqlite3.Connection, *, dry_run: bool = False, allow_wake: bool = T
         forced: bool = False) -> int:
     """One heartbeat. Zero tokens: everything here is pure Python.
 
-    The *tick* is one transaction, so `dry_run` can roll it back and mean what it
-    says. The connection is in autocommit, so without this the dry run's own
-    `sample_usage` and `sync_notion` writes landed anyway — and the next real
-    pulse then reported "0 new", hiding the six stories the dry run had quietly
-    ingested. A preview that changes what it previews is worse than none.
+    The *tick* is one transaction, so `dry_run` can roll it back. A dry run
+    also skips the outbox and reports how many writes it would have sent, so a
+    preview never posts to Notion.
 
     The **wake runs outside that transaction, deliberately.** It spawns agents
     that spend real tokens, and a rollback cannot un-spend them. If the machine
@@ -799,13 +809,27 @@ def run(conn: sqlite3.Connection, *, dry_run: bool = False, allow_wake: bool = T
 
 
 def _beat(conn: sqlite3.Connection, *, dry_run: bool, allow_wake: bool, forced: bool) -> int:
+    # Notion and git are read before the transaction opens and the outbox is
+    # sent after it closes, so the write lock is held only for ledger work. A
+    # slow Notion day then costs the pulse time, not the dashboard's buttons.
+    pre = _gather(conn)
     conn.execute("BEGIN")
     try:
-        ctx = _tick(conn)
+        ctx = _tick(conn, pre)
     except BaseException:
         conn.execute("ROLLBACK")
         raise
     conn.execute("ROLLBACK" if dry_run else "COMMIT")
+
+    if dry_run:
+        # Sending here and rolling back the sent_at stamps would post every
+        # queued write now and again on the next real pulse.
+        pushed = {"sent": 0, "failed": 0, "held": 0, "error": None,
+                  "would_send": len(outbox.pending(conn))}
+    else:
+        pushed = outbox.flush(
+            conn, enabled=control.get_control(conn, "notion_write", "1") == "1")
+    _note_outbox(ctx, pushed)
 
     wake_report = None
     if ctx["tier"] == "wake" and not dry_run and allow_wake:
@@ -819,29 +843,51 @@ def _beat(conn: sqlite3.Connection, *, dry_run: bool, allow_wake: bool, forced: 
     return 0
 
 
-def _tick(conn: sqlite3.Connection) -> dict:
-    """The free part: look at the world, decide whether it's worth a model."""
-    started = time.monotonic()
+def _gather(conn: sqlite3.Connection) -> dict:
+    """The slow reads a tick needs, done with no transaction open."""
     last = conn.execute("SELECT MAX(pulse_at) AS at FROM pulses").fetchone()["at"]
     window_start = last or (datetime.now() - PULSE_INTERVAL).strftime("%Y-%m-%d %H:%M:%S")
     window_end = now()
+    return {
+        "started": time.monotonic(),
+        "window_start": window_start,
+        "window_end": window_end,
+        "board": fetch_board_rows(),
+        "scan": projects_mod.scan(since=window_start),
+    }
+
+
+def _note_outbox(ctx: dict, pushed: dict) -> None:
+    """Add the outbox result to a finished tick's notes, finding and detail.
+
+    The outbox drains after the tick commits: sync first, so a status the PO
+    set on their phone lands before one queued yesterday overwrites it. HALT
+    does not stop it, because a comment spends no tokens.
+    """
+    notes = ctx["notes"]
+    if pushed.get("would_send"):
+        notes.append(f"notion: would push {pushed['would_send']}")
+    if pushed["sent"]:
+        notes.append(f"notion: pushed {pushed['sent']}")
+    if pushed["failed"]:
+        notes.append(f"notion: {pushed['failed']} push(es) failed")
+        ctx["anomalies"] += pushed["failed"]
+    if pushed["held"]:
+        notes.append(f"notion: {pushed['held']} push(es) held")
+    ctx["outbox"] = pushed
+    ctx["finding"] = "; ".join(ctx["reasons"] + notes) or "clean"
+    ctx["detail"] = _detail(ctx)
+
+
+def _tick(conn: sqlite3.Connection, pre: dict) -> dict:
+    """The free part: look at the world, decide whether it's worth a model."""
+    started = pre["started"]
+    window_start, window_end = pre["window_start"], pre["window_end"]
 
     halted = check_halt()
     usage = sample_usage(conn)
     sprint_move = align_sprint(conn)
-    board = sync_notion(conn)
-
-    # Push before pull would be tidier, but sync first is deliberate: a status
-    # The PO set on their phone should land in the ledger before the colony
-    # overwrites it with one queued yesterday. The outbox drains after the read
-    # for the same reason a merge takes the newer side.
-    #
-    # HALT does not stop this. HALT means "spend nothing", and a comment is not
-    # a token — a halted colony that also stops answering on Notion looks broken
-    # rather than paused. `controls.notion_write` is the switch for this one.
-    outbox_result = outbox.flush(
-        conn, enabled=control.get_control(conn, "notion_write", "1") == "1"
-    )
+    board = sync_notion(conn, pre["board"])
 
     # Free, and the rule the PO asked for in one line: if work cannot start, the
     # reason is a card in the Inbox. Not a sentence in a thread, not a
@@ -873,8 +919,7 @@ def _tick(conn: sqlite3.Connection) -> dict:
     # only part of the tick that watches the thing the colony exists to work on.
     # An hour where Notion was silent but three projects changed is not a quiet
     # hour, and before M3 the log called it "clean".
-    changed = _moved_since_last(conn, projects_mod.scan(since=window_start),
-                                window_start, window_end)
+    changed = _moved_since_last(conn, pre["scan"], window_start, window_end)
 
     # What makes this hour worth spending tokens on. Anything in this list means
     # a wake; an empty list means the tick already did the whole job for free.
@@ -968,13 +1013,6 @@ def _tick(conn: sqlite3.Connection) -> dict:
         notes.append(f"board: {len(board['revived'])} back on the board")
     if swept:
         notes.append(f"queue: {swept} answered groom ticket(s) retired")
-    if outbox_result["sent"]:
-        notes.append(f"notion: pushed {outbox_result['sent']}")
-    if outbox_result["failed"]:
-        notes.append(f"notion: {outbox_result['failed']} push(es) failed")
-        anomalies += outbox_result["failed"]
-    if outbox_result["held"]:
-        notes.append(f"notion: {outbox_result['held']} push(es) held")
 
     tier = "wake" if (reasons and not halted) else "tick"
     finding = "; ".join(reasons + notes) if (reasons or notes) else "clean"
@@ -987,7 +1025,7 @@ def _tick(conn: sqlite3.Connection) -> dict:
         "finished": len(finished), "halted": halted, "changed": changed,
         "orphans": len(orphans), "swept": swept, "dispatched": dispatched, "groomable": pending,
         "decisions": decisions, "candidates": candidates, "queued_drafts": queued_drafts,
-        "decaying": [dict(r) for r in decayed], "outbox": outbox_result,
+        "decaying": [dict(r) for r in decayed], "outbox": {},
     }
     ctx["detail"] = _detail(ctx)
     return ctx
