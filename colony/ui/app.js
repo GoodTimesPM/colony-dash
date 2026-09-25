@@ -5760,15 +5760,15 @@ fetch("/api/state").then((r) => r.json()).then(render).catch(() => setConn(false
 
 paintThemeColor();
 
-// `?k=<token>` is how the first visit from a phone can be a link or a QR code
-// rather than a password typed on a touch keyboard. The server swaps it for an
-// HttpOnly cookie on that first request, so by the time this runs the parameter
-// has already done its whole job — and a token left in the address bar is a
-// token in the history, in a screenshot, and in whatever gets pasted next.
-if (new URLSearchParams(location.search).has("k")) {
+// The server redirects `?k=` and `?pair=` away before the page loads. A
+// loopback visit skips that redirect, so strip them here too.
+{
   const url = new URL(location.href);
-  url.searchParams.delete("k");
-  history.replaceState(null, "", url.pathname + url.search + url.hash);
+  if (url.searchParams.has("k") || url.searchParams.has("pair")) {
+    url.searchParams.delete("k");
+    url.searchParams.delete("pair");
+    history.replaceState(null, "", url.pathname + url.search + url.hash);
+  }
 }
 
 // The service worker only exists so a phone will offer to install this to the

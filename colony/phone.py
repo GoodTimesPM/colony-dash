@@ -67,8 +67,19 @@ ENV_PATH = db.PROJECT_DIR / ".env"
 SINCE = time.time()
 
 
-def url(port: int = DEFAULT_PORT) -> str | None:
-    """The address to open on the phone, token and all, or None.
+def _link(address: str, port: int, key: str, pairing: bool) -> str:
+    """The phone URL. With `pairing`, a one-time code stands in for the token.
+
+    Only the server process can redeem a code, so the CLI, which runs in its
+    own process, still prints the token form.
+    """
+    if pairing:
+        return f"http://{address}:{port}/?pair={access.pair_code()}"
+    return f"http://{address}:{port}/?k={key}"
+
+
+def url(port: int = DEFAULT_PORT, pairing: bool = False) -> str | None:
+    """The address to open on the phone, or None.
 
     None means one of the two halves is missing -- no reachable address, or no
     token -- and `state()` says which.
@@ -80,7 +91,7 @@ def url(port: int = DEFAULT_PORT) -> str | None:
         address, _ = net.auto()
     except net.NoAddress:
         return None
-    return f"http://{address}:{port}/?k={key}"
+    return _link(address, port, key, pairing)
 
 
 def _ensure_token() -> tuple[str, bool]:
@@ -114,7 +125,7 @@ def _ensure_token() -> tuple[str, bool]:
     return minted, True
 
 
-def rotate(port: int = DEFAULT_PORT) -> dict:
+def rotate(port: int = DEFAULT_PORT, pairing: bool = False) -> dict:
     """Mint a new access token, replace the old one in `.env`, redraw the QR.
 
     This is the one write in this module that is not an append, and the rule it
@@ -149,7 +160,8 @@ def rotate(port: int = DEFAULT_PORT) -> dict:
     if os.environ.get(access.TOKEN_ENV):
         os.environ[access.TOKEN_ENV] = fresh
 
-    return {**state(port), "minted": True, "rotated": True}
+    access.forget_pairings()
+    return {**state(port, pairing=pairing), "minted": True, "rotated": True}
 
 
 def _reachable(address: str, port: int) -> bool:
@@ -176,7 +188,7 @@ def _neighbourhood(address: str | None) -> str:
     return ".".join(parts[:3]) + "." if len(parts) == 4 else ""
 
 
-def state(port: int = DEFAULT_PORT) -> dict:
+def state(port: int = DEFAULT_PORT, pairing: bool = False) -> dict:
     """Everything the panel draws, in one call.
 
     Nothing here raises. A machine with no tailnet and no LAN is a normal
@@ -200,7 +212,7 @@ def state(port: int = DEFAULT_PORT) -> dict:
         "address": address,
         "kind": kind,
         "advice": net.advice(kind) if kind else "",
-        "url": f"http://{address}:{port}/?k={key}" if address and key else None,
+        "url": _link(address, port, key, pairing) if address and key else None,
         # A task that Task Scheduler will kill after three days is installed but
         # not doing the job, and the panel should not call that "on" without
         # saying so. See `autostart.unlimited`.
@@ -230,9 +242,9 @@ def state(port: int = DEFAULT_PORT) -> dict:
     }
 
 
-def svg(port: int = DEFAULT_PORT) -> str | None:
+def svg(port: int = DEFAULT_PORT, pairing: bool = False) -> str | None:
     """The URL as a QR code, or None when there is no URL to draw."""
-    target = url(port)
+    target = url(port, pairing)
     return qr.svg(target, ec="M") if target else None
 
 

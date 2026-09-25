@@ -119,7 +119,7 @@ class Rotating(unittest.TestCase):
             patch = mock.patch.object(phone.firewall, attr, value)
             patch.start()
             self.addCleanup(patch.stop)
-        patch = mock.patch.object(phone, "state", lambda port=8787: {})
+        patch = mock.patch.object(phone, "state", lambda port=8787, pairing=False: {})
         patch.start()
         self.addCleanup(patch.stop)
 
