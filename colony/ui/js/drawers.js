@@ -450,7 +450,7 @@ export async function openPersona(slug) {
   catch { body.replaceChildren(empty("could not read that persona")); return; }
 
   $("d-eyebrow").textContent = `${p.division} · standby`;
-  $("d-title").textContent = `${p.emoji || ""} ${p.name}`.trim();
+  $("d-title").textContent = p.name;
   mine.label = p.name;
   renderTrail();
   body.replaceChildren();

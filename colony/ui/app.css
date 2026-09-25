@@ -945,6 +945,7 @@ button.persona {
   color: inherit; font: inherit; font-size: var(--step--1);
 }
 button.persona:hover { background: var(--panel-sunk); }
+button.persona canvas { flex: none; align-self: center; width: 14px; height: 14px; border-radius: 3px; image-rendering: pixelated; }
 button.persona:focus-visible { outline: 2px solid var(--violet); outline-offset: -2px; }
 button.persona .nm { color: var(--ink-soft); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 button.persona .dv { margin-left: auto; font-family: var(--mono); color: var(--ink-dim); font-size: var(--step--2); }
