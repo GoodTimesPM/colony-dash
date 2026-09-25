@@ -41,8 +41,48 @@ def hidden() -> dict:
     return {"creationflags": CREATE_NO_WINDOW, "startupinfo": si}
 
 
-def run(cmd, **kwargs) -> subprocess.CompletedProcess:
-    """`subprocess.run` with the console suppressed. Same signature otherwise."""
+def kill_tree(pid: int) -> None:
+    """End a process and everything it started.
+
+    `Popen.kill` stops only the direct child. `claude` runs its work in node
+    workers and `shell=True` puts cmd.exe in front of the real command, so
+    killing the child alone leaves the work running.
+    """
+    if IS_WINDOWS:
+        subprocess.run(["taskkill", "/T", "/F", "/PID", str(pid)],
+                       capture_output=True, **hidden())
+        return
+    import os
+    import signal
+    try:
+        os.killpg(os.getpgid(pid), signal.SIGKILL)
+    except (ProcessLookupError, PermissionError):
+        pass
+
+
+def run(cmd, *, input=None, capture_output: bool = False, timeout: float | None = None,
+        check: bool = False, **kwargs) -> subprocess.CompletedProcess:
+    """`subprocess.run` with the console suppressed, killing the whole tree on timeout."""
     for key, value in hidden().items():
         kwargs.setdefault(key, value)
-    return subprocess.run(cmd, **kwargs)
+    if capture_output:
+        kwargs["stdout"] = kwargs["stderr"] = subprocess.PIPE
+    if input is not None:
+        kwargs["stdin"] = subprocess.PIPE
+    if not IS_WINDOWS:
+        kwargs.setdefault("start_new_session", True)
+    with subprocess.Popen(cmd, **kwargs) as child:
+        try:
+            out, err = child.communicate(input, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            kill_tree(child.pid)
+            child.kill()
+            out, err = child.communicate()
+            raise subprocess.TimeoutExpired(child.args, timeout, output=out, stderr=err)
+        except BaseException:
+            kill_tree(child.pid)
+            raise
+    result = subprocess.CompletedProcess(child.args, child.returncode, out, err)
+    if check:
+        result.check_returncode()
+    return result
