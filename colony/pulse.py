@@ -1,20 +1,12 @@
-"""The heartbeat. Two tiers, so an idle hour is free. ARCHITECTURE.md §4.
+"""The heartbeat, in two tiers so an idle hour is free (ARCHITECTURE.md §4).
 
     tick   pure Python, no model, ZERO tokens. Runs every hour, always.
     wake   Ordis actually runs. Only when the tick found something.
 
-This module implements the tick in full, and decides, but does not yet spawn,
-the wake. A wake's reasons are recorded on the pulse row so the escalation bar
-can be calibrated against a week of real logs before anything is dispatched.
-
-Every path writes a `pulses` row. A pulse that finds nothing writes
-`finding = 'clean'` with `tokens = 0`; a *missing* row is the alarm.
-
-Since M3 each row also carries a `detail` field: the long-form account of
-everything the tick looked at, not just the one-line verdict. "clean" is a fine
-summary and a useless log entry. The detail is what makes an hour worth reading
-back a week later, and it includes the project folders that moved. The part of
-the colony's world that changes most and that the log used to be blind to.
+Every path writes a `pulses` row; a quiet hour writes `finding = 'clean'`
+with `tokens = 0`, and a missing row is the alarm. Each row's `detail` is
+the long account of what the tick looked at, including project folders that
+moved.
 """
 
 from __future__ import annotations
@@ -32,9 +24,7 @@ from . import (control, db, forge as forge_mod, notion, outbox,
 from .mirror import load_env
 
 HALT_FILE = db.RUNTIME_DIR / "HALT"
-# Both moved to `usage.py`, which is now the one place that knows where the
-# tray app writes and how long a read stays worth believing. Kept as aliases
-# because the pulse's own tests and the CLI still name them.
+# Aliases for names that moved to `usage.py`; tests and the CLI still use them.
 USAGE_CACHE = usage_mod.CACHE
 USAGE_STALE_AFTER = usage_mod.STALE_AFTER
 
@@ -60,16 +50,12 @@ def check_halt() -> bool:
 
 
 def sample_usage(conn: sqlite3.Connection) -> dict | None:
-    """Write the tray app's last good read into `usage_samples`.
+    """Copy the tray app's last good read into `usage_samples`, one row an
+    hour.
 
-    We never call the usage endpoint ourselves: it allows ~5 requests per rolling
-    5 minutes per account and the Claude Code CLI spends from the same bucket, so
-    a second poller would earn 429s for both. One poller, one cache file.
-
-    This is the *history*, one row an hour. The live figure the dashboard shows
-    comes straight from `usage.read()` on every snapshot, because a number that
-    the tray app refreshes every five minutes should not be up to an hour old on
-    screen. And a stalled hourly copy looks exactly like a counter that broke.
+    The usage endpoint allows ~5 requests per 5 minutes, shared with the
+    CLI, so the tray app is the only poller. The dashboard's live figure
+    reads the cache directly via `usage.read()`.
     """
     sample = usage_mod.read()
     if sample is None:
@@ -83,10 +69,7 @@ def sample_usage(conn: sqlite3.Connection) -> dict | None:
         (
             sample["five_hour"],
             sample["seven_day"],
-            # Stored as the local instant it actually happens at, not the UTC
-            # string the cache carries. The dashboard was slicing that string
-            # and printing "08:59" for a window that closes at five in the
-            # morning.
+            # Stored as the local instant, not the cache's UTC string.
             sample["seven_day_resets"].strftime("%Y-%m-%d %H:%M:%S")
             if sample["seven_day_resets"] else None,
             sample["mtime"].strftime("%Y-%m-%d %H:%M:%S"),
@@ -96,23 +79,13 @@ def sample_usage(conn: sqlite3.Connection) -> dict | None:
 
 
 def align_sprint(conn: sqlite3.Connection) -> dict | None:
-    """Keep the active sprint on the allowance week, and roll it when that turns.
+    """Keep the active sprint on the allowance week, and roll it when that
+    turns.
 
-    "my weekly token usage resets every friday at 5:00 AM. The weekly sprints
-     and day count should abide by this range"
-
-    Sprint 1 was seeded with today + 7 as an admitted placeholder, with a
-    docstring promising the pulse would correct it on the first good sample.
-    This is that correction, four weeks late: the window comes from the reset
-    instant the API reports, and the sprint's dates follow it rather than the
-    day of the week the ledger happened to be created on.
-
-    Two outcomes, and the difference matters. Before the window turns, the
-    sprint is *aligned*. Same sprint, edges moved onto the real boundary. When
-    it turns, the sprint is *closed* and the next one opens, because a sprint
-    that silently extends past its own budget week is a budget that does not
-    exist. The goal is not carried over: a new week is a new week, and a stale
-    goal on it would read as a decision nobody made.
+    The window comes from the reset instant the API reports. Before it
+    turns, the sprint's edges are aligned to it; after, the sprint closes
+    and a new one opens with no goal carried over, since a new week is a new
+    decision.
     """
     start, end = usage_mod.current_window()
     sprint = conn.execute(
@@ -151,18 +124,10 @@ def align_sprint(conn: sqlite3.Connection) -> dict | None:
 
 
 def candidate_projects() -> list[str]:
-    """Every real project folder, one and two levels deep.
-
-    A project is a folder with a `PROJECT.md` in it. That is the master
-    CLAUDE.md's own definition, not a heuristic we invented, which is exactly why
-    it is trustworthy here. Two levels because several projects are containers
-    (`job-search/job-radar`) and a story names the sub-project, not the container.
-
-    The first version of this walked every child directory instead, and matched
-    "Run Hermes Agent alongside Claude Code" to `balatro-mod-loader/build`. A
-    source folder is not a project, and a generic name like `build` or `data`
-    will collide with ordinary English forever. Filtering on PROJECT.md removes
-    the entire class of error rather than blacklisting names one at a time.
+    """Every folder with a `PROJECT.md`, one and two levels deep (the master
+    CLAUDE.md's definition). Two levels because containers like `job-search`
+    hold the real projects. Any other directory walk matches words like
+    `build`.
     """
     if not PROJECTS_ROOT.is_dir():
         return []
@@ -179,11 +144,9 @@ def candidate_projects() -> list[str]:
 
 
 def infer_project(title: str, description: str | None) -> tuple[str | None, bool]:
-    """Guess which folder a story belongs to. Returns (project, confident).
-
-    The Notion board has no Project property by design. The PO wants to keep it
-    as a plain idea board. So the colony infers, and confirms once via the Inbox
-    before anything is ever written. A guess is never enough to earn write scope.
+    """Guess a story's folder. Returns (project, confident). The board has no
+    Project field by design, so the guess is confirmed in the Inbox before
+    any write scope depends on it.
     """
     if not PROJECTS_ROOT.is_dir():
         return None, False
@@ -199,18 +162,14 @@ def infer_project(title: str, description: str | None) -> tuple[str | None, bool
     def slug_of(path: str) -> str:
         return path.rsplit("/", 1)[-1]
 
-    # The leaf name appearing as a phrase is a confident match; longest leaf
-    # first so job-search/job-radar beats job-search. A softer word-overlap match
-    # is a candidate that still has to be confirmed in the Inbox.
+    # A leaf name appearing as a phrase is confident; longest first. A word
+    # overlap is only a candidate.
     for path in sorted(folders, key=lambda p: len(slug_of(p)), reverse=True):
         if norm(slug_of(path)) in haystack:
             return path, True
     for path in sorted(folders, key=lambda p: p.count("/"), reverse=True):
-        # Every word of the name, not a subset of its longer ones. Matching a
-        # subset let "…Claude Code" land on `job-search` off the bare word
-        # "search"; requiring "job" too makes that impossible. A single-word
-        # project can't reach here anyway, the phrase pass above already caught
-        # it, so the soft match is always at least two words of real evidence.
+        # Every word of the name must appear, so "search" alone cannot match
+        # `job-search`. Single-word names were caught above.
         words = [w for w in norm(slug_of(path)).split() if len(w) >= 3]
         if len(words) < 2:
             continue
@@ -220,16 +179,11 @@ def infer_project(title: str, description: str | None) -> tuple[str | None, bool
 
 
 def ensure_blocked_visible(conn: sqlite3.Connection) -> int:
-    """Re-raise the Inbox card for any blocked story that has lost one.
+    """Re-raise the Inbox card for any `needs-info` story that has lost one.
 
-    A story in `needs-info` is a story the loop will not touch. GROOMABLE_WHERE
-    excludes it, so nothing re-derives an answer the PO is supposed to give. That
-    is right, and it is only right while the question is on the page. A blocked
-    story with no open card is invisible and inert: it will never be groomed and
-    it will never be asked about, which is the state the entire board reached.
-
-    So the invariant is enforced here rather than trusted to the six paths that
-    can close a card. Pure SQL, no model, runs every tick.
+    Nothing grooms a blocked story, so without a card it is invisible for
+    good. Six paths can close a card; this enforces the invariant every tick
+    for free.
     """
     rows = conn.execute(
         """SELECT id, title, blocked_reason, project, project_source, notion_hash
@@ -253,11 +207,7 @@ def ensure_blocked_visible(conn: sqlite3.Connection) -> int:
               )"""
     ).fetchall()
     for r in rows:
-        # A story parked with no recorded reason is the older shape of this bug:
-        # it was blocked on naming its folder, that got answered elsewhere, and
-        # the status never followed. Say the honest version rather than invent a
-        # question. The card asks them to point it at a folder, which is the
-        # only thing it can still be waiting on.
+        # No recorded reason: the only thing left to ask is which folder.
         ask = (r["blocked_reason"] or "").strip() or (
             "This is parked and no longer says why. Confirm the project folder "
             "it belongs to, or drop it, and the colony will re-read it from scratch."
@@ -270,21 +220,9 @@ def ensure_blocked_visible(conn: sqlite3.Connection) -> int:
     return len(rows)
 
 
-# Past this point the colony has already read the brief, written criteria from
-# it, and in most cases built against it. `GROOMABLE_WHERE` deliberately does
-# not match these rows. re-grooming an accepted story every time the PO fixes a
-# typo would be expensive and wrong.
-#
-# The consequence nobody designed: editing such a story does nothing at all. The
-# tick sees "1 changed", says so in the log, and drops it. The PO added a chunk
-# of new scope to "15 Part Job Search" and the next two beats reported a story
-# edit and then stood down, because the queue that would have picked it up
-# excludes exactly this story.
-#
-# A card, not a re-groom. Whether new prose on a built story is new scope or a
-# tidied sentence is a judgment the tick cannot make and a model should not be
-# paid to guess at hourly. So the loop asks, for free, once per version of the
-# brief. `raised_hash` is what makes it once.
+# Stories past grooming whose brief changed. Re-grooming on every typo fix
+# would be expensive, so the tick asks the PO, once per brief version via
+# `raised_hash`.
 BRIEF_CHANGED_WHERE = """
     id = :story_id
     AND dropped_at IS NULL
@@ -313,33 +251,14 @@ BRIEF_CHANGED_WHERE = """
 """
 
 
-# A story the PO approved a patch on, whose Notion brief has since grown.
+# An accepted story whose Notion brief has grown. `accepted` means one batch
+# landed, not that the project is finished, so new brief text on an In Progress
+# row is the next batch. This clears the criteria and attempt budget so the
+# next wake regrooms the whole brief.
 #
-# `accepted` was read, by the board and by every queue that looks at status, as
-# the end of the line. It is not. It means one batch of work landed in the
-# working tree, and on a project that is still In Progress in Notion the next
-# batch is the expected thing:
-#
-#     "just because I finish one part of the project does not mean I am
-#      completely finished with the project ... once I added more info into the
-#      notion project folder, I want that to be taken as more info to the same
-#      project to continue production."
-#
-# So this does not ask. It clears the criteria, and the criteria are the only
-# reason the groom queue was skipping the story, and hands the brief back to
-# the next wake to read whole. The attempt budget goes with it, because a story
-# groomed twice before delivery must not be unreadable after it.
-#
-# Two guards, and they are the whole safety of it. The Notion row must still say
-# In Progress. A row the PO filed as Done or Shelved is not asking for more
-# work, it is finished, and `settled_as` catches most of that but not a row
-# moved to Exploring. And `notion_hash` has to have actually moved, which is the
-# caller's job: the ids come from the sync's own changed list.
-#
-# Nothing here is a terminal status and nothing here writes to Notion. Under the
-# rule the PO set, the colony may move a story through the working lanes and may
-# never move it into one that reads as finished, this is the loop putting work
-# back on the board, which is the direction it is allowed to go.
+# Guards: the Notion row must still be In Progress, and `notion_hash` must have
+# moved (the caller passes only changed ids). It never writes to Notion and
+# never moves a story into a finished lane.
 RESUME_DELIVERED_WHERE = """
     id = :story_id
     AND status = 'accepted'
@@ -350,12 +269,8 @@ RESUME_DELIVERED_WHERE = """
 
 
 def resume_delivered(conn: sqlite3.Connection, story_ids: list[int]) -> list[str]:
-    """Put delivered stories whose brief grew back in the groom queue.
-
-    Free. No model runs here. The re-read happens on the next wake, and only
-    if the wake budget allows it, same as any other groom.
-
-    Returns the titles resumed, for the log.
+    """Requeue delivered stories whose brief grew. Free; the regroom happens on
+    the next wake if the budget allows. Returns the titles for the log.
     """
     from . import control
 
@@ -390,9 +305,8 @@ def resume_delivered(conn: sqlite3.Connection, story_ids: list[int]) -> list[str
 
 
 def brief_changed(conn: sqlite3.Connection, story_ids: list[int]) -> list[str]:
-    """Ask about stories the PO edited after the colony was done reading them.
-
-    Free. Returns the titles asked about, for the log.
+    """Ask about stories edited after the colony finished reading them. Free.
+    Returns the titles for the log.
     """
     asked = []
     for story_id in story_ids:
@@ -423,19 +337,12 @@ def brief_changed(conn: sqlite3.Connection, story_ids: list[int]) -> list[str]:
 
 
 def stale_escalations(conn: sqlite3.Connection, story_id: int, new_hash: str) -> int:
-    """Flag every open question that was asked about an older version of a story.
+    """Flag every open question asked about an older version of a story.
 
-    This is the fix for the Inbox's worst habit. An escalation is prose written
-    at a moment, "this cannot start until you decide X", and it stays on the
-    page unchanged while the PO goes away and decides X. The card kept asking
-    for things that were already done, which teaches you to stop reading the
-    Inbox, which is the only failure mode that actually matters here.
-
-    Stale is a flag and not a delete. The question was genuinely asked, and
-    erasing it would erase the fact that the colony was confused about this
-    story once. A flagged card sorts to the back, says out loud that the brief
-    moved under it, and can be re-asked for free. Because clearing
-    `acceptance_criteria` is what puts the story back in the groom queue.
+    Cards are prose from one moment, and one that keeps asking for something
+    already done trains the PO to stop reading the Inbox. Flagged, not
+    deleted: it sorts last, says the brief moved, and clearing
+    `acceptance_criteria` requeues the groom for free.
     """
     marked = conn.execute(
         """UPDATE escalations
@@ -447,18 +354,13 @@ def stale_escalations(conn: sqlite3.Connection, story_id: int, new_hash: str) ->
     ).rowcount
     if not marked:
         return 0
-    # A `needs-info` story is parked: GROOMABLE_WHERE excludes it on purpose, so
-    # the loop does not re-derive an answer it already has. But the whole reason
-    # it was parked has just changed, so un-park it and let the next wake read
-    # the story as it is now rather than as it was.
+    # Un-park `needs-info`: the reason it was parked has just changed.
     conn.execute(
         """UPDATE stories SET status = 'backlog', acceptance_criteria = NULL
             WHERE id = ? AND status = 'needs-info'""",
         (story_id,),
     )
-    # And give it its grooming attempts back. Those runs answered a question
-    # about a version of the story that no longer exists; counting them against
-    # the new version would park the story permanently on its second edit.
+    # Restore its grooming attempts; those runs answered an older brief.
     conn.execute(
         """UPDATE tickets SET status = 'wontfix', closed_at = datetime('now','localtime')
             WHERE story_id = ? AND title LIKE 'Groom:%' AND status <> 'wontfix'""",
@@ -480,10 +382,8 @@ def fetch_board_rows() -> tuple[list[dict] | None, dict]:
 
 def sync_notion(conn: sqlite3.Connection,
                 fetched: tuple[list[dict] | None, dict] | None = None) -> dict:
-    """Upsert the board into `stories`. Returns what actually changed.
-
-    `fetched` is what `fetch_board_rows` returned. The pulse fetches before it
-    opens its transaction, so the write lock is never held across a request.
+    """Upsert the board into `stories` and return what changed. `fetched` is
+    read before the transaction opens, so no request holds the write lock.
     """
     result = {"configured": True, "seen": 0, "new": [], "changed": [], "error": None,
               "staled": 0, "ticked": [], "filed": [], "revived": [], "changed_ids": []}
@@ -510,17 +410,14 @@ def sync_notion(conn: sqlite3.Connection,
             continue
 
         project, confident = infer_project(row["title"], row["description"])
-        # Exploring rows are research-only and never reach 'ready'. In Progress
-        # rows land in the backlog for grooming. The PO, not the loop, marks
-        # them ready (gate one). Everything else is filed, not requested.
+        # In Progress lands in backlog for grooming, Exploring is
+        # research-only, and only the PO marks ready. Everything else is filed.
         status = notion.ledger_status(row["notion_status"])
         settled = notion.SETTLED_STATUS.get(row["notion_status"])
 
         if prev:
-            # The body columns are only written when a body was actually read.
-            # A filed row is fetched for its status alone, and copying its empty
-            # placeholder over the real brief would mean a story came back from
-            # the shelf with nothing written on it.
+            # Body columns only when a body was read, so a filed row's
+            # placeholder never overwrites its brief.
             cols = ["title=?", "notion_status=?", "category=?", "related_link=?",
                     "priority=?", "notion_hash=?", "notion_synced_at=?", "updated_at=?"]
             vals = [row["title"], row["notion_status"], row["category"],
@@ -538,21 +435,14 @@ def sync_notion(conn: sqlite3.Connection,
             result["changed_ids"].append(story_id)
             kind, summary = "synced", "Notion row changed"
 
-            # Filing is the one thing an hourly sync may change about a story's
-            # standing. It deliberately does not touch `status`: the working
-            # status is the colony's own, and an hourly sync must not reset
-            # `po-review` to `backlog` every time the PO edits a sentence.
+            # The sync may change filing but never the colony's own `status`.
             was_filed = prev["settled_as"]
             if settled:
                 if was_filed != settled:
                     control.settle_story(conn, story_id, settled, row["notion_status"])
                     result["filed"].append(row["title"])
             elif was_filed:
-                # Un-filing restores the story exactly as it was left, which is
-                # the whole reason filing is a column of its own: the colony had
-                # a view on this story before the PO parked it, and re-deriving
-                # that view would cost a groom run to answer a question that was
-                # already answered.
+                # Un-filing restores the story as it was, without a new groom.
                 control.revive_story(conn, story_id, row["notion_status"])
                 result["revived"].append(row["title"])
 
@@ -573,11 +463,8 @@ def sync_notion(conn: sqlite3.Connection,
 
             result["staled"] += stale_escalations(conn, story_id, row["hash"])
         elif settled:
-            # A row that arrives already filed and has never been seen is not
-            # news. Importing it would fill the board with every idea the PO has
-            # ever written down, and, worse, the insert path below raises a
-            # "which folder is this?" escalation, which is precisely the
-            # question a not-started row must never produce.
+            # A row first seen already filed is not news; importing it would
+            # raise a "which folder?" card for an idea nobody started.
             continue
         else:
             cur = conn.execute(
@@ -633,14 +520,9 @@ KINDS = ("added", "modified", "deleted", "untracked")
 
 
 def _colony_writes(conn: sqlite3.Connection, start: str, end: str) -> set[str]:
-    """Project folders the colony itself wrote into during this window.
-
-    The colony has exactly one route into the PO's working tree, a patch they
-    read and approved, so this set is normally empty, and that emptiness is the
-    useful part. Everything moving outside it moved for a reason that is not the
-    colony: an application rewriting its own config, a build step, an editor,
-    them. A log that reports movement without saying that much invites the reading
-    the PO actually had, which was that the colony had been in their folders.
+    """Project folders the colony itself wrote to in this window, via approved
+    patches. Usually empty, which tells the log reader that other movement
+    was not the colony.
     """
     return {
         r["project"] for r in conn.execute(
@@ -656,21 +538,9 @@ def _colony_writes(conn: sqlite3.Connection, start: str, end: str) -> set[str]:
 
 def _moved_since_last(conn: sqlite3.Connection, rows: list[dict],
                       start: str = "", end: str = "") -> list[dict]:
-    """Keep only the projects whose state is different from the last time we looked.
-
-    `git status` reports a folder as dirty for as long as it stays dirty, so the
-    raw scan says "75 untracked" every hour forever and the log fills with an
-    unchanging fact. What the pulse should report is *movement*: a file count
-    that differs from the last recorded sample, or any commit inside the window.
-
-    A project seen for the first time counts as movement. The first sample is
-    news precisely because there is nothing to compare it against.
-
-    Each surviving row also carries **how** it differs, not just that it does.
-    The comparison happens here and nowhere else, this is the only place that
-    still has the previous sample in hand, so the difference is attached to the
-    row and stored with it, rather than left to be re-derived by a drawer opened
-    six hours later against a ledger that has moved on.
+    """Only projects whose state differs from the last sample: a changed file
+    count or a commit in the window. First sightings count. Each row carries
+    how it differs, computed here while the previous sample is at hand.
     """
     writers = _colony_writes(conn, start, end) if start and end else set()
     out = []
@@ -684,9 +554,8 @@ def _moved_since_last(conn: sqlite3.Connection, rows: list[dict],
             r[k] != prev[k] for k in ("dirty_files", *KINDS))
         if not moved:
             continue
-        # A first sighting has no deltas, and says so with None rather than with
-        # a zero. "unchanged" and "never seen before" are different facts, and
-        # a folder's whole contents appearing as +0 would be the wrong one.
+        # None, not zero, for a first sighting: "never seen" is not
+        # "unchanged".
         for k in KINDS:
             r["d_" + k] = None if prev is None else r[k] - prev[k]
         r["moved_by"] = "colony" if r["project"] in writers else "outside"
@@ -702,13 +571,8 @@ def pending_builds(conn: sqlite3.Connection) -> int:
 
 
 def collect_finished_runs(conn: sqlite3.Connection) -> list[sqlite3.Row]:
-    """Runs that ended without their ticket being closed out.
-
-    Not "ended since the last pulse". That version counted the wake's own
-    grooming run, which the wake had already harvested inline, so every wake
-    manufactured a reason for the next one. An open ticket behind a finished run
-    is the real signal: it means a run's result was never recorded, which is what
-    a crash mid-harvest looks like.
+    """Runs that ended with their ticket still open: a result that was never
+    recorded, as a crash mid-harvest leaves.
     """
     return list(
         conn.execute(
@@ -723,19 +587,10 @@ def collect_finished_runs(conn: sqlite3.Connection) -> list[sqlite3.Row]:
 def reap_orphaned_runs(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     """Close run rows whose process is gone.
 
-    `run_ticket` opens the row *before* spawning, so the cost is recorded even if
-    the machine dies mid-run. But the flip side is that a killed parent leaves a
-    row that says `running` forever. That is exactly what happened at 22:00 on
-    2026-08-17: Task Scheduler's 10-minute `ExecutionTimeLimit` was shorter than
-    two grooms, so it Ctrl+C'd the pulse mid-agent and the dashboard's Colony
-    panel showed an agent that had been working for hours. A dashboard that
-    reports live work which isn't happening is worse than no dashboard.
-
-    The threshold is generous on purpose: nothing the colony runs today comes
-    near 20 minutes (a groom is capped at 7), and a manual `python -m colony
-    pulse` alongside the scheduled one must never reap a run that is genuinely
-    alive. Tokens already spent are left as recorded. An orphan is an unknown
-    ending, not a refund.
+    `run_ticket` opens the row before spawning, so a killed parent leaves a
+    row reading `running` forever. The threshold is generous (a groom is
+    capped at 7 minutes) so a manual pulse never reaps a live run. Recorded
+    tokens stay.
     """
     cutoff = (datetime.now() - STALE_RUN_AFTER).strftime("%Y-%m-%d %H:%M:%S")
     orphans = list(
@@ -758,18 +613,8 @@ def reap_orphaned_runs(conn: sqlite3.Connection) -> list[sqlite3.Row]:
 
 
 def decisions_since(conn: sqlite3.Connection, since: str) -> int:
-    """Decisions the PO made since the last beat.
-
-    This used to count every escalation they had *ever* decided, with nothing to
-    clear it. So from their first approval onward the number only went up, every
-    tick had a standing reason to wake, and the pulse reported "8 PO decision(s)
-    to act on" at a PO whose Inbox held one item.
-
-    Two separate things were wrong with that sentence. The count was unbounded,
-    which the window fixes. And the wording had the direction backwards: these
-    are decisions they already made, applied by `control.decide` at the moment they
-    made them. An approval is not a thing waiting for them, it is a thing that
-    already happened. What the wake picks up afterwards is the consequence.
+    """Decisions the PO made since the last beat, already applied by
+    `control.decide`. Windowed, so the count does not grow forever.
     """
     return conn.execute(
         "SELECT COUNT(*) n FROM escalations "
@@ -783,35 +628,22 @@ def decisions_since(conn: sqlite3.Connection, since: str) -> int:
 
 def run(conn: sqlite3.Connection, *, dry_run: bool = False, allow_wake: bool = True,
         forced: bool = False) -> int:
-    """One heartbeat. Zero tokens: everything here is pure Python.
+    """One heartbeat. Zero tokens in the tick.
 
-    The *tick* is one transaction, so `dry_run` can roll it back. A dry run
-    also skips the outbox and reports how many writes it would have sent, so a
-    preview never posts to Notion.
-
-    The **wake runs outside that transaction, deliberately.** It spawns agents
-    that spend real tokens, and a rollback cannot un-spend them. If the machine
-    dies mid-wake, the ledger must still show the run and what it cost. Evidence
-    of spending is never allowed to be provisional.
-
-    `forced` means a person asked for this beat out of turn. It changes two
-    things and deliberately nothing else: the row says so, and the row does not
-    claim the schedule has moved. Everything the pulse does, the sync, the
-    escalation bar, HALT, the allowance, is the same work at 1:37 as at 1:07.
-
-    Only one pulse runs at a time. The scheduled task, the CLI and the dashboard
-    are three separate processes that can all arrive at once, and two pulses
-    beating together would sync Notion twice and reap the same runs twice. The
-    second one raises `control.Busy` and stands down.
+    The tick is one transaction, so `dry_run` rolls it back and skips the
+    outbox. The wake runs outside it, because spent tokens cannot be rolled
+    back and the ledger must keep the evidence. `forced` marks an
+    out-of-turn beat and leaves the schedule alone. `control.pulse_lock`
+    allows one pulse at a time across the task, CLI and dashboard; a second
+    raises `control.Busy`.
     """
     with control.pulse_lock():
         return _beat(conn, dry_run=dry_run, allow_wake=allow_wake, forced=forced)
 
 
 def _beat(conn: sqlite3.Connection, *, dry_run: bool, allow_wake: bool, forced: bool) -> int:
-    # Notion and git are read before the transaction opens and the outbox is
-    # sent after it closes, so the write lock is held only for ledger work. A
-    # slow Notion day then costs the pulse time, not the dashboard's buttons.
+    # Notion and git are read before the transaction and the outbox sent after,
+    # so the write lock covers only ledger work.
     pre = _gather(conn)
     conn.execute("BEGIN")
     try:
@@ -858,11 +690,9 @@ def _gather(conn: sqlite3.Connection) -> dict:
 
 
 def _note_outbox(ctx: dict, pushed: dict) -> None:
-    """Add the outbox result to a finished tick's notes, finding and detail.
-
-    The outbox drains after the tick commits: sync first, so a status the PO
-    set on their phone lands before one queued yesterday overwrites it. HALT
-    does not stop it, because a comment spends no tokens.
+    """Add the outbox result to a finished tick. It drains after the sync so a
+    fresh phone edit lands before an older queued write. HALT does not stop
+    it.
     """
     notes = ctx["notes"]
     if pushed.get("would_send"):
@@ -889,36 +719,24 @@ def _tick(conn: sqlite3.Connection, pre: dict) -> dict:
     sprint_move = align_sprint(conn)
     board = sync_notion(conn, pre["board"])
 
-    # Free, and the rule the PO asked for in one line: if work cannot start, the
-    # reason is a card in the Inbox. Not a sentence in a thread, not a
-    # `blocked_reason` column nothing renders. A card, sitting there, naming
-    # the decision. Every route into `needs-info` is supposed to raise one, and
-    # every one of them had a way to lose it: a reply closing the card as
-    # 'amend', a project confirmation resolving it, a stale flag. This is the
-    # backstop, and it costs nothing to run every beat.
+    # If work cannot start, the reason must be a card in the Inbox. Every route
+    # to `needs-info` should raise one; this is the free backstop.
     ensure_blocked_visible(conn)
 
-    # The other half of the same rule, one layer later: a story that CAN start,
-    # and has, and then had its brief rewritten underneath it.
-    # Order matters: a delivered story is resumed, not asked about, and
-    # `brief_changed` excludes the resumed status rather than racing it.
+    # Delivered stories are resumed, not asked about; `brief_changed` excludes
+    # them.
     resumed = resume_delivered(conn, board.get("changed_ids", []))
     outrun = brief_changed(conn, board.get("changed_ids", []))
 
     orphans = reap_orphaned_runs(conn)
-    # Free housekeeping, done before anything counts the queue: a groom ticket
-    # whose question has been answered is a receipt, not work, and leaving it
-    # `blocked` both duplicates it on the page and spends the story's last
-    # grooming attempt on a version of it that no longer applies.
+    # A groom ticket whose question was answered is a receipt, not work.
     swept = control.clear_spent_groom_tickets(conn)
     finished = collect_finished_runs(conn)
     decisions = decisions_since(conn, window_start)
     dispatched = pending_builds(conn)
 
-    # What moved on disk since the last beat. Pure `git status`. Free, and the
-    # only part of the tick that watches the thing the colony exists to work on.
-    # An hour where Notion was silent but three projects changed is not a quiet
-    # hour, and before M3 the log called it "clean".
+    # What moved on disk since the last beat. An hour with quiet Notion but
+    # busy projects is not "clean".
     changed = _moved_since_last(conn, pre["scan"], window_start, window_end)
 
     # What makes this hour worth spending tokens on. Anything in this list means
@@ -933,9 +751,7 @@ def _tick(conn: sqlite3.Connection, pre: dict) -> dict:
     if decisions:
         reasons.append(f"{decisions} decision(s) you made since the last beat")
 
-    # Work already sitting in the ledger counts too, not just news from Notion.
-    # Without this the loop would only ever wake on the hour a story arrived, and
-    # anything it couldn't finish that hour would wait forever.
+    # Work already in the ledger counts too, not just Notion news.
     from . import wake as wake_mod  # local: wake imports us back
 
     pending = wake_mod.groomable_count(conn)
@@ -950,11 +766,8 @@ def _tick(conn: sqlite3.Connection, pre: dict) -> dict:
     if unanswered:
         reasons.append(f"{unanswered} PO repl{'y' if unanswered == 1 else 'ies'} to answer")
 
-    # The forge notices for free (§7 step 1). It runs in the tick rather than the
-    # wake on purpose: detection reads runs the colony has already paid for, so
-    # it costs nothing, and noticing is not doing. A HALTed colony should still
-    # be able to see that a procedure is emerging. Nothing here spends, and a new
-    # candidate is not a reason to wake: it waits for the PO to ask for a draft.
+    # Forge detection is free (§7 step 1), so it runs in the tick, even under
+    # HALT. A new candidate is not a reason to wake.
     candidates = forge_mod.detect(conn)
 
     # A drafted skill *is* worth waking for. The PO asked for it by hand.
@@ -1032,11 +845,8 @@ def _tick(conn: sqlite3.Connection, pre: dict) -> dict:
 
 
 def _detail(ctx: dict) -> str:
-    """The long form of one heartbeat.
-
-    Plain text rather than more JSON, because it is read by a person in the
-    pulse drawer and `actions` already holds the machine-readable copy. Two
-    formats, two audiences, one tick.
+    """The long form of one heartbeat, as plain text for the pulse drawer.
+    `actions` holds the machine-readable copy.
     """
     board, usage, changed = ctx["board"], ctx["usage"], ctx["changed"]
     lines = [f"window   {ctx['window_start']} -> {ctx['window_end']}"]
@@ -1091,10 +901,8 @@ def _detail(ctx: dict) -> str:
         lines.append(f"projects {len(changed)} folder(s) moved since the last sample "
                      f"(measured against commit {changed[0].get('head_sha') or '?'})")
         for c in changed[:14]:
-            # The delta first, because it is the thing that made this row exist;
-            # the level second, in brackets, because it is the thing that made
-            # the old log unreadable. "+3 new (14 new, 2 edited)" says both what
-            # happened this hour and what the folder looks like now.
+            # The delta first, the level in brackets: "+3 new (14 new, 2
+            # edited)".
             delta = ", ".join(
                 f"{c['d_' + k]:+d} {projects_mod.KIND_SHORT[k]}"
                 for k in projects_mod.KIND_SHORT if c.get("d_" + k)
@@ -1147,9 +955,8 @@ def _write_pulse_row(conn: sqlite3.Connection, ctx: dict, wake_report: dict | No
                                            or wake_report.get("answered")
                                            or wake_report.get("forged")
                                            or wake_report.get("staffed")):
-            # Not "skipped", which reads as a failure. The tick escalated, the
-            # wake looked at its job list, found it empty, and cost nothing.
-            # That is the loop working, and the word should say so.
+            # "Stood down", not "skipped": an empty job list is the loop
+            # working.
             finding += f". Wake stood down: {wake_report['skipped']}"
         detail += nl + nl + "WAKE"
         if wake_report["skipped"]:
@@ -1170,11 +977,8 @@ def _write_pulse_row(conn: sqlite3.Connection, ctx: dict, wake_report: dict | No
             detail += (nl + f"  staff  #{item['story_id']} -> {item['verdict']}"
                        f" ({item['tokens']:,} tok)")
 
-    # The strip reads `next_pulse_at` off the newest row and shows it as "next
-    # beat in 23m". For a scheduled beat, now + an hour is right. For a forced
-    # one it is a lie: the task still fires at :07, so a beat forced at 1:37
-    # would put the next one at 2:37 and the strip would be wrong for half an
-    # hour. A forced beat keeps whatever the last real beat promised.
+    # A forced beat keeps the last scheduled `next_pulse_at`; the task still
+    # fires on its own schedule.
     next_at = (datetime.now() + PULSE_INTERVAL).strftime("%Y-%m-%d %H:%M:%S")
     if forced:
         prev = conn.execute(
@@ -1190,9 +994,8 @@ def _write_pulse_row(conn: sqlite3.Connection, ctx: dict, wake_report: dict | No
         VALUES (?,?,?,?,?,?,?,?,?,?,?)
         """,
         (
-            # Stamped now, not at tick time: a wake takes minutes, and a pulse_at
-            # from before its own runs finished makes the next pulse think those
-            # runs are still outstanding.
+            # Stamped now, after the wake's runs, so the next pulse does not
+            # count them as outstanding.
             now(), ctx["tier"], ctx["window_start"], ctx["window_end"],
             json.dumps({
                 "notion": {k: board[k] for k in ("configured", "seen", "new", "changed", "error")},

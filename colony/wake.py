@@ -1,21 +1,10 @@
-"""The wake tier. The only part of the pulse that costs anything.
+"""The wake tier: the only part of the pulse that spends tokens.
 
-A tick decides *whether* this hour is worth a model. This module is what happens
-when the answer is yes. M1 gives it exactly one job: **groom** (ARCHITECTURE.md
-§4.2). Read a story, decide whether there is enough there to build, and either
-draft acceptance criteria or say precisely what's missing.
-
-Grooming is the right first job for three reasons. It is read-only, so nothing it
-does can damage a project. It ends at a human gate, Ordis never marks its own
-criteria `ready`, so the loop cannot run away with the backlog. And it exercises
-the whole spawn → harvest → record path that staffing and dispatch will reuse, on
-work whose worst failure is a bad paragraph.
-
-Since M3 it has a second job: **build**. A story the PO accepted and dispatched
-runs here too, in a git worktree, and comes back as a patch nobody has applied.
-That path lives in `build.py`; this module decides whether the hour can afford
-it and in what order the two jobs run. Grooming goes first. It is cheaper, and
-a story groomed this hour can be dispatched before the next one.
+A tick decides whether this hour is worth a model; this module does the
+work. Its jobs, in order: answer PO replies, draft requested skills,
+**groom** stories (read-only, ending at the PO's criteria gate,
+ARCHITECTURE.md §4.2), propose staffing, then **build** dispatched stories
+via `build.py`.
 """
 
 from __future__ import annotations
@@ -29,16 +18,12 @@ from . import (agent, attachments as attach, build as build_mod, control, db,
                forge as forge_mod, pulse as pulse_mod, roster as roster_mod,
                usage as usage_mod, voice)
 
-# How many stories one wake may groom. A wake is coalescing, an hour with six
-# new stories is one wake, so this is the throttle that keeps a bulk Notion
-# import from becoming a bulk token spend.
+# Stories groomed per wake, so a bulk Notion import is not a bulk spend.
 GROOM_LIMIT = int(os.environ.get("COLONY_GROOM_LIMIT", "2"))
 
 GROOM_TIMEOUT_S = int(os.environ.get("COLONY_GROOM_TIMEOUT", "420"))
 
-# How many skill drafts one wake will write. One is almost always right: a draft
-# is a PO request, and a PO who queued four of them still wants to read the first
-# before paying for the rest.
+# Skill drafts per wake; the PO reads the first before paying for more.
 FORGE_DRAFT_LIMIT = int(os.environ.get("COLONY_FORGE_LIMIT", "1"))
 
 
@@ -58,16 +43,11 @@ def contract(conn: sqlite3.Connection, role: str) -> dict | None:
 
 
 def budget_state(conn: sqlite3.Connection, usage: dict | None) -> dict:
-    """Is there room in the week's allowance to spend anything at all?
-
-    The sprint budget is a share of the 7-day window (§6.1), so the question is
-    always "how much of the week is gone", never a dollar figure. With no usage
-    sample we decline to dispatch: spending blind is the one thing the budget
-    model exists to prevent.
+    """Is there room in the week's allowance to spend anything? Measured as a
+    share of the 7-day window (§6.1). No usage sample means no dispatch.
     """
-    # base + whatever the PO boosted it to for a heavy sprint (§6.1). The boost
-    # is stored separately from the sprint so the baseline the colony was
-    # designed around stays visible next to the exception.
+    # Base plus any PO boost (§6.1), stored apart so the baseline stays
+    # visible.
     band = control.effective_allowance(conn)
     allowance = band["effective"]
 
@@ -86,24 +66,13 @@ def budget_state(conn: sqlite3.Connection, usage: dict | None) -> dict:
             "boost": band["boost"]}
 
 
-# Which stories are waiting to be groomed. Kept as one string because the tick
-# needs the same answer to decide whether this hour is worth waking for, and two
-# copies of this predicate would drift into a loop that wakes and then finds
-# nothing to do.
-#
-# `po-review` and `ready` are already past this stage, and `needs-info` waits on
-# the PO, not on us. re-grooming it hourly would spend tokens to reproduce an
-# answer we already have. MAX_ATTEMPTS is the stop on the other failure mode: a
-# story the agent keeps failing to parse would otherwise be groomed again every
-# hour, forever, at full price.
+# The groom-queue predicate, shared with the tick so it never wakes for
+# nothing. `po-review`, `ready` and `needs-info` are excluded. MAX_ATTEMPTS
+# stops a story that keeps failing from being groomed at full price forever.
 MAX_ATTEMPTS = 2
 
-# `t.status <> 'wontfix'` is how the attempt budget resets. When a story's brief
-# changes under an open question, M5 marks that story's old groom tickets
-# wontfix, they answered a question about a version of the story that no longer
-# exists, and the count drops back to zero. Without it, a story groomed twice
-# early on could never be re-read no matter how much the PO rewrote it, which is
-# the same stale-prose failure the rest of M5 exists to fix, one layer down.
+# `t.status <> 'wontfix'` resets the attempt count: when a brief changes, its
+# old groom tickets are marked wontfix so the rewrite can be groomed again.
 GROOMABLE_WHERE = """
     status IN ('backlog','needs-criteria')
     AND dropped_at IS NULL
@@ -147,14 +116,8 @@ def _checklist(story: sqlite3.Row, column: str) -> list[str]:
 
 
 def _progress_section(story: sqlite3.Row) -> str:
-    """What is already inside the story, stated before what is left of it.
-
-    The single most expensive mistake this loop made in its first week was
-    re-raising work the PO had already finished, because the brief and the
-    checkboxes were flattened into the same wall of text. Naming the finished
-    items separately, and telling the agent in one blunt sentence that they are
-    closed, costs about forty tokens and buys back a whole class of stale Inbox
-    cards.
+    """What the story already has, stated before what is left, so finished
+    items are not raised again. About forty tokens.
     """
     done, todo = _checklist(story, "done_items"), _checklist(story, "open_items")
     if not done and not todo:
@@ -172,12 +135,8 @@ def _progress_section(story: sqlite3.Row) -> str:
 
 
 def _settled_section(story: sqlite3.Row) -> str:
-    """Decisions the PO has already made in a thread, stated as standing fact.
-
-    These came out of the Inbox rather than out of Notion, and before 013 they
-    lived only in `po_messages`. A transcript nothing grooms from. An agent
-    re-reading this story would ask the question again, which is how a board of
-    eight stories ended up parked on answers that had all been given.
+    """Decisions the PO made in Inbox threads, stated as standing fact so the
+    agent does not ask again.
     """
     try:
         raw = (story["po_answers"] or "").strip()
@@ -256,15 +215,8 @@ def _gist(text: str, limit: int = 220) -> str:
 
 
 def _said(conn, story_id, kind, text, ticket_id=None, tokens=0):
-    """Record something a colonist wrote, without losing the end of it.
-
-    `_event` truncates `summary` at 400 characters, which is right. The summary
-    is a line in a timeline. What was wrong was calling it with the whole thought
-    and no `detail`, because then the 401st character did not exist anywhere: the
-    learnings in the drawer ended mid-word ("...surfacing the direct ATS apply
-    URL over th") and there was nothing to expand to, because nothing had been
-    kept. The gist goes in the summary and the whole thing goes in the detail,
-    and the page decides how much of it to show.
+    """Record a colonist's text: the gist in `summary` (truncated at 400) and
+    the whole text in `detail`, so nothing is cut mid-word.
     """
     text = str(text).strip()
     gist = _gist(text)
@@ -283,9 +235,8 @@ def _event(conn, story_id, kind, summary, detail=None, ticket_id=None, tokens=0)
 def groom_story(conn: sqlite3.Connection, story: sqlite3.Row, terms: dict,
                 projects: list[str]) -> dict:
     """One story, one spawned agent, one outcome recorded."""
-    # Whatever the forge has promoted for this role rides in front of the work
-    # order. This is the only place a skill has any effect at all. An active
-    # skill that no run loads is a file, not a capability.
+    # Active skills for this role go in front of the work order; this is the
+    # only place a skill takes effect.
     skills = forge_mod.active_for(conn, terms["role"])
     prompt = forge_mod.preamble(skills) + groom_prompt(
         story, projects, attach.for_story(conn, story["id"]))
@@ -313,9 +264,8 @@ def groom_story(conn: sqlite3.Connection, story: sqlite3.Row, terms: dict,
                "tokens": result.chargeable_tokens, "raw_tokens": result.total_tokens,
                "status": result.status, "over_budget": result.over_budget, "verdict": None}
 
-    # Recorded whatever the outcome, and *before* the early returns below: a
-    # skill that was loaded into a run which then failed has to count as a loss,
-    # or the win rate only ever measures the runs the skill was already winning.
+    # Recorded before the early returns, so a failed run counts against the
+    # skill.
     forge_mod.record_uses(
         conn, skills=skills, run_id=result.raw.get("run_id"),
         tokens=result.chargeable_tokens,
@@ -379,9 +329,8 @@ def groom_story(conn: sqlite3.Connection, story: sqlite3.Row, terms: dict,
                 WHERE id = ?""",
             (criteria, story["id"]),
         )
-        # Gate 1. Ordis drafts; only the PO marks a story ready. `raised_hash`
-        # stamps the version of the story this was drafted against, so the next
-        # sync can tell whether it is still an answer to a live question.
+        # Gate 1: Ordis drafts, only the PO marks ready. `raised_hash` records
+        # which version of the story this answers.
         conn.execute(
             """INSERT INTO escalations (story_id, ticket_id, kind, reason, recommendation,
                                         est_tokens, raised_hash)
@@ -405,11 +354,8 @@ def groom_story(conn: sqlite3.Connection, story: sqlite3.Row, terms: dict,
                 WHERE id = ?""",
             (control.card_text(missing), story["id"]),
         )
-        # `question_settled` covers two cases. A stale card is an open row that
-        # is explicitly no longer trusted, and letting it suppress a fresh
-        # question would mean the Inbox keeps showing the outdated wording
-        # forever. So stale rows do not count. A dismissed card does count,
-        # for as long as the brief it was dismissed against stays put.
+        # Stale cards do not suppress a fresh question; a dismissed card does,
+        # while its brief is unchanged.
         if not control.question_settled(conn, story["id"], "needs-info",
                                         story["notion_hash"]):
             conn.execute(
@@ -437,15 +383,8 @@ def groom_story(conn: sqlite3.Connection, story: sqlite3.Row, terms: dict,
 
 
 # ── answering the PO ──────────────────────────────────────────────────────────
-#
-# The Inbox got a reply box, so the wake got a job that runs before every other
-# job: read what the PO typed and answer it. It goes first for the same reason a
-# standup starts with blockers. An hour spent grooming a story the PO has just
-# redefined is an hour spent on the wrong story.
-#
-# This is capped hard. A reply is a short question about one item, so the answer
-# is a short read and a short paragraph; if a message needs more than this it
-# needs to be a story, and saying so is a legitimate answer.
+# Replies run before every other job: grooming a story the PO just redefined
+# wastes the hour. Capped hard; anything bigger should be a story.
 
 ARROW = "\u2192"
 
@@ -496,9 +435,7 @@ def reply_prompt(msg: sqlite3.Row, esc: sqlite3.Row | None, story: sqlite3.Row |
         "--- end ---",
         "",
     ]
-    # By path, not by base64. `.colony/` is already inside the read scope, an
-    # image costs the same either way, and a prompt that carries its evidence by
-    # reference is one you can still read in the ticket a week later.
+    # By path, not base64 (see attachments.py).
     if attached:
         lines += [attach.evidence(attached), ""]
 
@@ -632,11 +569,8 @@ def answer_po(conn: sqlite3.Connection, terms: dict, projects: list[str]) -> lis
         prompt = reply_prompt(msg, esc, story, projects, history,
                               attach.for_story(conn, msg["story_id"]))
 
-        # `control.reply` already opened the ticket the PO has been watching in
-        # the Queue. Claim that one, staffing it and filling in the work order
-        # it could not know an hour ago, rather than opening a second. A reply
-        # written before 010 has no ticket, so one is made here; that branch is
-        # for the rows already in the ledger, not a second way to do this.
+        # Claim the ticket `control.reply` opened. Older replies without one
+        # get one.
         row = conn.execute(
             "SELECT id FROM tickets WHERE po_message_id = ? ORDER BY id DESC LIMIT 1",
             (msg["id"],),
@@ -666,9 +600,7 @@ def answer_po(conn: sqlite3.Connection, terms: dict, projects: list[str]) -> lis
         answer = result.json_payload() if result.status == "ok" else None
 
         if not answer:
-            # The message is *not* marked read. An answer that never arrived is
-            # a question still waiting, and silently swallowing it would be the
-            # one failure mode this whole feature exists to prevent.
+            # Not marked read: an unanswered message is still waiting.
             conn.execute("UPDATE tickets SET status = 'blocked', findings = ? WHERE id = ?",
                          ((result.error or result.text or result.status)[:2000], ticket_id))
             out.append({"message_id": msg["id"], "tokens": result.chargeable_tokens,
@@ -692,41 +624,23 @@ def answer_po(conn: sqlite3.Connection, terms: dict, projects: list[str]) -> lis
             (json.dumps(answer, indent=2)[:8000], ticket_id),
         )
 
-        # A revised recommendation replaces the one on the tile, so the Inbox
-        # shows the current advice rather than the advice the PO just argued
-        # with.
+        # A revised recommendation replaces the one on the tile.
         if esc is not None and answer.get("recommendation"):
             conn.execute("UPDATE escalations SET recommendation = ? WHERE id = ?",
                          (control.card_text(answer["recommendation"]), esc["id"]))
 
         # ── what the reply changed ────────────────────────────────────────────
-        #
-        # Before this, a reply could write prose and nothing else, and that is
-        # what it mostly did: Ordis would work out the right next step, say so
-        # in the thread, close the card as 'amend' and leave the story parked in
-        # `needs-info` where nothing grooms it. The answer existed, in a
-        # transcript, where no agent reads.
-        #
-        # So a reply now lands in one of two places. `settled` becomes standing
-        # fact on the story and puts it back in the groom queue. `still_blocked`
-        # becomes a card in the Inbox naming the one thing missing. Both may
-        # happen at once. If neither does, the old card stays open on purpose.
-        # An exchange that moved nothing has not answered anything, and letting
-        # it close would be the loop agreeing that talking counted as progress.
+        # A reply lands in one or both places: `settled` becomes standing fact
+        # and requeues the groom; `still_blocked` becomes an Inbox card naming
+        # what is missing. If neither, the old card stays open; talking is not
+        # progress.
         settled = str(answer.get("settled") or "").strip()
         blocked_on = str(answer.get("still_blocked_on") or "").strip()
         rescope = str(answer.get("rescope") or "").strip()
 
-        # A settled line becomes standing fact: the groom agent reads it, writes
-        # acceptance criteria on top of it, and never sees this conversation. So
-        # the basis has to travel with the claim. Ordis has no Bash and cannot
-        # observe a running program, and the reply that forced this said
-        # "NOTION_OG_TRACKER_DB is set in .env.example. It's live now, not just
-        # logging 'not set'", having read a committed template and nothing else.
-        # The key really is set, but in `.env`, which Ordis cannot read; and
-        # "live now" was something it had no way to observe and which was not
-        # true. The next groom wrote acceptance criteria on top of both. So if
-        # no file was actually opened, the line goes down as the PO's word.
+        # A settled line becomes fact the groom agent builds on, so its basis
+        # travels with it. Ordis cannot run code or read `.env`, so if no file
+        # was opened the line is recorded as the PO's word.
         raw_checked = answer.get("checked") or []
         if isinstance(raw_checked, str):
             raw_checked = [raw_checked]
@@ -735,9 +649,8 @@ def answer_po(conn: sqlite3.Connection, terms: dict, projects: list[str]) -> lis
             settled = f"The PO says: {settled} (Ordis opened no file to check this.)"
         acted: list[str] = []
 
-        # Closed first, and only on action. The fresh card below checks for an
-        # open question before raising one, so an old card left standing here
-        # would suppress the sharper one that replaces it.
+        # Close the old card first, and only on action, so it cannot suppress
+        # the new.
         if esc is not None and (settled or blocked_on or rescope):
             conn.execute(
                 "UPDATE escalations SET resolved_at = datetime('now','localtime'), "
@@ -757,36 +670,19 @@ def answer_po(conn: sqlite3.Connection, terms: dict, projects: list[str]) -> lis
                   settled + ("\n\nOrdis read: " + ", ".join(checked) if checked else ""),
                   ticket_id, 0)
             if rescope:
-                # Handled below, and it decides the lane on its own. Running the
-                # needs-info ladder first would send the story back to `ready`
-                # holding the criteria the PO has just replaced.
+                # Handled below; rescope picks the lane itself.
                 pass
             elif story["status"] == "needs-info":
-                # Which lane it goes back to depends on whether it has already
-                # been groomed. `backlog` is only groomable while the criteria
-                # are empty (GROOMABLE_WHERE), so a story that was groomed,
-                # blocked, and then unblocked landed in `backlog` WITH criteria.
-                # Not groomable, not dispatched, read by nothing. It sat there
-                # until the PO noticed, which is the failure this loop exists to
-                # prevent.
-                #
-                # There are three lanes, and which one is right turns on whether
-                # the criteria were ever approved. Approved criteria go back to
-                # `ready`, because the answer just given does not un-approve
-                # them. Unapproved criteria are cleared, because they were
-                # drafted without that answer. No criteria at all means the
-                # story has never been groomed, and `backlog` is where grooming
-                # finds it.
+                # Which lane depends on the criteria: approved goes back to
+                # `ready`, drafted but unapproved is cleared for regrooming,
+                # none goes to `backlog`. A groomed story in `backlog` with
+                # criteria would sit unread.
                 has_criteria = bool((story["acceptance_criteria"] or "").strip())
                 approved = conn.execute(
                     "SELECT 1 FROM escalations WHERE story_id = ? AND kind = 'decision' "
                     "AND po_decision = 'approve' LIMIT 1", (story["id"],)).fetchone()
                 if has_criteria and approved:
-                    # The PO approved these criteria, and then a question
-                    # parked the story. The answer does not un-approve them, so
-                    # the story goes back to the lane the question interrupted:
-                    # `ready`, where the build picks it up. Clearing them here
-                    # would make them approve the same list a second time.
+                    # Approved criteria survive the answer; resume at `ready`.
                     conn.execute(
                         """UPDATE stories SET status = 'ready', blocked_reason = NULL,
                                   updated_at = datetime('now','localtime')
@@ -795,10 +691,8 @@ def answer_po(conn: sqlite3.Connection, terms: dict, projects: list[str]) -> lis
                     )
                     lane = "unblocked " + ARROW + " back to ready, dispatchable"
                 elif has_criteria:
-                    # Groomed but never approved. The criteria were drafted
-                    # without the answer just given, so they are cleared and
-                    # the next wake re-reads the whole brief. The same
-                    # treatment a brief that grew after delivery gets.
+                    # Unapproved criteria predate the answer; clear them and
+                    # regroom the brief.
                     conn.execute(
                         """UPDATE stories
                               SET status = 'needs-criteria', acceptance_criteria = NULL,
@@ -821,9 +715,8 @@ def answer_po(conn: sqlite3.Connection, terms: dict, projects: list[str]) -> lis
                         (story["id"],),
                     )
                     lane = "unblocked " + ARROW + " back in the groom queue"
-                # The runs that raised the answered question describe a version
-                # of the story that is gone; without this the story re-enters
-                # the queue already at its attempt ceiling and never groomed.
+                # Reset the attempt budget, or the story re-enters at its
+                # ceiling.
                 control.regroom_budget(conn, story["id"])
                 # Every card that said it could not start, not just the one the PO
                 # happened to reply to.
@@ -832,9 +725,8 @@ def answer_po(conn: sqlite3.Connection, terms: dict, projects: list[str]) -> lis
             else:
                 acted.append("recorded on the story")
 
-        # Before the blocker, because a rescope makes the old blocker moot and
-        # `rescope_story` closes it. A question about the job the PO just
-        # replaced is not a question worth putting back in front of them.
+        # Before the blocker: a rescope makes it moot, and `rescope_story`
+        # closes it.
         if story is not None and rescope:
             entry = f"[PO, {msg['at']}] Scope now: {rescope}"
             conn.execute(
@@ -892,45 +784,23 @@ def unanswered_count(conn: sqlite3.Connection) -> int:
 
 
 # -- staffing: the Scrum Master's job, not the PO's ----------------------------
-#
-# "The point for this is so that I, the product owner, does not have to pick the
-# agents for the job. The scrum master (ordis) should know all capabilities of
-# each persona through context of title then digging deeper and seeing if they
-# are a right fit OR just remembering the performance they had in a previous
-# project WITHOUT BIAS."
-#
-# What stood there before was an Inbox tile reading "nobody is hired to write in
-# personal-desktop-projects - open Standby, pick a persona and hire them with
-# write scope on it". Every word of that is the PO doing the Scrum Master's job,
-# on a roster of hundreds nobody has read, and it is why a story that had
-# cleared every other gate still had not started.
-#
-# So the colony proposes the name and the PO answers yes or no. `propose_hire` and
-# the `hire` escalation kind have both existed since M3 and nothing had ever
-# called them; this is the caller they were waiting for.
+# The colony proposes who to hire and the PO answers yes or no, so the PO never
+# has to read the roster to pick an agent.
 
 STAFF_LIMIT = int(os.environ.get("COLONY_STAFF_LIMIT", "1"))
 STAFF_TIMEOUT_S = int(os.environ.get("COLONY_STAFF_TIMEOUT", "420"))
 
-# The most seats one staffing run may propose for one story. Three is a ceiling
-# rather than a target, the prompt argues hard for one, and it exists because
-# an unbounded list is an unbounded number of approval cards for the PO, each
-# carrying its own token ceiling. Lower it to 1 to get the old behaviour back
-# exactly.
+# Most seats one staffing run may propose per story. A ceiling, not a target;
+# each seat is an approval card with its own token ceiling. 1 means solo hires.
 STAFF_TEAM_MAX = max(1, int(os.environ.get("COLONY_STAFF_TEAM_MAX", "3")))
 
-# Where the persona files themselves live. The digest carries a one-line
-# description; the file is the resume, and reading two or three of them is the
-# "digging deeper" half of what the PO asked for.
+# Persona files, which the staffing agent reads for a closer look at a pick.
 PERSONA_ROOT = roster_mod.DEFAULT_ROSTER_DIR
 
 
 def stories_to_staff(conn: sqlite3.Connection, limit: int = STAFF_LIMIT) -> list[sqlite3.Row]:
-    """Stories that have cleared every gate and are waiting on a person.
-
-    Ready, confirmed folder, nobody hired to write there, and no hire already
-    sitting in the Inbox - proposing a second name for the same story while the
-    first is undecided turns one question into a queue of them.
+    """Stories past every gate and waiting on a hire: ready, confirmed folder,
+    no writer hired, and no hire already pending.
     """
     return conn.execute(
         """SELECT s.* FROM stories s
@@ -1079,11 +949,8 @@ def _role_name(raw: str, slug: str) -> str:
 
 def _diversity_note(conn: sqlite3.Connection, pick: sqlite3.Row,
                     finalists: list[dict]) -> str:
-    """What the ledger says about this choice, for the PO to read beside it.
-
-    Written by Python rather than by the agent, on purpose. The rule exists
-    because the chooser has a preference it cannot see, so the audit of the
-    choice must not be the chooser's own account of it.
+    """What the ledger says about this pick, written by Python so the chooser
+    does not audit itself.
     """
     bits: list[str] = []
     if pick["times_hired"]:
@@ -1107,22 +974,10 @@ def _diversity_note(conn: sqlite3.Connection, pick: sqlite3.Row,
 
 
 # -- the second opinion -------------------------------------------------------
-#
-# `_diversity_note` exists because the chooser cannot audit its own choice, and
-# it does what Python can do: count. It cannot say "this is the wrong person and
-# here is who I would have taken instead", because that is a judgement and only
-# a model makes those.
-#
-# So this is the same idea one level up. `specialized/agents-orchestrator` is a
-# persona whose whole subject is picking and sequencing agents, and ROSTER.md's
-# position on it stands unchanged: we do not hire it, because two things picking
-# agents is worse than one. Read on demand, against a pick already made, it
-# audits without deciding. It cannot hire, cannot reject, and cannot raise a
-# card. It writes one paragraph next to the pick and the PO still answers.
-#
-# The PO presses the button. Never the pulse. It costs a full roster digest and
-# most hires do not need one. The ones worth spending it on are the hire you
-# are unsure about and the fourth contract in a row for the same persona.
+# `_diversity_note` can only count. For judgement, the PO can ask
+# `specialized/agents-orchestrator` to audit a pending pick. It writes one
+# paragraph beside the card and cannot hire, reject or raise anything
+# (ROSTER.md). Only on the PO's button, since it costs a full roster digest.
 
 SECOND_OPINION_SLUG = "specialized/agents-orchestrator"
 SECOND_OPINION_TIMEOUT_S = int(os.environ.get("COLONY_SECOND_OPINION_TIMEOUT", "420"))
@@ -1196,12 +1051,8 @@ Reply with ONLY a JSON object:
 
 
 def second_opinion(conn: sqlite3.Connection, esc_id: int, terms: dict) -> dict:
-    """Audit one pending hire. Decides nothing and changes no status.
-
-    Returns a dict the endpoint hands straight back, so a failure reads as a
-    sentence on screen rather than a stack trace. The only row this writes to
-    outside its own ticket is `escalations.second_opinion` on the card that was
-    audited - never the story, never the agent, never the decision.
+    """Audit one pending hire. Decides nothing. Returns a dict the endpoint
+    hands back, and writes only `escalations.second_opinion` on that card.
     """
     esc = conn.execute("SELECT * FROM escalations WHERE id = ?", (esc_id,)).fetchone()
     if not esc:
@@ -1309,13 +1160,8 @@ def second_opinion(conn: sqlite3.Connection, esc_id: int, terms: dict) -> dict:
 
 
 def _crew_from(answer: dict) -> list[dict]:
-    """The proposed seats, whatever shape the model replied in.
-
-    `team` is what the prompt asks for now. A bare `roster_slug` at the top level
-    is what it asked for before, and a model that has read a lot of this project
-    will sometimes still answer that way - so it stays understood rather than
-    rejected. Losing a whole staffing run to a schema preference would be an
-    expensive way to be right.
+    """The proposed seats from `team`, or a bare top-level `roster_slug` (the
+    older answer shape, still accepted).
     """
     raw = answer.get("team")
     if not isinstance(raw, list) or not raw:
@@ -1331,12 +1177,8 @@ def _crew_from(answer: dict) -> list[dict]:
 
 
 def staff_stories(conn: sqlite3.Connection, terms: dict) -> list[dict]:
-    """Propose a crew per ready-but-unstaffed story. Hires nothing.
-
-    One escalation per seat, so the PO can take the lead and refuse the
-    specialist, or the other way round. Bundling a crew into a single yes/no
-    would make the cheapest answer to a three-person proposal "no", which is the
-    opposite of what having seats is for.
+    """Propose a crew per ready-but-unstaffed story. Hires nothing. One
+    escalation per seat, so the PO can accept some and refuse others.
     """
     out: list[dict] = []
     stories = stories_to_staff(conn, STAFF_LIMIT)
@@ -1376,9 +1218,8 @@ def staff_stories(conn: sqlite3.Connection, terms: dict) -> list[dict]:
 
         finalists = [f for f in (answer.get("finalists") or []) if isinstance(f, dict)][:3]
 
-        # Resolve every seat before raising anything. A crew half of whose slugs
-        # are invented should tell the PO which ones, on one blocked ticket,
-        # rather than half-filling their Inbox and leaving them to notice the gap.
+        # Resolve every seat first, so invented slugs block one ticket with a
+        # list rather than half-filling the Inbox.
         picks: list[tuple[dict, sqlite3.Row]] = []
         bad: list[str] = []
         for member in seats:
@@ -1413,10 +1254,8 @@ def staff_stories(conn: sqlite3.Connection, terms: dict) -> list[dict]:
             for f in finalists if f.get("slug")
         )
 
-        # Role names have to be unique per project, and `hire` refuses a clash at
-        # approval time - the worst possible moment to find out. Two seats
-        # proposed in the same breath can collide with each other as easily as
-        # with something already in the table, so the batch checks both.
+        # Role names must be unique per project; check the batch against itself
+        # and the table now, not at approval.
         claimed: set[str] = set()
         raised: list[dict] = []
         for seat_no, (member, pick) in enumerate(picks):
@@ -1486,11 +1325,8 @@ WAKE_TOKEN_CAP = int(os.environ.get("COLONY_WAKE_TOKEN_CAP", "0"))
 
 
 def _room(conn: sqlite3.Connection, usage: dict | None, report: dict, after: str) -> bool:
-    """Whether the wake may start its next step. Records why not, once.
-
-    Re-reads the usage cache each time, because the tray app refreshes it while
-    a wake runs, and a groom that burns the rest of the week has to stop the
-    build queued behind it.
+    """Whether the wake may take its next step, recording why not once. Rereads
+    the usage cache, which the tray app refreshes mid-wake.
     """
     if report.get("stopped"):
         return False
@@ -1509,18 +1345,15 @@ def _room(conn: sqlite3.Connection, usage: dict | None, report: dict, after: str
 
 
 def run(conn: sqlite3.Connection, usage: dict | None) -> dict:
-    """Do the wake. Returns what happened, for the pulse row and the printout.
-
-    The budget is checked before every step that spends tokens, not only once
-    at the top.
+    """Do the wake and return what happened. Budget is checked before every
+    spending step.
     """
     report = {"groomed": [], "built": [], "answered": [], "forged": [], "candidates": [],
               "staffed": [], "tokens": 0, "skipped": None, "stopped": None}
 
     if control.is_halted():
-        # Belt-and-braces: the tick already refuses to escalate to a wake while
-        # HALT is present. This is the second reader of the same file, because
-        # the one control that must never fail open is the stop switch.
+        # The tick already refuses to wake under HALT; this is the second
+        # check.
         report["skipped"] = "HALT. Dispatch disabled"
         return report
 
@@ -1542,9 +1375,8 @@ def run(conn: sqlite3.Connection, usage: dict | None) -> dict:
             report["answered"].append(outcome)
             report["tokens"] += outcome["tokens"]
 
-        # Then any skill draft the PO asked for. Ahead of grooming because it is
-        # bounded, one draft per requested candidate, and the request had to be
-        # made by hand, while the groom queue is however long Notion made it.
+        # Requested skill drafts before grooming: bounded and asked for by
+        # hand.
         for skill in forge_mod.pending_drafts(conn)[:FORGE_DRAFT_LIMIT]:
             if not _room(conn, usage, report, "the PO replies"):
                 break
@@ -1552,10 +1384,7 @@ def run(conn: sqlite3.Connection, usage: dict | None) -> dict:
             report["forged"].append(outcome)
             report["tokens"] += outcome["tokens"]
 
-    # Read the queue *after* the replies, not before. A reply that supplies the
-    # missing decision puts its story straight back into this queue, and asking
-    # an hour early would mean the answer waits a full pulse to become work.
-    # Which is most of what "nothing is happening" felt like.
+    # Read the groom queue after replies, so an answer becomes work this hour.
     stories = stories_to_groom(conn, GROOM_LIMIT) if terms is not None else []
     if terms is not None and stories:
         projects = pulse_mod.candidate_projects()
@@ -1567,18 +1396,14 @@ def run(conn: sqlite3.Connection, usage: dict | None) -> dict:
             report["groomed"].append(outcome)
             report["tokens"] += outcome["tokens"]
 
-    # Staffing goes after grooming and before building, because grooming is what
-    # produces the stories that need staffing and the PO has to approve a name
-    # before a build can use it. A hire proposed this hour is approvable the
-    # moment the PO looks at the Inbox, and dispatchable the hour after.
+    # Staff after grooming (which creates the need) and before building (which
+    # needs an approved hire).
     if terms is not None and _room(conn, usage, report, "grooming"):
         for outcome in staff_stories(conn, terms):
             report["staffed"].append(outcome)
             report["tokens"] += outcome["tokens"]
 
-    # Then whatever the PO dispatched. `build.pending` is already narrowed to
-    # tickets on a *confirmed* project, so nothing reaches a worktree on the
-    # strength of an inference.
+    # Dispatched builds. `build.pending` only returns confirmed projects.
     for ticket in build_mod.pending(conn, build_mod.BUILD_LIMIT):
         if not _room(conn, usage, report,
                      f"build {len(report['built'])}" if report["built"] else "staffing"):
