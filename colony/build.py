@@ -14,7 +14,7 @@ import json
 import os
 import sqlite3
 
-from . import agent, attachments as attach, control, db, voice, worktree
+from . import agent, attachments as attach, control, voice, worktree
 from .prompt import render as render_prompt
 
 BUILD_TIMEOUT_S = int(os.environ.get("COLONY_BUILD_TIMEOUT", "900"))
