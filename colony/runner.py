@@ -1,6 +1,6 @@
 r"""Runs a command a build agent asked for, once the PO approves it.
 
-Build agents have no shell (ARCHITECTURE.md §8.3), so a criterion like "run
+Build agents have no shell (docs/design.md §8.3), so a criterion like "run
 this and confirm the row appears" is out of their reach. They put the
 command in `needs_run`, which raises a `run-request` card with the command,
 why, and the expected result. If the PO approves, it runs here and the

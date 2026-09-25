@@ -152,7 +152,7 @@ The installer does support selective install (`--agent`, `--division`, and an
 ```
 
 **Hire** (`colony hire <persona-path> --as <role>`) creates a contract YAML — the shape in
-`ARCHITECTURE.md` §2.1. Ordis proposes `model`, `tools_allowed`, `write_capable`, and
+`docs/design.md` §2.1. Ordis proposes `model`, `tools_allowed`, `write_capable`, and
 `max_tokens_run` by reading the persona and matching it against similar existing roles; the
 PO approves. Hiring is a **PO action**, same class as a write approval. A colonist that can
 edit files is a permission grant, and permission grants get a human.

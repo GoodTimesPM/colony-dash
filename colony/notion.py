@@ -26,7 +26,7 @@ API = "https://api.notion.com/v1"
 NOTION_VERSION = "2022-06-28"
 DEFAULT_DATABASE_ID = "1d23280a-add3-41cb-bd14-67c771ee6d88"
 
-# Status = "In Progress" is the only signal to work a row. ARCHITECTURE.md §5.1.
+# Status = "In Progress" is the only signal to work a row. docs/design.md §5.1.
 WORKABLE_STATUS = "In Progress"
 RESEARCH_STATUS = "Exploring"
 

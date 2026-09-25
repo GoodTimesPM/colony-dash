@@ -1,5 +1,5 @@
 """The window: a pywebview shell around the local server, so the dashboard can
-live on a second monitor without browser chrome (ARCHITECTURE.md §9.1).
+live on a second monitor without browser chrome (docs/design.md §9.1).
 `--serve` runs the server with no window, which is also the fallback without
 WebView2. Binding beyond 127.0.0.1 requires an access token (`access.py`).
 """
@@ -333,7 +333,7 @@ def launch(port: int = DEFAULT_PORT, *, host: str = HOST, window: bool = True,
     threading.Thread(target=_set_window_icon, args=("Colony Dash",), daemon=True).start()
     try:
         # pywebview's default private mode discards localStorage, where theme,
-        # text size and layout live (ARCHITECTURE.md §9.2). The profile sits
+        # text size and layout live (docs/design.md §9.2). The profile sits
         # under .colony/.
         webview.start(private_mode=False, storage_path=str(WEBVIEW_PROFILE))
     except Exception:  # no WebView2 runtime, no display, etc.

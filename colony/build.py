@@ -4,7 +4,7 @@
     scope → PO dispatches → build runs in a worktree → PO approves the patch
 
 Six gates, four human, so the worst an unattended run can do is produce a
-diff nobody has applied (ARCHITECTURE.md §8). A build never touches the live
+diff nobody has applied (docs/design.md §8). A build never touches the live
 tree, commits or pushes.
 """
 

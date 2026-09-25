@@ -1,7 +1,7 @@
 """The ledger: connection, pragmas, migrations.
 
 Everything the colony knows lives in one SQLite file. There is no server to be
-down when the pulse fires at 3am. See ARCHITECTURE.md §3.3.
+down when the pulse fires at 3am. See docs/design.md §3.3.
 """
 
 from __future__ import annotations
@@ -103,7 +103,7 @@ def set_env_value(key: str, value: str, path: Path | None = None,
 
 
 
-# Read scope for every agent (ARCHITECTURE.md §8.1); write scope is set per
+# Read scope for every agent (docs/design.md §8.1); write scope is set per
 # ticket. Defaults to the folder containing this checkout; override with
 # `COLONY_PROJECTS_ROOT`.
 PROJECTS_ROOT = Path(_env_value("COLONY_PROJECTS_ROOT") or PROJECT_DIR.parent)

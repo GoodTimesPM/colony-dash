@@ -6,7 +6,7 @@ one project folder inside it. The result comes back as a patch in
 `.colony/patches/` with a `write-approval` escalation. If approved, the
 patch is applied to the live tree **uncommitted**, and the PO commits it.
 The colony never commits to master, pushes or rewrites history
-(ARCHITECTURE.md §8.3).
+(docs/design.md §8.3).
 
 A worktree rather than a copy keeps the git context and makes the diff free.
 """
