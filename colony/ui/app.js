@@ -224,23 +224,41 @@ let STATE = null;
 let filter = null;      // board column filter; null = everything
 let openDivisions = new Set();   // survives re-renders; the SSE feed is frequent
 
-function render(s) {
+// Each panel with the state keys it reads. A panel is rebuilt only when one of
+// those slices changed, so a frame that moves one number does not reset the
+// scroll and selection in the other twelve.
+const PANELS = [
+  ["sprint", ["sprint"], (s) => renderSprint(s.sprint)],
+  ["ordis", ["ordis"], (s) => renderOrdis(s.ordis)],
+  ["colony", ["colony"], (s) => renderColony(s.colony)],
+  ["board", ["board"], (s) => renderBoard(s.board)],
+  ["completed", ["completed"], (s) => renderCompleted(s.completed || [])],
+  ["projects", ["projects"], (s) => renderProjects(s.projects)],
+  ["flight", ["flight"], (s) => renderFlight(s.flight || [])],
+  ["inbox", ["inbox", "flight"], (s) => renderInbox(s.inbox)],
+  ["macros", ["controls"], (s) => renderMacros(s.controls)],
+  ["pulses", ["pulses"], (s) => renderPulses(s.pulses)],
+  ["forge", ["forge", "sprint"], (s) => renderForge(s.forge)],
+  ["spend", ["spend"], (s) => renderSpend(s.spend)],
+];
+const drawn = new Map();   // panel name -> the JSON it was last drawn from
+
+// `force` redraws every panel. Callers pass it when something on the page,
+// not in the state, changed what a panel shows: a filter, a view, a theme.
+function render(s, force) {
+  // A slow `/api/state` fetch can land after a newer SSE frame. `seq` only
+  // grows, so an older state is dropped.
+  if (!force && STATE && s.seq != null && STATE.seq != null && s.seq < STATE.seq) return;
   STATE = s;
   document.body.classList.toggle("halted", !!s.controls.halted);
   document.body.classList.toggle("beating", !s.controls.halted);
   $("halt-why").textContent = s.controls.halt_reason || "";
-  renderSprint(s.sprint);
-  renderOrdis(s.ordis);
-  renderColony(s.colony);
-  renderBoard(s.board);
-  renderCompleted(s.completed || []);
-  renderProjects(s.projects);
-  renderFlight(s.flight || []);
-  renderInbox(s.inbox);
-  renderMacros(s.controls);
-  renderPulses(s.pulses);
-  renderForge(s.forge);
-  renderSpend(s.spend);
+  for (const [name, keys, draw] of PANELS) {
+    const slice = JSON.stringify(keys.map((k) => s[k]));
+    if (!force && drawn.get(name) === slice) continue;
+    drawn.set(name, slice);
+    draw(s);
+  }
   $("roster-count").textContent = s.roster.total + " personas";
   syncRoster(s.roster.rev);
 }
@@ -4386,7 +4404,7 @@ $("theme").onchange = (e) => {
   // that is what saving one is for.
   if (Object.keys(VARS).length) { VARS = {}; applyVars(); saveAppearance();
                                   toast("hand-mixed colors cleared", null); }
-  if (STATE) render(STATE);   // avatars are painted on canvas, so they re-paint
+  if (STATE) render(STATE, true);   // avatars are painted on canvas, so they re-paint
 };
 $("halt-banner-resume").onclick = () => act("halt", { on: false });
 
@@ -4893,7 +4911,7 @@ function applyPreset(name) {
   SCALE = Number(p.scale) || DEFAULT_SCALE;
   VARS = Object.assign({}, p.vars || {});
   applyScale(); applyVars(); saveAppearance();
-  if (STATE) render(STATE);
+  if (STATE) render(STATE, true);
   openAppearance();
 }
 
@@ -4984,7 +5002,7 @@ function openAppearance() {
   dice.onclick = () => {
     VARS = randomPalette();
     applyVars(); saveAppearance();
-    if (STATE) render(STATE);
+    if (STATE) render(STATE, true);
     openAppearance();
   };
   const revert = el("button", "link revert", "revert");
@@ -4992,7 +5010,7 @@ function openAppearance() {
                + (document.documentElement.dataset.theme || "system") + " as written";
   revert.onclick = () => {
     VARS = {}; applyVars(); saveAppearance();
-    if (STATE) render(STATE);
+    if (STATE) render(STATE, true);
     openAppearance();
   };
   acts.append(dice, revert);
@@ -5706,7 +5724,7 @@ function setView(key, on) {
   VIEW[key] = !!on;
   localStorage.setItem(VIEW_KEY, JSON.stringify(VIEW));
   applyView();
-  if (STATE) render(STATE);   // stale and dropped change what the lists contain
+  if (STATE) render(STATE, true);   // stale and dropped change what the lists contain
 }
 
 for (const box of document.querySelectorAll("[data-view]")) {
@@ -5716,7 +5734,7 @@ $("view-reset").onclick = () => {
   VIEW = {};
   localStorage.removeItem(VIEW_KEY);
   applyView();
-  if (STATE) render(STATE);
+  if (STATE) render(STATE, true);
 };
 $("inbox-show-stale").onclick = () => setView("stale", !shows("stale"));
 $("board-new").onclick = openNewStory;
