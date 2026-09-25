@@ -10,6 +10,18 @@
 "use strict";
 
 const $ = (id) => document.getElementById(id);
+
+// localStorage throws in a locked-down WebView, a private window, or when it is
+// full. Everything the page keeps there is a preference, so a failure means
+// defaults, not a blank page.
+const store = {
+  get(key, fallback = null) {
+    try { const v = localStorage.getItem(key); return v == null ? fallback : v; }
+    catch (_) { return fallback; }
+  },
+  set(key, value) { try { localStorage.setItem(key, value); } catch (_) {} },
+  remove(key) { try { localStorage.removeItem(key); } catch (_) {} },
+};
 const STATUS_LABEL = {
   "backlog": "backlog", "needs-info": "needs info", "needs-criteria": "needs criteria",
   "ready": "ready", "in-progress": "running", "po-review": "po review",
@@ -665,7 +677,7 @@ function renderDropped(rows) {
 // The choice is localStorage like the view menu — how you read the panel is not
 // something the server needs to know.
 const SORT_KEY = "colony-proj-sort";
-let PROJ_SORT = localStorage.getItem(SORT_KEY) || "changes";
+let PROJ_SORT = store.get(SORT_KEY) || "changes";
 let PROJ_ROWS = [];
 
 const PROJ_SORTS = {
@@ -682,7 +694,7 @@ const PROJ_SORTS = {
 for (const b of document.querySelectorAll("[data-sort]")) {
   b.onclick = () => {
     PROJ_SORT = b.dataset.sort;
-    localStorage.setItem(SORT_KEY, PROJ_SORT);
+    store.set(SORT_KEY, PROJ_SORT);
     renderProjects(PROJ_ROWS);
   };
 }
@@ -927,7 +939,7 @@ function flightRow(f) {
 //
 // Nothing on this panel writes. It is the only panel that is purely a record.
 const DONE_FILTER_KEY = "colony-done-filter";
-let DONE_FILTER = localStorage.getItem(DONE_FILTER_KEY) || "all";
+let DONE_FILTER = store.get(DONE_FILTER_KEY) || "all";
 
 function renderCompleted(items) {
   const box = $("completed");
@@ -957,7 +969,7 @@ function renderCompleted(items) {
 for (const b of document.querySelectorAll("[data-done]")) {
   b.onclick = () => {
     DONE_FILTER = b.dataset.done;
-    localStorage.setItem(DONE_FILTER_KEY, DONE_FILTER);
+    store.set(DONE_FILTER_KEY, DONE_FILTER);
     if (STATE) renderCompleted(STATE.completed || []);
   };
 }
@@ -2244,8 +2256,8 @@ async function openSkill(id) {
 
 const SVGNS = "http://www.w3.org/2000/svg";
 const GRAIN_UNIT = { hour: "h", day: "d", week: "w", month: "mo", year: "y" };
-let SPEND_GRAIN = localStorage.getItem("colony-spend-grain") || "day";
-let SPEND_KIND = localStorage.getItem("colony-spend-kind") || "line";
+let SPEND_GRAIN = store.get("colony-spend-grain") || "day";
+let SPEND_KIND = store.get("colony-spend-kind") || "line";
 let SPEND_SERIES = null;
 let SPEND_WIDTH = 0;
 // Where the window stops. `null` is the live view. It is deliberately not
@@ -2535,11 +2547,11 @@ for (const seg of ["spend-grain", "spend-kind"]) {
     if (!b) return;
     if (b.dataset.grain) {
       SPEND_GRAIN = b.dataset.grain;
-      localStorage.setItem("colony-spend-grain", SPEND_GRAIN);
+      store.set("colony-spend-grain", SPEND_GRAIN);
       loadSpend();
     } else {
       SPEND_KIND = b.dataset.kind;
-      localStorage.setItem("colony-spend-kind", SPEND_KIND);
+      store.set("colony-spend-kind", SPEND_KIND);
       drawSpend();
     }
   });
@@ -4370,12 +4382,12 @@ $("roster-q").addEventListener("input", (e) => {
 // writes localStorage. It exists so a theme can be inspected without clicking
 // through the picker, which is also the only way to screenshot one headlessly.
 const forced = new URLSearchParams(location.search).get("theme");
-let saved = forced || localStorage.getItem("colony-theme") || "";
+let saved = forced || store.get("colony-theme") || "";
 // A retired theme leaves a name in localStorage that no palette answers to any
 // more: the attribute lands, nothing styles it, and the picker shows blank. Fall
 // back to system rather than to a page dressed in half a theme.
 if (saved && !$("theme").querySelector(`option[value="${CSS.escape(saved)}"]`)) {
-  localStorage.removeItem("colony-theme");
+  store.remove("colony-theme");
   saved = "";
 }
 // A phone paints the status bar and the task-switcher card with `theme-color`,
@@ -4395,8 +4407,8 @@ else delete document.documentElement.dataset.theme;   // boot.js may have set a 
 $("theme").value = saved;
 $("theme").onchange = (e) => {
   const v = e.target.value;
-  if (v) { document.documentElement.dataset.theme = v; localStorage.setItem("colony-theme", v); }
-  else { delete document.documentElement.dataset.theme; localStorage.removeItem("colony-theme"); }
+  if (v) { document.documentElement.dataset.theme = v; store.set("colony-theme", v); }
+  else { delete document.documentElement.dataset.theme; store.remove("colony-theme"); }
   paintThemeColor();
   // Picking a theme drops any hand-mixed colours. They were sampled from the
   // palette you just left — an ember ground held over phosphor is not a third
@@ -4431,11 +4443,11 @@ const SCALE_KEY = "colony-scale", VARS_KEY = "colony-vars",
 const DEFAULT_SCALE = 1.15;
 
 function readJSON(key, fallback) {
-  try { return JSON.parse(localStorage.getItem(key) || "null") || fallback; }
+  try { return JSON.parse(store.get(key) || "null") || fallback; }
   catch (_) { return fallback; }
 }
 
-let SCALE = Number(localStorage.getItem(SCALE_KEY) || DEFAULT_SCALE) || DEFAULT_SCALE;
+let SCALE = Number(store.get(SCALE_KEY) || DEFAULT_SCALE) || DEFAULT_SCALE;
 let VARS = readJSON(VARS_KEY, {});
 let LAYOUT = readJSON(LAYOUT_KEY, {});
 
@@ -4596,9 +4608,9 @@ function applyVars() {
 }
 
 function saveAppearance() {
-  localStorage.setItem(SCALE_KEY, String(SCALE));
-  localStorage.setItem(VARS_KEY, JSON.stringify(VARS));
-  localStorage.setItem(LAYOUT_KEY, JSON.stringify(LAYOUT));
+  store.set(SCALE_KEY, String(SCALE));
+  store.set(VARS_KEY, JSON.stringify(VARS));
+  store.set(LAYOUT_KEY, JSON.stringify(LAYOUT));
 }
 
 // ── tile layout ─────────────────────────────────────────────────────────────
@@ -4876,7 +4888,7 @@ function randomPalette() {
 // ── presets ─────────────────────────────────────────────────────────────────
 
 function presets() { return readJSON(PRESET_KEY, {}); }
-function writePresets(all) { localStorage.setItem(PRESET_KEY, JSON.stringify(all)); }
+function writePresets(all) { store.set(PRESET_KEY, JSON.stringify(all)); }
 
 // A preset is the whole look and not just the colours: the same palette read at
 // 130% and at 100% is two different designs, and restoring one without the
@@ -4903,10 +4915,10 @@ function applyPreset(name) {
   if (!p) return;
   if (p.theme) {
     document.documentElement.dataset.theme = p.theme;
-    localStorage.setItem("colony-theme", p.theme);
+    store.set("colony-theme", p.theme);
   } else {
     delete document.documentElement.dataset.theme;
-    localStorage.removeItem("colony-theme");
+    store.remove("colony-theme");
   }
   $("theme").value = p.theme || "";
   SCALE = Number(p.scale) || DEFAULT_SCALE;
@@ -5703,7 +5715,7 @@ const PANEL_KEYS = ["sprint", "inbox", "flight", "ordis", "colony", "standby",
                     "board", "completed", "files", "spend", "macros", "pulse",
                     "forge"];
 let VIEW = {};
-try { VIEW = JSON.parse(localStorage.getItem(VIEW_KEY) || "{}") || {}; } catch (_) { VIEW = {}; }
+try { VIEW = JSON.parse(store.get(VIEW_KEY) || "{}") || {}; } catch (_) { VIEW = {}; }
 
 function shows(key) {
   return VIEW[key] === undefined ? PANEL_KEYS.includes(key) : !!VIEW[key];
@@ -5723,7 +5735,7 @@ function applyView() {
 
 function setView(key, on) {
   VIEW[key] = !!on;
-  localStorage.setItem(VIEW_KEY, JSON.stringify(VIEW));
+  store.set(VIEW_KEY, JSON.stringify(VIEW));
   applyView();
   if (STATE) render(STATE, true);   // stale and dropped change what the lists contain
 }
@@ -5733,7 +5745,7 @@ for (const box of document.querySelectorAll("[data-view]")) {
 }
 $("view-reset").onclick = () => {
   VIEW = {};
-  localStorage.removeItem(VIEW_KEY);
+  store.remove(VIEW_KEY);
   applyView();
   if (STATE) render(STATE, true);
 };
