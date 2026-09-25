@@ -667,7 +667,7 @@ the same bind without the task.
 every run transcript, the project tree, and a button that spends money.
 
 This is remote access, not accounts. One operator, one ledger, one machine's
-filesystem. ARCHITECTURE.md §10.19 covers why multi-tenancy is a different
+filesystem. docs/history/build-log.md §10.19 covers why multi-tenancy is a different
 program rather than a later feature.
 
 ### How safe is this, honestly
@@ -797,17 +797,17 @@ colony-dash.cmd   runs the CLI against the .venv the installer built
 
 ## Further reading
 
-`ARCHITECTURE.md` is the real design document: the state model, the pulse tick by
-tick, the budget rules, the execution model, section by section. Start at §0 for
-the one-paragraph version.
+`ARCHITECTURE.md` is one page: a diagram, the modules, and where the state
+lives. `docs/design.md` is the full design, section by section: the state model,
+the pulse tick by tick, the budget rules and the execution model. Code comments
+cite it by section number.
 
 `ROSTER.md` covers the hiring pool and why a persona alone is useless without
 governance attached to it.
 
-`PROJECT.md` is a working journal, not documentation. It is a dated log of what
-was built and what broke, kept in the repo because the reasoning behind a
-decision is worth more later than the decision is. Read it if you want the
-archaeology, skip it otherwise.
+`PROJECT.md` is current status and open TODOs. `docs/history/` holds the dated
+journal and build log: what was built, what broke, and why each decision went
+the way it did. Read it if you want the archaeology, skip it otherwise.
 
 ## Status
 
