@@ -27,6 +27,7 @@ import asyncio
 import hashlib
 import json
 import os
+import re
 import sqlite3
 import threading
 import time
@@ -1067,9 +1068,15 @@ def app_css(request: Request) -> Response:
     return _asset("app.css", "text/css; charset=utf-8", request)
 
 
-@app.get("/app.js")
-def app_js(request: Request) -> Response:
-    return _asset("app.js", "text/javascript; charset=utf-8", request)
+# The page's ES modules. A bare name only, so the path cannot leave `ui/js/`.
+_MODULE_NAME = re.compile(r"[a-z]+\.js")
+
+
+@app.get("/js/{name}")
+def module_js(name: str, request: Request) -> Response:
+    if not _MODULE_NAME.fullmatch(name) or not (UI_DIR / "js" / name).is_file():
+        raise HTTPException(404)
+    return _asset("js/" + name, "text/javascript; charset=utf-8", request)
 
 
 @app.get("/boot.js")

@@ -6,7 +6,7 @@
  *
  * Everything on this page is a live read of a SQLite file on a machine that is
  * either awake and reachable or not. A cached `/api/state` is a board showing
- * yesterday's tickets with today's confidence, and a cached `app.js` is a
+ * yesterday's tickets with today's confidence, and a cached module is a
  * change that does not show until a hard refresh. So every request goes to
  * the network, every time.
  *

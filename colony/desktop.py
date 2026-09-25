@@ -91,7 +91,7 @@ def _ask(address: str, port: int, path: str, method: str = "GET",
 def _stale(address: str, port: int) -> bool:
     """Is the dashboard on this port running code that is no longer on disk?
 
-    `app.js` is read per request and Python is not, so a stale server serves
+    The page's scripts are read per request and Python is not, so a stale server serves
     new buttons wired to routes it lacks. Unreachable or unauthenticated
     answers False: killing a working dashboard is the worse mistake.
     """
