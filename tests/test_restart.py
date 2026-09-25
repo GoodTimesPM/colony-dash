@@ -84,24 +84,37 @@ class StoppingTheOldOne(unittest.TestCase):
         """The point of stopping it is the port. A server that says yes and
         keeps the socket has not stopped, and binding on its word would fail in
         a thread whose only output is a log file."""
-        with mock.patch.object(desktop, "_ask", return_value={"ok": True}),              mock.patch.object(desktop, "_port_is_free", side_effect=[False, False, True]):
+        with (
+            mock.patch.object(desktop, "_ask", return_value={"ok": True}),
+            mock.patch.object(desktop, "_port_is_free", side_effect=[False, False, True]),
+        ):
             self.assertTrue(desktop._stop("127.0.0.1", 8787))
 
     def test_a_port_that_never_frees_is_a_failure(self):
-        with mock.patch.object(desktop, "_ask", return_value={"ok": True}),              mock.patch.object(desktop, "_port_is_free", return_value=False),              mock.patch.object(desktop, "log"):
+        with (
+            mock.patch.object(desktop, "_ask", return_value={"ok": True}),
+            mock.patch.object(desktop, "_port_is_free", return_value=False),
+            mock.patch.object(desktop, "log"),
+        ):
             self.assertFalse(desktop._stop("127.0.0.1", 8787, timeout_s=0.3))
 
     def test_a_refusal_is_reported_not_forced(self):
         """The server refuses while an agent run is open. That is a real answer
         and the launch has to respect it, because the alternative is dropping
         the interpreter out from under a write in progress."""
-        with mock.patch.object(desktop, "_ask",
-                               return_value={"status": 409, "error": "1 agent run still going"}),              mock.patch.object(desktop, "log") as said:
+        with (
+            mock.patch.object(desktop, "_ask", return_value={
+                "status": 409, "error": "1 agent run still going"}),
+            mock.patch.object(desktop, "log") as said,
+        ):
             self.assertFalse(desktop._stop("127.0.0.1", 8787))
         self.assertIn("still going", " ".join(str(c) for c in said.call_args_list))
 
     def test_no_answer_at_all_is_a_failure(self):
-        with mock.patch.object(desktop, "_ask", return_value=None),              mock.patch.object(desktop, "log"):
+        with (
+            mock.patch.object(desktop, "_ask", return_value=None),
+            mock.patch.object(desktop, "log"),
+        ):
             self.assertFalse(desktop._stop("127.0.0.1", 8787))
 
 
@@ -112,8 +125,17 @@ class WhatLaunchDoesAboutIt(unittest.TestCase):
 
     def run_launch(self, *, stale, stopped, replace=False):
         stops = []
-        with mock.patch.object(desktop, "_reusable", return_value="127.0.0.1"),              mock.patch.object(desktop, "_stale", return_value=stale),              mock.patch.object(desktop, "_stop",
-                               side_effect=lambda *a, **k: (stops.append(a), stopped)[1]),              mock.patch.object(desktop, "_wait_for_port", return_value=True),              mock.patch.object(desktop, "_mark"),              mock.patch.object(desktop, "_idle", return_value=0),              mock.patch.object(desktop, "log"),              mock.patch("threading.Thread") as thread:
+        with (
+            mock.patch.object(desktop, "_reusable", return_value="127.0.0.1"),
+            mock.patch.object(desktop, "_stale", return_value=stale),
+            mock.patch.object(desktop, "_stop",
+                              side_effect=lambda *a, **k: (stops.append(a), stopped)[1]),
+            mock.patch.object(desktop, "_wait_for_port", return_value=True),
+            mock.patch.object(desktop, "_mark"),
+            mock.patch.object(desktop, "_idle", return_value=0),
+            mock.patch.object(desktop, "log"),
+            mock.patch("threading.Thread") as thread,
+        ):
             thread.return_value.is_alive.return_value = True
             desktop.launch(port=8787, host="127.0.0.1", window=False,
                            replace=replace)
