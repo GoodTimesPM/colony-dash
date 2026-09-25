@@ -133,6 +133,38 @@ class TestMigrations(LedgerCase):
         conn.close()
 
 
+    def test_over_budget_runs_keep_their_rows_under_the_new_name(self):
+        """030 renames a status in place. A ledger from before it has runs
+        recorded as `killed-over-budget`, and the rebuild must carry them over."""
+        import shutil
+        from unittest import mock
+
+        older = Path(self._tmp.name) / "older"
+        older.mkdir()
+        for sql in db.MIGRATIONS_DIR.glob("*.sql"):
+            if sql.name < "030":
+                shutil.copy(sql, older / sql.name)
+
+        conn = db.connect(self.path)
+        try:
+            with mock.patch.object(db, "MIGRATIONS_DIR", older):
+                db.migrate(conn, verbose=False)
+            conn.execute("INSERT INTO stories (id, title) VALUES (1, 't')")
+            conn.execute("INSERT INTO tickets (id, story_id, title, intent) "
+                         "VALUES (1, 1, 't', 'implement')")
+            conn.execute("INSERT INTO runs (id, ticket_id, agent_role, model, status, "
+                         "chargeable_tokens) VALUES (7, 1, 'dev', 'm', 'killed-over-budget', 99)")
+
+            self.assertEqual(db.migrate(conn, verbose=False), ["030_over_budget_status.sql"])
+            row = conn.execute(
+                "SELECT status, chargeable_tokens FROM runs WHERE id = 7").fetchone()
+            self.assertEqual((row["status"], row["chargeable_tokens"]), ("over-budget", 99))
+            with self.assertRaises(sqlite3.IntegrityError):
+                conn.execute("UPDATE runs SET status = 'killed-over-budget' WHERE id = 7")
+
+        finally:
+            conn.close()
+
 class TestConnection(LedgerCase):
 
     def test_connect_sets_the_pragmas_the_dashboard_depends_on(self):

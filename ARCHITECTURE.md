@@ -158,7 +158,7 @@ CREATE TABLE runs (
   transcript_path TEXT,
   started_at     TIMESTAMP NOT NULL,
   ended_at       TIMESTAMP,
-  status         TEXT NOT NULL,           -- running|ok|failed|timeout|killed-over-budget
+  status         TEXT NOT NULL,           -- running|ok|failed|timeout|over-budget
   input_tokens         INTEGER,
   output_tokens        INTEGER,
   cache_read_tokens    INTEGER,           -- cheap, but counted — cache hits are the win
@@ -622,8 +622,8 @@ apply it colony-wide. Promotion is a PO decision — the third human gate.
 - **Kill switch:** a `.colony/HALT` file. Present = no dispatch, pulses still log. First
   thing the pulse checks.
 - **Budget enforcement:** checked three times — sprint remaining before staffing, estimate
-  before dispatch, actual during the run. Breaching the per-run ceiling kills the run with
-  status `killed-over-budget`, a recorded outcome rather than a crash.
+  before dispatch, actual after the run. A run that breaches its per-run ceiling keeps its answer and is recorded with
+  status `over-budget`, a billing fact rather than a failure.
 
 ### 8.1 Blast radius
 
@@ -1080,7 +1080,7 @@ and budgets, ceilings and the sprint line all use the chargeable figure. Real co
 run: **~50k chargeable, $0.50.**
 
 **A breach is not a failure.** The first version overwrote the run's status with
-`killed-over-budget`, and the caller's "did it succeed?" check then discarded a completed,
+`over-budget`, and the caller's "did it succeed?" check then discarded a completed,
 correct answer we had already paid for. Over-budget is now a separate flag: the breach
 raises a `cost` escalation, and the work is harvested either way. **Never pay twice for the
 same question.**
@@ -1261,7 +1261,7 @@ runs that produced it — and a saving is allowed to be negative, because a skil
 **A skill loaded into a failed run is a loss.** `record_uses` is called before the early
 returns in `groom_story`, not after them. Recording only the runs that finished would mean the
 win rate measures the runs the skill was already winning, which is how a metric quietly stops
-measuring anything. For the same reason `killed-over-budget` counts as a success: those runs
+measuring anything. For the same reason `over-budget` counts as a success: those runs
 produced their answer, and excluding them would hide exactly the runs a shortcut skill helps.
 
 **The detector that proposed a skill is kept.** `skills.detector` survives retirement, because

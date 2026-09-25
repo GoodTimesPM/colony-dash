@@ -319,7 +319,7 @@ def groom_story(conn: sqlite3.Connection, story: sqlite3.Row, terms: dict,
     forge_mod.record_uses(
         conn, skills=skills, run_id=result.raw.get("run_id"),
         tokens=result.chargeable_tokens,
-        ok=result.status in ("ok", "killed-over-budget"),
+        ok=result.status == "ok",
     )
 
     if result.over_budget:
@@ -338,7 +338,7 @@ def groom_story(conn: sqlite3.Connection, story: sqlite3.Row, terms: dict,
 
     # A completed run is harvested even when it breached the ceiling. Only a run
     # that produced nothing is a failure.
-    if result.status not in ("ok", "killed-over-budget"):
+    if result.status != "ok":
         conn.execute(
             "UPDATE tickets SET status = 'blocked', findings = ? WHERE id = ?",
             (result.error or result.status, ticket_id),
@@ -663,7 +663,7 @@ def answer_po(conn: sqlite3.Connection, terms: dict, projects: list[str]) -> lis
             tools_denied=terms.get("tools_denied"), cwd=db.PROJECTS_ROOT,
             timeout_s=REPLY_TIMEOUT_S, max_tokens=terms.get("max_tokens_run"),
         )
-        answer = result.json_payload() if result.status in ("ok", "killed-over-budget") else None
+        answer = result.json_payload() if result.status == "ok" else None
 
         if not answer:
             # The message is *not* marked read. An answer that never arrived is
@@ -1255,7 +1255,7 @@ def second_opinion(conn: sqlite3.Connection, esc_id: int, terms: dict) -> dict:
         tools_denied=terms.get("tools_denied"), cwd=db.PROJECTS_ROOT,
         timeout_s=SECOND_OPINION_TIMEOUT_S, max_tokens=terms.get("max_tokens_run"),
     )
-    answer = result.json_payload() if result.status in ("ok", "killed-over-budget") else None
+    answer = result.json_payload() if result.status == "ok" else None
     if not answer or not str(answer.get("opinion") or "").strip():
         conn.execute(
             "UPDATE tickets SET status = 'blocked', findings = ?, "
@@ -1362,7 +1362,7 @@ def staff_stories(conn: sqlite3.Connection, terms: dict) -> list[dict]:
             tools_denied=terms.get("tools_denied"), cwd=db.PROJECTS_ROOT,
             timeout_s=STAFF_TIMEOUT_S, max_tokens=terms.get("max_tokens_run"),
         )
-        answer = result.json_payload() if result.status in ("ok", "killed-over-budget") else None
+        answer = result.json_payload() if result.status == "ok" else None
         seats = _crew_from(answer or {})
         if not seats:
             conn.execute(
