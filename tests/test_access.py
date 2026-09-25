@@ -110,7 +110,7 @@ class TestPublicPaths(unittest.TestCase):
                 self.assertFalse(path.startswith("/api/"))
                 self.assertNotEqual(path, "/")
                 self.assertNotEqual(path, "/events")
-                self.assertNotEqual(path, "/app.js")
+                self.assertFalse(path.startswith("/js/"))
 
     def test_the_gate_is_off_by_default(self):
         """Importing the module must not arm anything. Only `serve()` does."""
@@ -171,7 +171,7 @@ class TestGate(unittest.TestCase):
         Handing the login page to `fetch` reads as a JSON parse error, and
         handing it to a `<script src>` reads as a syntax error on line 1 of a
         file that is fine -- both of them three layers from the cause."""
-        for path in ("/app.js", "/app.css", "/api/state", "/events"):
+        for path in ("/js/main.js", "/app.css", "/api/state", "/events"):
             with self.subTest(path=path):
                 response = self._gate(self._request(path, accept="*/*"))
                 self.assertEqual(response.status_code, 401)

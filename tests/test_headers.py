@@ -58,10 +58,10 @@ class TestPageCsp(unittest.TestCase):
 
 class TestAssetCaching(unittest.TestCase):
     def test_an_unchanged_file_is_a_304(self):
-        first = server.app_js(_get("/app.js"))
+        first = server.module_js("main.js", _get("/js/main.js"))
         self.assertEqual(first.status_code, 200)
         self.assertEqual(first.headers["cache-control"], "no-cache")
-        again = server.app_js(_get("/app.js", first.headers["etag"]))
+        again = server.module_js("main.js", _get("/js/main.js", first.headers["etag"]))
         self.assertEqual(again.status_code, 304)
         self.assertEqual(again.body, b"")
 
@@ -70,7 +70,17 @@ class TestAssetCaching(unittest.TestCase):
         self.assertIn(b"colony-theme", resp.body)
         page = server.index(_get("/")).body.decode()
         self.assertLess(page.index('src="boot.js"'), page.index('href="app.css"') + 40)
-        self.assertLess(page.index('src="boot.js"'), page.index('src="app.js"'))
+        self.assertLess(page.index('src="boot.js"'), page.index('src="js/main.js"'))
+
+    def test_only_a_bare_module_name_is_served(self):
+        for name in ("..%2Fserver.py", "Main.js", "main.css", "missing.js"):
+            with self.subTest(name=name):
+                with self.assertRaises(server.HTTPException):
+                    server.module_js(name, _get("/js/" + name))
+
+    def test_the_page_loads_the_entry_module(self):
+        page = server.index(_get("/")).body.decode()
+        self.assertIn('<script type="module" src="js/main.js">', page)
 
     def test_a_stale_etag_gets_the_file(self):
         resp = server.app_css(_get("/app.css", '"old"'))

@@ -785,7 +785,7 @@ colony/
   voice.py        how a colonist writes the parts you read
   mirror.py       one-way SQLite to MySQL, for reporting
   migrations/     append-only schema history
-  ui/             index.html, app.css, app.js, no build step
+  ui/             index.html, app.css, js/ (ES modules), no build step
                   manifest.webmanifest, sw.js, icons, installable on a phone
 tests/            stdlib unittest, no install step
 install.ps1       clone to working dashboard, and -Uninstall back out again

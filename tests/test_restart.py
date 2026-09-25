@@ -1,7 +1,7 @@
 """Restarting the dashboard has to actually restart the dashboard.
 
 The bug these cover: a launch found a live server on the port, attached a window
-to it and reported success. `app.js` is read off disk on every request and
+to it and reported success. The page's scripts are read off disk on every request and
 Python is not, so the page was new and the routes were old -- a button that
 visibly existed answered 404, and "I restarted it" and "it is running my change"
 had quietly stopped being the same sentence.
