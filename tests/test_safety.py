@@ -100,6 +100,34 @@ class TestToolDenylist(unittest.TestCase):
         self.assertTrue(allowed & denied_tools(cmd))
 
 
+class TestReadDenials(unittest.TestCase):
+    """wake.py tells groomers `.env` is outside their read scope. These check
+    the CLI is actually told so."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        patcher = mock.patch.object(db, "RUNTIME_DIR", Path(self._tmp.name))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_every_run_gets_the_settings_file_and_no_mcp(self):
+        cmd = captured_command(tools_allowed=["Read"])
+        self.assertIn("--strict-mcp-config", cmd)
+        self.assertEqual(cmd[cmd.index("--permission-mode") + 1], "default")
+        settings = json.loads(Path(cmd[cmd.index("--settings") + 1])
+                              .read_text(encoding="utf-8"))
+        deny = settings["permissions"]["deny"]
+        for rule in ("Read(**/.env*)", "Read(**/*.pem)", "Read(**/id_ed25519)",
+                     "Read(~/.ssh/**)", "Read(~/.claude/**)"):
+            self.assertIn(rule, deny)
+
+    def test_rules_are_also_anchored_at_the_projects_root(self):
+        deny = agent._read_denials()
+        anchored = [r for r in deny if r.startswith("Read(//")]
+        self.assertTrue(any(r.endswith("/**/.env*)") for r in anchored))
+
+
 class ScopeCase(unittest.TestCase):
     """A ledger and a projects root, both temporary."""
 

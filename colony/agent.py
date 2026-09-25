@@ -20,7 +20,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import db, proc as proc_mod
+from . import db, proc as proc_mod, secretfiles
 
 CLAUDE_BIN = "claude"
 
@@ -39,6 +39,45 @@ ALWAYS_DENIED = ["Bash", "WebFetch", "WebSearch", "Task", "KillShell", "BashOutp
 # Additionally denied unless the contract is write-capable *and* the caller has
 # opened a worktree for the run to write in.
 WRITE_TOOLS = ["Edit", "Write", "NotebookEdit"]
+
+
+# Home-directory folders that hold credentials for other tools.
+HOME_SECRET_DIRS = (".ssh", ".claude", ".aws", ".azure", ".docker", ".gnupg",
+                    ".config/gcloud", ".kube")
+
+
+def _read_denials() -> list[str]:
+    """Deny rules that keep Read, Grep and Glob away from credential files.
+
+    The tool lists say which tools a run gets. These say which files those
+    tools can never open, and the CLI enforces them, so a prompt injection in
+    a scraped job posting cannot talk an agent into reading a `.env`. Each
+    pattern is given relative to the working directory and anchored at the
+    projects root, because a build runs in a worktree outside that root.
+    """
+    root = db.PROJECTS_ROOT.resolve().as_posix()
+    if len(root) > 1 and root[1] == ":":
+        root = "/" + root[0].lower() + root[2:]
+    names = sorted(secretfiles.EXACT) + list(secretfiles.PATTERNS)
+    rules = [f"Read(**/{n})" for n in names]
+    rules += [f"Read(/{root}/**/{n})" for n in names]
+    rules += [f"Read(~/{d}/**)" for d in HOME_SECRET_DIRS]
+    return rules
+
+
+def settings_file() -> Path:
+    """The settings file every run is started with. Rewritten when it changes."""
+    body = json.dumps({"permissions": {"defaultMode": "default",
+                                       "deny": _read_denials()}}, indent=2)
+    path = db.RUNTIME_DIR / "agent-settings.json"
+    try:
+        current = path.read_text(encoding="utf-8")
+    except OSError:
+        current = None
+    if current != body:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(body, encoding="utf-8")
+    return path
 
 
 @dataclass
@@ -135,6 +174,12 @@ def invoke(
         "--model", model,
         "--allowedTools", *tools_allowed,
         "--disallowedTools", *denied,
+        # A pinned permission mode and no MCP servers, so a user-level
+        # `bypassPermissions` or a globally configured MCP server never reaches
+        # an agent.
+        "--permission-mode", "default",
+        "--strict-mcp-config",
+        "--settings", str(settings_file()),
     ]
 
     try:
