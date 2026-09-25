@@ -4,6 +4,7 @@ import { $, act, el, toast } from "./core.js";
 import { openDivisions } from "./render.js";
 import { blk, closeDrawer, getJSON, openDrawer } from "./drawer.js";
 import { openPersona } from "./drawers.js";
+import { drawAvatar } from "./avatars.js";
 
 // ── standby: browse by division ─────────────────────────────────────────────
 // The roster, browsed by division as an accordion, biggest first.
@@ -31,7 +32,11 @@ export function renderDivisions(roster) {
 
 export function personaButton(p) {
   const b = el("button", "persona" + (p.hired ? " hired" : ""));
-  b.append(el("span", null, p.emoji || "·"), el("span", "nm", p.name),
+  // An avatar, not the frontmatter emoji: every persona gets one, and it draws
+  // the same on every OS.
+  const cv = document.createElement("canvas");
+  drawAvatar(cv, p.slug, p.color);
+  b.append(cv, el("span", "nm", p.name),
            el("span", "dv", p.hired ? "hired" : (p.source === "local" ? "yours" : "")));
   b.title = p.description || "";
   b.onclick = () => openPersona(p.slug);
@@ -148,7 +153,7 @@ export async function openPersonaNew() {
   fields.color = color;
   short.append(emoji, color, colors);
   form.append(blk("emoji and colour", short,
-    el("div", "note", "both optional. They are the face on the Standby card.")));
+    el("div", "note", "both optional. The colour tints the avatar on the Standby card; the emoji is kept in the file for other tools.")));
 
   const bodyBox = el("textarea", "field tall");
   bodyBox.placeholder = "# Who they are\n\nYou are …\n\n## How they work\n\n…";
