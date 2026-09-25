@@ -35,7 +35,7 @@ import threading
 from datetime import datetime, timedelta
 from typing import Any
 
-from . import attachments as attach, db
+from . import attachments as attach, db, proc
 
 HALT_FILE = db.RUNTIME_DIR / "HALT"
 
@@ -191,13 +191,31 @@ class Busy(Refused):
     """Another pulse holds the lock. A refusal, and a 409, not an error."""
 
 
+def _lock_pid() -> int | None:
+    """The pid written into the pulse lock, or None when it cannot be read."""
+    try:
+        first = PULSE_LOCK.read_text(encoding="utf-8").split()
+    except OSError:
+        return None
+    if len(first) >= 2 and first[0] == "pid" and first[1].isdigit():
+        return int(first[1])
+    return None
+
+
 def pulse_running() -> bool:
-    """True when a pulse holds the lock and the lock is not stale."""
+    """True when a pulse holds the lock, its process is alive, and it is not stale.
+
+    A crashed pulse leaves its lock behind. The pid in it lets the next one
+    tell at once, instead of waiting out PULSE_LOCK_STALE.
+    """
     try:
         held = datetime.fromtimestamp(PULSE_LOCK.stat().st_mtime)
     except OSError:
         return False
-    return datetime.now() - held < PULSE_LOCK_STALE
+    if datetime.now() - held >= PULSE_LOCK_STALE:
+        return False
+    pid = _lock_pid()
+    return pid is None or proc.alive(pid)
 
 
 @contextlib.contextmanager
