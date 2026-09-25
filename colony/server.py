@@ -1617,11 +1617,22 @@ def api_agent(agent_id: int) -> dict[str, Any]:
 @app.post("/api/act/decide")
 def act_decide(body: dict = Body(...), x_colony: str | None = Header(None)) -> dict[str, Any]:
     _guard(x_colony)
-    return _act(control.decide, int(body["escalation_id"]), str(body["decision"]),
-                str(body.get("note") or ""),
-                # `or 8` would be wrong here: 0 hours is what "un-snooze" sends,
-                # and it is falsy.
-                float(8 if body.get("snooze_hours") is None else body["snooze_hours"]))
+    out = _act(control.decide, int(body["escalation_id"]), str(body["decision"]),
+               str(body.get("note") or ""),
+               # `or 8` would be wrong here: 0 hours is what "un-snooze" sends,
+               # and it is falsy.
+               float(8 if body.get("snooze_hours") is None else body["snooze_hours"]))
+    esc_id = out.pop("run_pending", None)
+    if esc_id:
+        # Run with no transaction open, then record in a short one, so a
+        # 90-second command does not hold the ledger's write lock.
+        conn = _rw()
+        try:
+            result = control.run_command(conn, esc_id)
+        finally:
+            conn.close()
+        out["outcome"] = _act(control.record_run, esc_id, result)["result"]
+    return out
 
 
 @app.post("/api/act/confirm-project")

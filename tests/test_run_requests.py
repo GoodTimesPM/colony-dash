@@ -159,3 +159,41 @@ class AskingTwice(Folders):
 
     def test_a_story_with_no_id_is_left_alone(self):
         self.assertIsNone(build._already_asked(self.conn, 0, "py -m x", True))
+
+
+class ApprovingARun(AskingTwice):
+    """The command runs after the decision commits, never inside it."""
+
+    def test_approve_queues_and_the_run_is_recorded_after(self):
+        self.card(EXISTS, resolved=False)
+        esc_id = self.conn.execute("SELECT max(id) FROM escalations").fetchone()[0]
+        from colony import control
+        with mock.patch.object(runner, "execute") as execute:
+            self.conn.execute("BEGIN")
+            out = control.decide(self.conn, esc_id, "approve")
+            self.conn.execute("COMMIT")
+            execute.assert_not_called()
+        self.assertEqual(out["run_pending"], esc_id)
+
+        result = control.run_command(self.conn, esc_id)
+        self.assertTrue(result["ok"], result)
+        self.conn.execute("BEGIN")
+        said = control.record_run(self.conn, esc_id, result)
+        self.conn.execute("COMMIT")
+        self.assertIn("exit 0", said)
+        head = self.conn.execute(
+            "SELECT summary FROM story_events WHERE story_id = ? ORDER BY id DESC LIMIT 1",
+            (self.sid,)).fetchone()[0]
+        self.assertIn("exit 0", head)
+
+    def test_a_refused_command_keeps_the_card_open(self):
+        self.card("git push origin main", resolved=False)
+        esc_id = self.conn.execute("SELECT max(id) FROM escalations").fetchone()[0]
+        from colony import control
+        self.conn.execute("BEGIN")
+        with self.assertRaises(control.Refused):
+            control.decide(self.conn, esc_id, "approve")
+        self.conn.execute("ROLLBACK")
+        row = self.conn.execute("SELECT resolved_at FROM escalations WHERE id = ?",
+                                (esc_id,)).fetchone()
+        self.assertIsNone(row[0])

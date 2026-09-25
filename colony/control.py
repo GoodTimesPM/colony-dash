@@ -617,21 +617,24 @@ def decide(conn: sqlite3.Connection, esc_id: int, decision: str,
         answer=f"PO {_PAST.get(decision, decision)} — {outcome}."
                                     + (f"\n\n{note}" if note else ""),
         esc_id=esc_id)
-    return {"ok": True, "outcome": outcome, "kind": kind}
+    out = {"ok": True, "outcome": outcome, "kind": kind}
+    if kind == "run-request" and decision == "approve":
+        # The command runs after this transaction commits. See `_settle_run`.
+        out["run_pending"] = esc_id
+    return out
 
 
 def _settle_run(conn: sqlite3.Connection, esc: sqlite3.Row, decision: str,
                 note: str) -> str:
-    """Run the command a build agent asked for, or decline it.
+    """Decline the command a build agent asked for, or check it and queue it.
 
-    The output goes on the story as an event whether the command succeeded or
-    not. A failing command is usually the answer the criterion wanted, and a
-    story whose history records what happened is one the next agent does not
-    have to ask about.
+    An approved command does not run here. This is inside the decision's write
+    transaction, and a command can take `runner.TIMEOUT_S` seconds, which would
+    hold the ledger's write lock that long and fail every other writer. The
+    caller runs it after commit with `run_command` and writes the result back
+    with `record_run` in a second, short transaction.
 
-    The story goes back to `ready` after a run. It does not go to `accepted`
-    and it does not move to any lane that reads as finished: the run answered a
-    question, and deciding whether that finishes the story is the PO's.
+    It is checked here, though, so a refused command keeps its card open.
     """
     from . import runner
 
@@ -646,7 +649,39 @@ def _settle_run(conn: sqlite3.Connection, esc: sqlite3.Row, decision: str,
                    f"PO declined to run `{command}`", note or None)
         return "not run"
 
-    result = runner.execute(command, project)
+    try:
+        runner.resolve_cd(runner.check(command), runner.check_folder(project))
+    except runner.RunRefused as exc:
+        raise Refused(str(exc))
+    return "queued to run"
+
+
+def run_command(conn: sqlite3.Connection, esc_id: int) -> dict:
+    """Execute an approved run-request. Takes no lock; call it outside a transaction."""
+    from . import runner
+
+    esc = conn.execute("SELECT proposal FROM escalations WHERE id = ?", (esc_id,)).fetchone()
+    proposal = json.loads((esc and esc["proposal"]) or "{}")
+    try:
+        return runner.execute(proposal.get("command") or "", proposal.get("project") or "")
+    except runner.RunRefused as exc:
+        return {"ok": False, "code": None, "command": proposal.get("command") or "",
+                "cwd": "", "out": "", "err": str(exc), "timed_out": False}
+
+
+def record_run(conn: sqlite3.Connection, esc_id: int, result: dict) -> str:
+    """Write an executed run-request's result onto its story.
+
+    The output goes on the story whether the command succeeded or not. A
+    failing command is usually the answer the criterion wanted. The story goes
+    back to `ready` after a clean run, never to a lane that reads as finished:
+    deciding whether the run settles the story is the PO's call.
+    """
+    from . import runner
+
+    esc = conn.execute("SELECT * FROM escalations WHERE id = ?", (esc_id,)).fetchone()
+    proposal = json.loads(esc["proposal"] or "{}")
+    story_id = esc["story_id"]
     # What ran, not what was asked for. `execute` drops a leading `cd` into the
     # folder it was going to use anyway, and a story that records the version
     # with the `cd` still on it sends the next reader looking for a path error
