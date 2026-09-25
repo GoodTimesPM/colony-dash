@@ -128,9 +128,9 @@ class TestGate(unittest.TestCase):
 
     @staticmethod
     def _request(path: str, *, accept: str = "", cookie: str = "", query: str = "",
-                 client: str = "127.0.0.1"):
+                 client: str = "127.0.0.1", headers=None):
         from starlette.requests import Request
-        headers = []
+        headers = list(headers or [])
         if accept:
             headers.append((b"accept", accept.encode()))
         if cookie:
@@ -154,7 +154,9 @@ class TestGate(unittest.TestCase):
         async def call_next(_request):
             return PlainTextResponse("PASSED")
 
-        with mock.patch.object(server, "REQUIRE_TOKEN", True),              mock.patch.object(server, "TRUST_LOOPBACK", trust_loopback),              with_token(token):
+        with mock.patch.object(server, "REQUIRE_TOKEN", True), \
+             mock.patch.object(server, "TRUST_LOOPBACK", trust_loopback), \
+             with_token(token):
             return asyncio.run(server.gate(request, call_next))
 
     def test_a_navigation_gets_the_login_page(self):
@@ -183,16 +185,37 @@ class TestGate(unittest.TestCase):
         response = self._gate(self._request("/", accept="text/html", cookie="s3cret"))
         self.assertEqual(response.body, b"PASSED")
 
-    def test_a_link_token_is_let_through_and_swapped_for_a_cookie(self):
-        response = self._gate(self._request("/", accept="text/html", query="k=s3cret"))
-        self.assertEqual(response.body, b"PASSED")
+    def test_a_link_token_is_swapped_for_a_cookie_and_a_clean_url(self):
+        response = self._gate(self._request("/", accept="text/html", query="k=s3cret&tab=x"))
+        self.assertEqual(response.status_code, 303)
+        self.assertEqual(response.headers["location"], "/?tab=x")
         cookie = response.headers.get("set-cookie", "")
         self.assertIn(f"{access.COOKIE}=s3cret", cookie)
         self.assertIn("HttpOnly", cookie)
         self.assertIn("Lax", cookie.replace("lax", "Lax"))
-        # No `Secure`: a tailnet address is plain http, and a cookie the browser
-        # refuses to store is a login screen that never goes away.
+        # No `Secure` over plain http: the browser would refuse to store it.
         self.assertNotIn("Secure", cookie)
+
+    def test_the_cookie_is_secure_over_https(self):
+        request = self._request("/", accept="text/html", query="k=s3cret",
+                                headers=[(b"x-forwarded-proto", b"https")])
+        self.assertIn("Secure", self._gate(request).headers.get("set-cookie", ""))
+
+    def test_a_pairing_code_works_once(self):
+        with with_token("s3cret"):
+            code = access.pair_code()
+        first = self._gate(self._request("/", accept="text/html", query=f"pair={code}"))
+        self.assertEqual(first.status_code, 303)
+        self.assertEqual(first.headers["location"], "/")
+        self.assertIn(f"{access.COOKIE}=s3cret", first.headers.get("set-cookie", ""))
+        second = self._gate(self._request("/", accept="text/html", query=f"pair={code}"))
+        self.assertNotEqual(second.status_code, 303)
+        self.assertNotIn(b"PASSED", second.body)
+
+    def test_rotating_voids_pairing_codes(self):
+        code = access.pair_code()
+        access.forget_pairings()
+        self.assertFalse(access.redeem(code))
 
     def test_a_wrong_link_token_is_not(self):
         response = self._gate(self._request("/", accept="text/html", query="k=nope"))

@@ -1920,8 +1920,8 @@ def api_phone(port: int = 8787) -> dict[str, Any]:
     Scheduler and probes a socket, which is a tenth of a second the live feed
     polls for every few seconds and nobody reads. The panel asks when it opens.
     """
-    out = phone_mod.state(port)
-    out["svg"] = phone_mod.svg(port)
+    out = phone_mod.state(port, pairing=True)
+    out["svg"] = phone_mod.svg(port, pairing=True)
     return out
 
 
@@ -1980,14 +1980,14 @@ def act_phone_token(request: Request, body: dict = Body(...),
 
     port = int(body.get("port") or 8787)
     try:
-        out = phone_mod.rotate(port)
+        out = phone_mod.rotate(port, pairing=True)
     except OSError as exc:
         # The write is atomic, so this means `.env` is unchanged and the old
         # token still works. Say so, because "rotate failed" otherwise leaves
         # someone wondering whether their phone is about to stop working.
         raise HTTPException(500, f"could not write .env, so the token is "
                                  f"unchanged and paired devices still work: {exc}")
-    out["svg"] = phone_mod.svg(port)
+    out["svg"] = phone_mod.svg(port, pairing=True)
     return {"ok": True, **out}
 
 
@@ -2778,24 +2778,34 @@ async def gate(request: Request, call_next):
     if TRUST_LOOPBACK and request.client and access.is_loopback(request.client.host):
         return await call_next(request)
 
-    supplied = (request.cookies.get(access.COOKIE)
-                # A query parameter so the first visit can be a link or a QR
-                # code. It is swapped for the cookie immediately and the URL is
-                # replaced client-side, because a token in an address bar is a
-                # token in the browser history.
-                or request.query_params.get("k"))
+    # A link or QR code carries either a one-time pairing code or, from the
+    # CLI, the token itself. Both are swapped for the cookie and answered with
+    # a redirect to the same page without them, so neither stays in the
+    # address bar or the history.
+    peer = request.client.host if request.client else ""
+    pair = request.query_params.get("pair")
+    via_url = request.query_params.get("k")
+    if request.method == "GET" and (pair or via_url):
+        key = access.token() if access.redeem(pair) else via_url
+        if key and access.matches(key):
+            access.note_arrival(peer, True)
+            response = RedirectResponse(_without_key(request), status_code=303)
+            _set_cookie(response, key, request)
+            return response
+
+    supplied = request.cookies.get(access.COOKIE) or via_url
     ok = access.matches(supplied)
 
     # Recorded before the answer goes out, and on both paths. The Phone panel
     # reads this to say whether anything off this machine has arrived at all,
     # which is the one fact that separates a network dropping the packet from a
     # token being wrong. See `access.note_arrival`.
-    access.note_arrival(request.client.host if request.client else "", ok)
+    access.note_arrival(peer, ok)
 
     if ok:
         response = await call_next(request)
         if supplied != request.cookies.get(access.COOKIE):
-            _set_cookie(response, supplied)
+            _set_cookie(response, supplied, request)
         return response
 
     # Only a navigation answers with the login page itself. Everything else --
@@ -2823,7 +2833,8 @@ async def same_host(request: Request, call_next):
     if not access.host_allowed(host):
         return Response('{"detail":"unknown host"}', status_code=403,
                         media_type="application/json")
-    if request.method not in ("GET", "HEAD", "OPTIONS") and             not access.origin_matches(request.headers.get("origin"), host):
+    if (request.method not in ("GET", "HEAD", "OPTIONS")
+            and not access.origin_matches(request.headers.get("origin"), host)):
         return Response('{"detail":"cross-origin request refused"}',
                         status_code=403, media_type="application/json")
     response = await call_next(request)
@@ -2832,10 +2843,27 @@ async def same_host(request: Request, call_next):
     return response
 
 
-def _set_cookie(response: Response, value: str) -> None:
+def _without_key(request: Request) -> str:
+    """This request's path and query, minus the `k` and `pair` parameters."""
+    rest = [(k, v) for k, v in request.query_params.multi_items() if k not in ("k", "pair")]
+    query = urllib.parse.urlencode(rest)
+    return request.url.path + (f"?{query}" if query else "")
+
+
+def _is_https(request: Request) -> bool:
+    """Whether the browser reached us over HTTPS, directly or via `tailscale serve`.
+
+    The forwarded header is a claim, but the only thing it decides is whether
+    the cookie gets the stricter Secure flag, so a false claim costs nothing.
+    """
+    return (request.url.scheme == "https"
+            or request.headers.get("x-forwarded-proto", "").lower() == "https")
+
+
+def _set_cookie(response: Response, value: str, request: Request) -> None:
     response.set_cookie(
         access.COOKIE, value, max_age=access.COOKIE_MAX_AGE_S,
-        httponly=True, samesite="lax", path="/",
+        httponly=True, samesite="lax", path="/", secure=_is_https(request),
     )
 
 
@@ -2854,7 +2882,7 @@ async def login(request: Request) -> Response:
         return _login_page(error="that is not the token", next_path=next_path)
 
     response = RedirectResponse(next_path, status_code=303)
-    _set_cookie(response, supplied)
+    _set_cookie(response, supplied, request)
     return response
 
 

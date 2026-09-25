@@ -43,6 +43,8 @@ from __future__ import annotations
 import ipaddress
 import secrets
 import socket
+import threading
+import time
 from urllib.parse import urlsplit
 
 from . import db
@@ -144,6 +146,44 @@ def matches(supplied: str | None) -> bool:
     if not real or not supplied:
         return False
     return secrets.compare_digest(supplied, real)
+
+
+# One-time pairing codes. The QR code on the Phone panel carries one of these
+# instead of the token, so the token itself never sits in a URL, a browser
+# history or a proxy log. They live in this process only: a restart voids them,
+# and the panel mints a fresh one on its next open.
+PAIR_TTL_S = 30 * 60
+_PAIR_LOCK = threading.Lock()
+_PAIRS: dict[str, float] = {}
+
+
+def pair_code() -> str:
+    """The live pairing code, minting one when none is left unexpired."""
+    now = time.time()
+    with _PAIR_LOCK:
+        for code, expires in list(_PAIRS.items()):
+            if expires <= now:
+                del _PAIRS[code]
+        if _PAIRS:
+            return next(iter(_PAIRS))
+        code = secrets.token_urlsafe(12)
+        _PAIRS[code] = now + PAIR_TTL_S
+        return code
+
+
+def redeem(code: str | None) -> bool:
+    """Spend a pairing code. True once per code, and only before it expires."""
+    if not code:
+        return False
+    with _PAIR_LOCK:
+        expires = _PAIRS.pop(code, None)
+    return expires is not None and expires > time.time()
+
+
+def forget_pairings() -> None:
+    """Void every outstanding code. Called when the token rotates."""
+    with _PAIR_LOCK:
+        _PAIRS.clear()
 
 
 class Unconfigured(RuntimeError):
