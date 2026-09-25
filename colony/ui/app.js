@@ -241,8 +241,21 @@ function render(s) {
   renderPulses(s.pulses);
   renderForge(s.forge);
   renderSpend(s.spend);
-  renderDivisions(s.roster);
   $("roster-count").textContent = s.roster.total + " personas";
+  syncRoster(s.roster.rev);
+}
+
+// The full roster is fetched only when its revision moves. The browser keeps
+// the ETag, so an unchanged roster is a 304.
+let rosterRev = null;
+async function syncRoster(rev) {
+  if (!rev || rev === rosterRev) return;
+  rosterRev = rev;
+  try {
+    renderDivisions(await getJSON("/api/roster/summary"));
+  } catch (_) {
+    rosterRev = null;
+  }
 }
 
 function tag(text, cls) { const b = el("span"); b.append(el("b", cls || null, text)); return b; }
