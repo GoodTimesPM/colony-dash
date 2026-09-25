@@ -1,36 +1,19 @@
 r"""The PO's terminal, in the Ordis panel.
 
-Colony Dash's whole design is a loop that cannot hurt anything. Agents get a
-tool allowlist, `Bash` is denied at the top of `agent.py` under a comment
-explaining that denying the shell is what makes "the colony cannot push" a
-capability rather than a promise, writes land in a throwaway worktree, and
-nothing reaches a real file without the PO approving a patch. That is right for
-an autonomous loop. Nobody should own a program that can `git push` unattended
-at 3am because a groom run misread a story.
+The colony's agents are locked down. This is the opposite, for the PO
+editing the dashboard from inside it:
 
-It is exactly wrong for the case this module exists for: the PO sitting in front
-of the dashboard wanting to change the dashboard. Every such change went out to
-a separate terminal, and the program that is supposed to run itself could not
-edit itself.
+  * It opens only when a person types. Nothing in `pulse.py` or `wake.py`
+    reaches it.
+  * It is unrestricted: `--dangerously-skip-permissions`, no worktree, `cwd`
+    at the projects root.
+  * One turn at a time; a second send is refused, not queued.
+  * Every turn's tokens and cost go in `console_turns`. Clearing starts a new
+    epoch without deleting rows.
 
-So: a second door, deliberately unlike the first one.
-
-  * **It only opens when a person types.** There is no path from `pulse.py` or
-    `wake.py` into this module. Nothing scheduled can reach it.
-  * **It is unrestricted on purpose.** `--dangerously-skip-permissions`, no
-    allowlist, no worktree, `cwd` at the projects root. It is the terminal.
-  * **It is one conversation at a time.** A second send while a turn is in
-    flight is refused rather than queued, because two shells writing the same
-    tree is the failure this system exists to avoid.
-  * **It bills itself out loud.** Every turn records its tokens and its cost in
-    `console_turns`, and clearing the chat starts a new epoch rather than
-    deleting the rows.
-
-The guards that remain are on the server. Every request must name this machine
-in its Host header (DNS rebinding), writes need `X-Colony` and a same-host
-Origin, and `/api/console/*` answers only peers on this machine unless the PO
-turns on `COLONY_CONSOLE_REMOTE` from the desk. When phone access is on the
-server also listens on a LAN or tailnet address behind the access token.
+The server guards it: Host must name this machine, writes need `X-Colony`
+and a same-host Origin, and `/api/console/*` serves only this machine unless
+`COLONY_CONSOLE_REMOTE` is on.
 """
 
 from __future__ import annotations
@@ -47,14 +30,8 @@ from . import db, proc as proc_mod, voice
 
 CLAUDE_BIN = "claude"
 
-# What the dropdowns offer. The CLI takes an alias or a full name; the aliases
-# are used so this list does not go stale the week a point release ships.
-#
-# The default is sonnet on medium because most of what gets typed here is
-# "why is this panel empty" rather than "redesign the scheduler". Opus on max
-# is roughly an order of magnitude more expensive for the same question, which
-# is a fine trade when the question is hard and a waste when it is not -- so it
-# is a control on the bar rather than a constant in this file.
+# Aliases so the list survives point releases. Sonnet on medium by default:
+# most questions here are small, and opus on max costs about ten times more.
 MODELS = [
     ("sonnet", "sonnet 5 - the default, fast and good enough for most of it"),
     ("opus", "opus 5 - slower and dearer, for the changes that are actually hard"),
@@ -71,20 +48,16 @@ EFFORTS = [
 DEFAULT_MODEL = "sonnet"
 DEFAULT_EFFORT = "medium"
 
-# Slash commands that were checked to actually work through `claude -p`. Most
-# of the interactive ones do not (`/status` answers "isn't available in this
-# environment"), so this is a verified list rather than a copy of the help
-# screen. Skills are discovered from disk below and appended to it.
+# Slash commands verified to work through `claude -p`; skills on disk are
+# appended below.
 BUILTIN_COMMANDS = [
     ("/compact", "summarise the conversation so far and keep going in less context"),
     ("/context", "what is in the context window right now, by category"),
     ("/cost", "what this subscription window has been spent on"),
 ]
 
-# Long, because this is a working shell and a real request ("run the test suite
-# and fix what fails") is minutes of work, not seconds. It is still a ceiling:
-# a wedged child process that never exits would otherwise hold the console shut
-# forever, since only one turn may be in flight.
+# Thirty minutes: a real request can take that long, and a hung child would
+# otherwise hold the single turn slot forever.
 TIMEOUT_S = 1800
 
 # What a turn is allowed to be. A paste of a whole file is a legitimate message;
@@ -110,9 +83,8 @@ Say what you changed and where, by path. If you did not do the thing, say that
 first instead of describing what you tried.
 """
 
-# One turn at a time, enforced in the process as well as in the ledger. The DB
-# check catches a stale `pending` row left by a crash; this catches two requests
-# landing in the same millisecond.
+# In-process lock for simultaneous requests; the DB check catches stale rows
+# left by a crash.
 _lock = threading.Lock()
 _running = False
 
@@ -138,12 +110,8 @@ def _skill_summary(path: Path) -> str:
 
 
 def _installed_plugin_dirs() -> list[Path]:
-    """Where the *installed* plugins live, per the CLI's own manifest.
-
-    Not `~/.claude/plugins/marketplaces`. That directory is clones of every
-    marketplace the PO has ever looked at, and globbing it offered a menu of
-    thirty skills of which one was installed. A dropdown that lists commands
-    that do not exist is worse than no dropdown.
+    """Installed plugin roots from the CLI's manifest. Not the marketplaces
+    folder, which holds every marketplace ever browsed.
     """
     manifest = Path.home() / ".claude" / "plugins" / "installed_plugins.json"
     try:
@@ -164,18 +132,9 @@ _CMD_TTL_S = 120
 
 
 def commands() -> list[dict]:
-    """Every slash command this console can actually send, read off disk.
-
-    Hard-coding a menu of skills would mean the dropdown lies the first time
-    the PO installs one. So: the verified built-ins, then whatever is on disk
-    under the user's skills and commands folders, the project's `.claude`, and
-    the installed plugin marketplaces. Names only -- the dropdown pastes text
-    into the box, it does not run anything.
-
-    Cached for two minutes. The drawer polls this every 1.5 seconds and walking
-    the plugin marketplaces that often would be a directory scan per frame for
-    a list that changes when the PO installs something, which is never during a
-    conversation.
+    """Every slash command this console can send: verified built-ins, then
+    skills and commands on disk. Names only. Cached two minutes because the
+    drawer polls every 1.5s.
     """
     global _cmd_cache
     if _cmd_cache and time.monotonic() - _cmd_cache[0] < _CMD_TTL_S:
@@ -195,9 +154,8 @@ def commands() -> list[dict]:
         for hit in list(root.glob("**/SKILL.md"))[:200]:
             name = "/" + hit.parent.name
             found.setdefault(name, _skill_summary(hit))
-        # Bare `.md` files are commands only inside a `commands/` folder. A
-        # plugin's install root has a README.md in it, and `/README` is not a
-        # command.
+        # Bare `.md` files count only inside a `commands/` folder (not
+        # README.md).
         if root.name == "commands":
             for hit in list(root.glob("*.md"))[:200]:
                 found.setdefault("/" + hit.stem, "")
@@ -252,11 +210,8 @@ class Busy(RuntimeError):
 
 
 def send(conn: sqlite3.Connection, text: str) -> dict:
-    """Record the PO's message and start Ordis answering it in a thread.
-
-    Returns immediately. The answer lands in the `pending` row this creates,
-    which the page polls -- a shell command can take twenty minutes and an HTTP
-    request that waits for one is a request that times out.
+    """Record the PO's message and answer it on a thread. Returns at once; the
+    page polls the `pending` row.
     """
     global _running
 
@@ -292,9 +247,8 @@ def send(conn: sqlite3.Connection, text: str) -> dict:
             "VALUES (?, 'ordis', '', 'pending')", (epoch,))
         turn_id = int(cur.lastrowid)
 
-        # A fresh session for the first turn of an epoch, a resume for every turn
-        # after it. Claimed here rather than in the thread so two sends can never
-        # mint two UUIDs for the same conversation.
+        # New session on an epoch's first turn, resume after. Decided here so
+        # two sends cannot mint two session ids.
         resume = bool(session_id)
         if not resume:
             session_id = str(uuid.uuid4())
@@ -316,11 +270,8 @@ def send(conn: sqlite3.Connection, text: str) -> dict:
 
 def set_options(conn: sqlite3.Connection, model: str | None,
                 effort: str | None) -> dict:
-    """Change the model or the effort level for the turns after this one.
-
-    Deliberately not refused mid-flight. The turn already running was launched
-    with the old pair and keeps it; changing the dropdown while you wait means
-    "the next one, please", which is what a person sitting there would mean.
+    """Change model or effort for later turns. The running turn keeps its
+    settings.
     """
     if model is not None:
         if model not in {i for i, _ in MODELS}:
@@ -334,11 +285,8 @@ def set_options(conn: sqlite3.Connection, model: str | None,
 
 
 def clear(conn: sqlite3.Connection) -> dict:
-    """Start a new conversation. The old turns stay, addressable by epoch.
-
-    Refused while a turn is in flight: the thread is still holding the row it is
-    going to write, and a "cleared" chat that grows an answer thirty seconds
-    later is worse than a button that says no.
+    """Start a new conversation; old turns stay by epoch. Refused mid-turn,
+    since the running turn would still write into the cleared chat.
     """
     # Held through the update, so a turn cannot start between the check and
     # the new epoch.
@@ -373,10 +321,8 @@ def set_cwd(conn: sqlite3.Connection, path: str | None) -> dict:
 
 def _answer(turn_id: int, prompt: str, session_id: str, resume: bool, cwd: str,
             model: str = DEFAULT_MODEL, effort: str = DEFAULT_EFFORT) -> None:
-    """Run one turn to completion and write the result. Never raises.
-
-    Its own connection: this is a different thread, and a SQLite handle belongs
-    to the thread that opened it.
+    """Run one turn and write the result. Never raises. Uses its own
+    connection, since SQLite handles belong to their thread.
     """
     global _running
     started = time.monotonic()

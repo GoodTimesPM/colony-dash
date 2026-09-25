@@ -13,11 +13,7 @@ import sqlite3
 
 from . import db, usage
 
-# Every structural agent reads the whole projects directory and writes nothing.
-# Derived from `db.PROJECTS_ROOT` rather than written out, so a checkout on
-# another machine seeds agents pointed at that machine's projects. It was a
-# literal until 2026-08-27, which seeded a scope pointing at a drive letter that
-# only exists here.
+# Structural agents read the whole projects root and write nothing.
 READ_SCOPE = [f"{db.PROJECTS_ROOT.as_posix()}/**"]
 
 STRUCTURAL_AGENTS = [
@@ -97,18 +93,9 @@ def seed_agents(conn: sqlite3.Connection) -> int:
 
 
 def seed_sprint(conn: sqlite3.Connection) -> int | None:
-    """Open sprint 1 if there isn't an active one.
-
-    Sprint boundaries are the Anthropic 7-day window: Friday 05:00 to Friday
-    05:00. `usage.current_window` reads the reset instant the API reported and
-    falls back to that arithmetic when there is no cache to read, so a sprint is
-    born on the right edges rather than on whichever day `init` was typed.
-
-    This used to seed today + 7 as an admitted placeholder, with a promise that
-    the pulse would correct it. It never did, and sprint 1 ran Monday-to-Monday
-    against a Friday-to-Friday budget for four weeks. `pulse.align_sprint` is
-    that correction and also the weekly roll; this just stops creating the
-    problem in the first place.
+    """Open sprint 1 if none is active, on the Friday 05:00 allowance window
+    from `usage.current_window`. `pulse.align_sprint` handles the weekly
+    roll.
     """
     existing = conn.execute("SELECT id FROM sprints WHERE status = 'active'").fetchone()
     if existing:

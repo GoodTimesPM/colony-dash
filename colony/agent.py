@@ -1,14 +1,9 @@
-"""Spawning a colonist. One `claude -p` invocation, recorded in the ledger.
+"""Spawning a colonist: one `claude -p` invocation, recorded in the ledger.
 
-This is the only place in Colony Dash that spends tokens. Everything else is
-pure Python. So this is also the only place that needs the guards: a tool
-allowlist, a working directory, a wall-clock timeout, and a `runs` row written
-*before* the process starts, so a crash mid-run still leaves evidence.
-
-The contract, from ARCHITECTURE.md §2.1 and §8: the persona says how to think,
-Colony Dash says what may be touched. A persona file never supplies `tools:` or
-`model:`. Those come from the agent's contract in the `agents` table and are
-passed here explicitly. Nothing is inherited, and nothing is implicit.
+The only place Colony Dash spends tokens, so the guards live here: a tool
+allowlist, a working directory, a timeout, and a `runs` row written before
+the process starts. Tools and model come from the `agents` contract, never
+from the persona (ARCHITECTURE.md §2.1, §8).
 """
 
 from __future__ import annotations
@@ -24,16 +19,9 @@ from . import db, proc as proc_mod, secretfiles
 
 CLAUDE_BIN = "claude"
 
-# Anything a run may never do, whatever its contract says. Belt-and-braces: the
-# allowlist already excludes these. This list exists so a mistake in one row of
-# the `agents` table cannot become a capability.
-#
-# Bash stays here even for write-capable runs, and that is the load-bearing
-# entry. Edit and Write are bounded. They touch files inside a throwaway
-# worktree. Bash is unbounded: it is `git push`, `rm -rf`, `curl | sh`, and the
-# whole class of things §8.3 says the colony must never be able to do. Denying
-# the shell is what makes "the colony cannot push" a capability statement rather
-# than a promise the agents are asked to keep.
+# Denied whatever the contract says, so one bad `agents` row cannot grant them.
+# Bash matters most: Edit and Write are confined to a worktree, while a shell
+# can push, delete or download (§8.3).
 ALWAYS_DENIED = ["Bash", "WebFetch", "WebSearch", "Task", "KillShell", "BashOutput"]
 
 # Additionally denied unless the contract is write-capable *and* the caller has
@@ -47,13 +35,9 @@ HOME_SECRET_DIRS = (".ssh", ".claude", ".aws", ".azure", ".docker", ".gnupg",
 
 
 def _read_denials() -> list[str]:
-    """Deny rules that keep Read, Grep and Glob away from credential files.
-
-    The tool lists say which tools a run gets. These say which files those
-    tools can never open, and the CLI enforces them, so a prompt injection in
-    a scraped job posting cannot talk an agent into reading a `.env`. Each
-    pattern is given relative to the working directory and anchored at the
-    projects root, because a build runs in a worktree outside that root.
+    """Deny rules that keep Read, Grep and Glob off credential files, enforced
+    by the CLI against prompt injection. Anchored at the projects root
+    because builds run in worktrees outside it.
     """
     root = db.PROJECTS_ROOT.resolve().as_posix()
     if len(root) > 1 and root[1] == ":":
@@ -97,12 +81,9 @@ class RunResult:
     raw: dict = field(default_factory=dict)
 
     def json_payload(self) -> dict | None:
-        """The agent's answer, when we asked it to reply with JSON.
-
-        Models wrap JSON in prose or a fenced block often enough that parsing
-        has to tolerate it. A failure here is not an error. It means the run
-        said something we can't act on, which the caller reports as a finding
-        rather than a crash.
+        """The agent's JSON answer, tolerating prose or a fenced block around
+        it. None means the run said nothing actionable, reported as a
+        finding.
         """
         text = self.text.strip()
         if "```" in text:
@@ -123,10 +104,8 @@ class RunResult:
 
 
 def _usage_from(payload: dict) -> dict:
-    """Pull the four real counters out of `--output-format json`.
-
-    Defensive on purpose: this is an internal output shape, not a contract we
-    control, and a field rename must not take the whole pulse down with it.
+    """The four token counters from `--output-format json`, read defensively
+    since the shape is not ours.
     """
     usage = payload.get("usage") or {}
     inp = int(usage.get("input_tokens") or 0)
@@ -139,9 +118,8 @@ def _usage_from(payload: dict) -> dict:
         "cache_read_tokens": cread,
         "cache_write_tokens": cwrite,
         "total_tokens": inp + out + cread + cwrite,
-        # Cache reads are the same context re-read each turn. Already paid for
-        # when written. Counting them against a ceiling makes the ceiling
-        # meaningless: one grooming run read 333k of cache and 3k of new output.
+        # Cache reads are excluded: context already paid for, and counting them
+        # made ceilings meaningless (one groom read 333k cached, 3k new).
         "chargeable_tokens": inp + out + cwrite,
         "cost_usd": float(payload.get("total_cost_usd") or 0.0),
     }
@@ -158,11 +136,8 @@ def invoke(
     allow_writes: bool = False,
 ) -> RunResult:
     """Run one agent to completion. Never raises for an agent-side failure.
-
-    `allow_writes` is the M3 addition and the only way Edit/Write reach an
-    agent. The caller must have opened a worktree first: the flag says "this run
-    may write", the `cwd` says where, and nothing in the contract alone can
-    produce both.
+    `allow_writes` is the only way Edit/Write reach an agent, and the caller
+    must have opened a worktree for `cwd`.
     """
     denied = set(ALWAYS_DENIED) | set(tools_denied or [])
     if not allow_writes:
@@ -174,9 +149,8 @@ def invoke(
         "--model", model,
         "--allowedTools", *tools_allowed,
         "--disallowedTools", *denied,
-        # A pinned permission mode and no MCP servers, so a user-level
-        # `bypassPermissions` or a globally configured MCP server never reaches
-        # an agent.
+        # Pin the permission mode and load no MCP servers, so user-level
+        # settings never reach an agent.
         "--permission-mode", "default",
         "--strict-mcp-config",
         "--settings", str(settings_file()),
@@ -232,12 +206,8 @@ def run_ticket(
     allow_writes: bool = False,
     worktree_path: str | None = None,
 ) -> RunResult:
-    """Spawn for a ticket and record the run, whatever the outcome.
-
-    The `runs` row is opened before the process starts. If the machine dies
-    mid-run the ledger still shows a `running` row with a start time. An
-    honest "we don't know how this ended" beats a gap that looks like it never
-    happened.
+    """Spawn for a ticket and record the run. The `runs` row opens before the
+    process starts, so a crash leaves a `running` row as evidence.
     """
     cur = conn.execute(
         "INSERT INTO runs (ticket_id, agent_role, model, status, worktree_path) "
@@ -259,15 +229,9 @@ def run_ticket(
     )
 
     status = result.status
-    # The ceiling can't stop a run mid-flight, `claude -p` has no turn budget we
-    # can set from out here, so it is enforced as a recorded outcome. A role
-    # that keeps breaching its ceiling is a contract to renegotiate, and the
-    # ledger is where that argument gets its evidence.
-    #
-    # `over_budget` is kept separate from `status` on purpose. The first version
-    # overwrote the status, and the caller's "did this succeed?" check then threw
-    # away a completed, correct answer we had already paid for. A breach is a
-    # billing fact, not a failure of the work.
+    # `claude -p` has no settable turn budget, so the ceiling is a recorded
+    # outcome. `over_budget` is separate from `status`: a breach is a billing
+    # fact, and the answer is still usable.
     result.over_budget = bool(max_tokens and result.chargeable_tokens > max_tokens)
     if result.over_budget and result.status == "ok":
         status = "over-budget"

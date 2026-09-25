@@ -1,50 +1,27 @@
-"""A QR code, without adding a dependency to install.
+"""A QR encoder with no dependency, for the phone-pairing URL.
 
-The dashboard's address is a private IP, a port and a 43-character token, and
-that is a string nobody should be asked to retype on a phone keyboard. A QR
-code is the whole answer to that, and every library that draws one is a fine
-library -- this file exists because the install story for this project is four
-packages and a `pip install`, and "it also needs a QR encoder" is a worse trade
-than three hundred lines that never change again. The format was frozen in 2000
-and this only ever encodes short ASCII URLs.
+Why not `segno`: it is a fine library, but the install is four packages and
+this only ever encodes a ~70-byte ASCII URL in a format frozen since 2000.
+Three hundred lines that never change beat a fifth dependency. `segno` is
+still the reference: `tests/test_qr.py` holds matrices it produced for every
+version, level and length supported here, so the check runs without it.
 
-Deliberately narrow. Byte mode only, versions 1 through 10, no ECI header, no
-structured append, no kanji. That covers 271 bytes at the lowest error
-correction, and the longest string this program will ever hand it is about
-seventy. Anything longer raises rather than quietly picking a version this file
-has no tables for.
+Byte mode only, versions 1 to 10, no ECI, no structured append. Longer input
+raises. Text goes in as UTF-8, which phone scanners assume.
 
-The parts worth knowing when reading it:
-
-  * **Codewords, not bytes.** The data is split into blocks, each block gets its
-    own Reed-Solomon check codewords, and the blocks are then *interleaved* so
-    that a thumb over one corner damages a little of every block rather than all
-    of one. That interleave is the step that looks wrong until you know why.
-  * **The mask is chosen, not fixed.** Eight patterns are XORed over the data
-    region in turn and scored by four penalty rules from the spec; the lowest
-    score wins. It is the only part of encoding that is a judgement rather than
-    arithmetic, and it exists so a scanner never meets a code that looks like a
-    finder pattern where there is not one.
-  * **Format bits are written twice**, in two places, because the corner that
-    carries them is the corner most likely to be obscured.
-
-Text is encoded as UTF-8 with no ECI header, which is what phone scanners
-assume in practice; anything outside ASCII round-trips but is not what this was
-built for.
-
-Verified against `segno` module-for-module across every version, error level and
-input length this supports; see `tests/test_qr.py`, which carries the outputs it
-compared against so the check survives without the library.
+  * Blocks get their own Reed-Solomon codewords and are interleaved, so a
+    thumb over one corner damages a little of every block.
+  * The mask is chosen: eight patterns scored by the spec's four penalty rules,
+    lowest wins.
+  * Format bits are written twice, because their corner is the most likely to
+    be covered.
 """
 
 from __future__ import annotations
 
 # -- the tables ---------------------------------------------------------------
-#
-# Everything here is transcribed from the standard rather than derived. It is
-# the only part of the file that could be wrong in a way that reads as correct,
-# which is exactly why the tests compare whole matrices against another
-# implementation rather than spot-checking a capacity.
+# Transcribed from the standard, not derived. The tests compare whole matrices
+# because an error here would still look plausible.
 
 # Total codewords (data + error correction) in each version.
 TOTAL_CODEWORDS = [26, 44, 70, 100, 134, 172, 196, 242, 292, 346]
@@ -70,9 +47,7 @@ ALIGNMENT = [[], [6, 18], [6, 22], [6, 26], [6, 30],
 # Unused bits after the last codeword, which are left zero.
 REMAINDER = [0, 7, 7, 7, 7, 7, 0, 0, 0, 0]
 
-# The two bits that name an error correction level on the symbol. Not the order
-# you would guess: M is 0 and L is 1, because the levels were numbered by how
-# common they were expected to be rather than by how much they correct.
+# The spec's level bits: M is 0 and L is 1, not in correction order.
 EC_BITS = {"L": 1, "M": 0, "Q": 3, "H": 2}
 
 LEVELS = ("L", "M", "Q", "H")
@@ -83,9 +58,7 @@ class TooLong(ValueError):
 
 
 # -- GF(256) ------------------------------------------------------------------
-#
-# Reed-Solomon works in the field of 256 elements built on 0x11D, so multiply
-# becomes add-the-logs and the whole encoder is table lookups.
+# Reed-Solomon over GF(256) with polynomial 0x11D, via log/exp tables.
 
 _EXP = [0] * 512
 _LOG = [0] * 256
@@ -175,9 +148,7 @@ def _bitstream(data: bytes, version: int, ec: str) -> list[int]:
     # The two pad codewords alternate for no reason beyond the standard saying
     # so; they are there to give the mask something varied to work against.
     padded = 0
-    # The alternation is counted from the first pad, not from the start of the
-    # symbol: whether the data happened to end on an odd codeword must not
-    # change which pad comes first.
+    # Pad alternation starts at the first pad, regardless of data length.
     pad = (0xEC, 0x11)
     while len(codewords) < _capacity(version, ec):
         codewords.append(pad[padded % 2])
@@ -352,11 +323,8 @@ def _apply(g: _Grid, mask: int) -> list[list[int]]:
 
 def _write_format(px: list[list[int]], ec: str, mask: int) -> None:
     size = len(px)
-    # Always dark, always in the same place, and the only module in the symbol
-    # that carries no information at all. It belongs to the format block rather
-    # than the skeleton, and that is not a filing decision: the mask is scored
-    # before any of this is written, so leaving it dark during scoring would put
-    # one stray module into all eight comparisons.
+    # The always-dark module. Written after mask scoring, like the format
+    # block.
     px[size - 8][8] = 1
 
     bits = _format_bits(ec, mask)
@@ -405,14 +373,9 @@ def _penalty(px: list[list[int]]) -> int:
             if px[y][x] == px[y][x + 1] == px[y + 1][x] == px[y + 1][x + 1]:
                 score += 3
 
-    # Rule 3: anything that looks like a finder pattern's 1:1:3:1:1 ratio with
-    # light beside it. This is the rule the masking step exists for.
-    #
-    # Two details the spec leaves to the reader, settled here the way the
-    # reference implementations settle them: the pattern scores 40 once even
-    # when it has light on *both* sides, and a run of light shorter than four
-    # still counts if it reaches the edge of the symbol -- the quiet zone
-    # outside is light too.
+    # Rule 3: finder-like 1:1:3:1:1 runs with light beside them. Scored 40 once
+    # even with light on both sides; a short light run reaching the edge
+    # counts, since the quiet zone is light.
     want = [1, 0, 1, 1, 1, 0, 1]
     for line in lines:
         i = 0
@@ -430,9 +393,8 @@ def _penalty(px: list[list[int]]) -> int:
                 # the next one can only begin at the middle dark run.
                 i += 4
 
-    # Rule 4: how far the whole symbol is from half dark. Kept in integers --
-    # the float form of this rounds a symbol sitting exactly on a five percent
-    # boundary the other way.
+    # Rule 4: distance from half dark, in integers so exact 5% boundaries round
+    # the spec's way.
     total = size * size
     dark = sum(sum(row) for row in px)
     score += 10 * (abs(dark * 100 - 50 * total) // (5 * total))
@@ -441,11 +403,8 @@ def _penalty(px: list[list[int]]) -> int:
 
 def encode(text: str, *, ec: str = "M", version: int | None = None,
            mask: int | None = None) -> list[list[int]]:
-    """The modules of a QR code for `text`, as rows of 0 and 1, no quiet zone.
-
-    `version` and `mask` exist for the tests, which pin both so that a
-    comparison against another encoder is comparing the same symbol rather than
-    two equally valid ones.
+    """The modules for `text` as rows of 0/1, no quiet zone. `version` and
+    `mask` let tests pin the exact symbol.
     """
     if ec not in BLOCKS:
         raise ValueError(f"error correction level must be one of {LEVELS}")
@@ -467,11 +426,8 @@ def encode(text: str, *, ec: str = "M", version: int | None = None,
     grid = _skeleton(version)
     _place(grid, stream)
 
-    # The candidates are scored *before* the format and version blocks are
-    # filled in. That reads like an oversight and is not: those blocks are the
-    # same size and roughly the same shape whichever mask wins, so scoring them
-    # would add a near-constant to all eight and let a few dozen fixed modules
-    # tip a close comparison. The spec is explicit about the order.
+    # Masks are scored before the format and version blocks are filled, as the
+    # spec orders.
     best: tuple[int, int, list[list[int]]] | None = None
     for candidate in ([mask] if mask is not None else range(8)):
         px = _apply(grid, candidate)
@@ -489,11 +445,8 @@ def encode(text: str, *, ec: str = "M", version: int | None = None,
 
 
 def svg(text: str, *, ec: str = "M", quiet: int = 4) -> str:
-    """One `<svg>` element, sized in modules, for the page to scale as it likes.
-
-    Drawn as a single `<path>` of runs rather than a rect per module. A version
-    4 symbol is thirteen hundred modules, and thirteen hundred DOM nodes is a
-    visible pause on a phone; one path is one node.
+    """One `<svg>` sized in modules, drawn as a single `<path>` of runs; a rect
+    per module is over a thousand DOM nodes on a phone.
     """
     px = encode(text, ec=ec)
     size = len(px) + quiet * 2
@@ -516,12 +469,8 @@ def svg(text: str, *, ec: str = "M", quiet: int = 4) -> str:
 
 
 def text_art(text: str, *, ec: str = "M", quiet: int = 2) -> str:
-    """The same symbol for a terminal, two rows of modules per line of output.
-
-    A character cell is about twice as tall as it is wide, so a code drawn one
-    module per cell comes out stretched and, on a smaller window, wrapped and
-    unscannable. Half-block characters put two rows in one line, which makes the
-    aspect ratio right and halves the height.
+    """The symbol for a terminal, two module rows per line with half blocks, so
+    the aspect ratio comes out square.
     """
     px = encode(text, ec=ec)
     width = len(px) + quiet * 2
@@ -531,10 +480,8 @@ def text_art(text: str, *, ec: str = "M", quiet: int = 2) -> str:
     if len(rows) % 2:
         rows.append([0] * width)
 
-    # Dark modules are printed as the *light* half-blocks. A terminal is light
-    # text on a dark ground, so drawing dark modules as filled blocks produces a
-    # photographic negative, and a scanner needs the finder patterns darker than
-    # the quiet zone rather than lighter.
+    # Dark modules print as spaces: terminals are light-on-dark, and a scanner
+    # needs dark finder patterns.
     glyph = {(0, 0): "█", (1, 1): " ", (1, 0): "▄", (0, 1): "▀"}
     out = []
     for i in range(0, len(rows), 2):
