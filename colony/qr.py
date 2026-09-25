@@ -1,8 +1,8 @@
 """A QR encoder with no dependency, for the phone-pairing URL.
 
-Why not `segno`: it is a fine library, but the install is four packages and
-this only ever encodes a ~70-byte ASCII URL in a format frozen since 2000.
-Three hundred lines that never change beat a fifth dependency. `segno` is
+Why not `segno`: it is a fine library, but this project installs four packages
+and this module only ever encodes a ~70-byte ASCII URL in a format frozen since
+2000. A few hundred lines that never change beat a fifth dependency. `segno` is
 still the reference: `tests/test_qr.py` holds matrices it produced for every
 version, level and length supported here, so the check runs without it.
 
