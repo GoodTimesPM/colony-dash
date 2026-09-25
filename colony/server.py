@@ -1,34 +1,24 @@
 """The dashboard's backend: FastAPI over the ledger.
 
-Reads and writes are deliberately asymmetric.
-
-**Reads** open the ledger with `read_only=True`. Not a convention but an
-enforcement. Every panel on the page comes through a connection that physically
-cannot change anything, so no read path needs auditing for side effects.
-
-**Writes** exist only under `/api/act/*`, and each one is a thin wrapper around
-a single function in `control.py`. That module records the decision in
-`po_actions` before the change lands and refuses anything the colony's own rules
-forbid. The set of things this dashboard can do to the colony is the list of
-routes in the "PO actions" section below, and it is meant to stay short enough
-to read in one screen.
+**Reads** open the ledger with `read_only=True`, so no read path can change
+anything. **Writes** exist only under `/api/act/*`, each a thin wrapper
+around one function in `control.py`, which records the decision in
+`po_actions` and refuses what the colony's rules forbid.
 
 The server binds 127.0.0.1 by default. With phone access on it also binds a
-LAN or tailnet address, and every request from off the machine needs the access
-token (see `gate` and `access.py`). On top of that:
+LAN or tailnet address, and off-machine requests need the access token (see
+`gate` and `access.py`). On top of that:
 
-  * `same_host` refuses any request whose Host header is not this machine,
-    which is what stops DNS rebinding, and any write whose Origin is another
-    site;
+  * `same_host` refuses a Host header that is not this machine (DNS
+    rebinding) and any write whose Origin is another site;
   * every action requires an `X-Colony` header, which a cross-site form cannot
     set without a preflight the browser refuses;
   * `/api/console/*` and token rotation answer only peers on this machine
     (`_desk_only`), because the console is a real shell.
 
-Live updates are server-sent events. The pulse writes hourly from a separate
-process, so the server polls its own snapshot on a short timer and pushes only
-when the fingerprint changes: SQL against a local SQLite file is free, and a
-poll that finds nothing costs less than a websocket that has to stay honest.
+Live updates are server-sent events. The pulse writes from another process,
+so the server polls its own snapshot on a short timer and pushes only when
+the fingerprint changes.
 """
 
 from __future__ import annotations
@@ -57,11 +47,9 @@ from . import (access, attachments as attach, console as console_mod, control, d
 
 UI_DIR = Path(__file__).resolve().parent / "ui"
 
-# Which build this process is. Read once, here, while the module is being
-# imported -- which is the only moment it is true. `desktop.stamp()` reads the
-# files as they are on disk, so asking it again later would answer for the
-# checkout rather than for the interpreter, and a server three days out of date
-# would report itself current. See `desktop._stale`.
+# Which build this process is, read once at import. `desktop.stamp()` reads the
+# files on disk, so asking later would describe the checkout, not the running
+# interpreter. See `desktop._stale`.
 BUILD_STAMP = desktop_mod.stamp()
 STARTED_AT = datetime.now().isoformat(timespec="seconds")
 
@@ -77,10 +65,8 @@ BOARD_ORDER = [
     "accepted",
 ]
 
-# Statuses that mean the PO has filed this one: finished, parked, or not begun.
-# They are off the board rather than a column on it, because a column is a place
-# work passes through and these are places work stops. They stay reachable. A
-# board that can only show live work cannot answer "did I finish that?".
+# Statuses meaning the PO has filed the story: finished, parked or not begun.
+# Off the board but reachable behind a toggle.
 SETTLED_ORDER = ["done", "shelved", "not-started"]
 
 # The pulse log scrolls inside its own panel now, so the limit is what the PO can
@@ -89,8 +75,7 @@ PULSE_LIMIT = 120
 SSE_INTERVAL_S = 2.0
 
 # The project scan shells out to git, so it is cached rather than run on every
-# SSE poll. Thirty seconds is well under how long it takes to notice a change
-# and well over how often two seconds would fire.
+# SSE poll.
 PROJECT_TTL_S = 30.0
 _project_cache: dict[str, Any] = {"at": 0.0, "rows": []}
 
@@ -140,20 +125,12 @@ def snapshot() -> dict[str, Any]:
 
 
 def _live_usage(conn: sqlite3.Connection) -> dict[str, Any] | None:
-    """The freshest usage figure there is, whoever wrote it last.
+    """The freshest usage figure, from the tray app's cache.
 
-    "This is not updating live token usage."
-
-    It was not. The dashboard read the newest row of `usage_samples`, and only
-    the hourly pulse writes those, so a figure the tray app refreshes every five
-    minutes could be fifty-five minutes old on screen. Worse, it was old in the
-    way that is hardest to see: a percentage that has not moved is exactly what
-    a working quiet week looks like.
-
-    Reading the cache costs a stat and a small JSON parse, and it is the *same
-    file* the pulse copies from, so this is not a second poller and earns nobody
-    a 429. The ledger row stays as the fallback for a machine where the tray app
-    has never run, and `sampled_at` reports which of the two is being shown.
+    The pulse writes `usage_samples` only hourly, so the ledger row can be
+    an hour stale. Reading the cache is a stat and a small parse of the same
+    file the pulse copies, so it adds no API calls. The ledger row is the
+    fallback, and `sampled_at` says which is shown.
     """
     row = one(conn, "SELECT * FROM usage_samples ORDER BY sampled_at DESC LIMIT 1")
     live = usage_mod.read()
@@ -177,12 +154,9 @@ def _sprint(conn: sqlite3.Connection) -> dict[str, Any]:
     sprint = one(conn, "SELECT * FROM sprints WHERE status = 'active' ORDER BY id DESC LIMIT 1")
     usage = _live_usage(conn)
 
-    # The allowance week, from the reset instant the API reported. The sprint
-    # row follows this, `pulse.align_sprint` moves it onto these edges, but the
-    # window is computed here too, because the strip should be telling the truth
-    # about the week within a second of a reset rather than within an hour of
-    # one, and because a sprint that has not been aligned yet should still show
-    # the right day.
+    # The allowance week from the reset instant the API reported. Computed here
+    # as well as by `pulse.align_sprint`, so the strip is right within a second
+    # of a reset.
     start_dt, end_dt = usage_mod.current_window()
     fmt = "%Y-%m-%d %H:%M:%S"
     week = {
@@ -195,14 +169,9 @@ def _sprint(conn: sqlite3.Connection) -> dict[str, Any]:
 
     spent = {"tokens": 0, "usd": 0.0, "runs": 0}
     if sprint:
-        # By run time inside the window, not by story.sprint_id: Notion stories
-        # arrive with no sprint attached. Same query the CLI settled on.
-        #
-        # Half-open on timestamps rather than `date(started_at) BETWEEN`, which
-        # counted the five hours before Friday's reset into the week that was
-        # already over, and then counted the whole of the closing Friday as well.
-        # Eight days of runs against a seven-day budget, double-counted at
-        # both seams.
+        # By run time inside the window, not `story.sprint_id`: Notion stories
+        # arrive with no sprint. Half-open on timestamps, since `date(...)
+        # BETWEEN` counted runs at both edges twice.
         row = one(
             conn,
             """
@@ -217,9 +186,8 @@ def _sprint(conn: sqlite3.Connection) -> dict[str, Any]:
         spent = row or spent
 
     band = control.effective_allowance(conn)
-    # When the colony is standing down, the sprint total stops moving, which is
-    # correct, and reads exactly like a number that has broken. Saying when the
-    # last run ended is the cheapest way to tell those two apart.
+    # A standing-down colony's total stops moving, which looks broken; the last
+    # run's end time tells the two apart.
     last_run = one(
         conn, "SELECT MAX(ended_at) AS at FROM runs WHERE ended_at IS NOT NULL"
     ) or {}
@@ -237,13 +205,9 @@ def _sprint(conn: sqlite3.Connection) -> dict[str, Any]:
 
 
 def _ordis(conn: sqlite3.Connection) -> dict[str, Any]:
-    """The Scrum Master's own vitals.
-
-    Ordis is not a row in `agents`. It is the loop itself, and it has no
-    contract because it hires rather than being hired. But a colony dashboard
-    that shows every colonist and not the thing running them is missing its own
-    supervisor, so the loop reports here: when it last beat, when it beats next,
-    what it decided, and what its judgment has cost so far.
+    """The Scrum Master's own vitals. Ordis is the loop, not a row in `agents`,
+    so it reports here: last beat, next beat, what it decided, and what it
+    has cost.
     """
     last = one(conn, "SELECT * FROM pulses ORDER BY pulse_at DESC, id DESC LIMIT 1")
     totals = one(
@@ -252,9 +216,8 @@ def _ordis(conn: sqlite3.Connection) -> dict[str, Any]:
         "       SUM(CASE WHEN tier='wake' THEN 1 ELSE 0 END) wakes, "
         "       COALESCE(SUM(anomalies),0) anomalies FROM pulses",
     ) or {}
-    # The same predicate the wake actually selects on, not a re-statement of it.
-    # Two spellings of "groomable" drifted apart the moment the attempt cap was
-    # added: the panel promised three stories the loop had already given up on.
+    # The predicate the wake actually selects on, so the panel cannot promise
+    # stories the loop has given up on.
     from . import wake as wake_mod
     groom = one(
         conn,
@@ -339,10 +302,8 @@ def _board(conn: sqlite3.Connection) -> dict[str, Any]:
          ORDER BY s.priority, s.id
         """,
     )
-    # Progress belongs on the card, not two clicks in. "4 of 11 done" is the
-    # answer to the question the PO actually has when they look at the board.
-    # And it is the same pair of columns that stops the loop re-raising finished
-    # work, so the number on screen and the number in the prompt cannot drift.
+    # Progress on the card ("4 of 11 done"), from the same columns the prompt
+    # uses, so the two cannot drift.
     for s in stories:
         s["done_n"] = len(_json_list(s.pop("done_items", None)))
         s["open_n"] = len(_json_list(s.pop("open_items", None)))
@@ -352,11 +313,9 @@ def _board(conn: sqlite3.Connection) -> dict[str, Any]:
              FROM stories WHERE dropped_at IS NOT NULL
             ORDER BY dropped_at DESC LIMIT 20""",
     )
-    # Filed, not dropped, and the difference is who decided. A dropped story is
-    # the PO overruling their own board from here; a settled one is the board
-    # itself saying the work is done, shelved or not begun. Both are hidden by
-    # default and both keep a count in the header, because the count is the only
-    # thing that tells you there is anything behind the toggle.
+    # Settled stories are the board saying the work is done, shelved or not
+    # begun; dropped ones are the PO overruling it from here. Both are hidden
+    # by default with a count in the header.
     settled = rows(
         conn,
         """SELECT id, title, project, priority, status, settled_as, notion_status,
@@ -376,14 +335,11 @@ def _board(conn: sqlite3.Connection) -> dict[str, Any]:
     }
 
 
-# Notes that only mirror a message. The message itself is already in the
-# conversation with its whole body on it, so the mirror would double every
-# exchange in the episode timeline.
+# Notes that only mirror a message, which is already in the conversation.
 MIRROR_NOTES = {"PO wrote to Ordis about this", "Ordis answered the PO"}
 
-# What a story being "filed" has to say for the work to count as done. A story
-# nobody started is filed too, and putting it in a list of finished work is how
-# that list stops being worth reading.
+# Filed statuses that count as finished work. "Not started" is filed but not
+# done.
 COMPLETED_SETTLED = ("done", "shipped", "shelved")
 
 
@@ -402,13 +358,10 @@ def _findings(raw: Any) -> dict[str, Any] | None:
 
 def _episode_window(conn: sqlite3.Connection, story_id: int | None,
                     prev_at: str | None, fallback: str | None) -> str:
-    """Where this episode starts: the last deliverable, or the story's first day.
-
-    The obvious start is the moment the ticket was cut, and it is the wrong one.
-    Most of what happened before a dispatch, the questions, the answers, the
-    criteria being argued over, happened *before* the ticket existed, and those
-    are the part the PO is looking for when they ask what took place. So an
-    episode runs from the previous delivery on the same story to this one.
+    """Where this episode starts: the last deliverable, or the story's first
+    day. Most of an episode (questions, answers, criteria) happens before
+    its ticket is cut, so it runs from the previous delivery on the same
+    story.
     """
     if prev_at:
         return prev_at
@@ -423,10 +376,8 @@ def _episode_window(conn: sqlite3.Connection, story_id: int | None,
 
 def _episode_counts(conn: sqlite3.Connection, story_id: int | None,
                     since: str, until: str) -> dict[str, int]:
-    """How much conversation an episode holds, without loading any of it.
-
-    These are the numbers on the tile. The tile is in the snapshot every panel
-    shares, so it carries counts and the detail endpoint carries text.
+    """How much conversation an episode holds, as counts. The tile is in the
+    shared snapshot; the detail endpoint carries the text.
     """
     if not story_id:
         return {"messages": 0, "questions": 0, "blockers": 0, "learnings": 0}
@@ -451,22 +402,12 @@ def _episode_counts(conn: sqlite3.Connection, story_id: int | None,
 
 
 def _completed(conn: sqlite3.Connection, limit: int = 60) -> list[dict[str, Any]]:
-    """Everything that finished, newest first.
+    """Everything that finished, newest first, so the PO can see what the
+    colony has produced and not redo it.
 
-    "I want there to be a 'completed dispatches' or 'completed stories'. That
-    way i can keep track of progress and check on work that has been done so i
-    dont accidentally work on the same thing just cause i forgot we worked on
-    something."
-
-    The Board's `filed` toggle answers "where does this story stand" and this
-    answers a different question: what has this colony actually produced, in
-    what order. A dispatch that delivered a patch belongs here whether or not
-    the story it came off is finished, because the patch is the thing you would
-    otherwise rebuild by hand next week.
-
-    Nothing here is a status change and nothing here writes. It reads
-    `settled_as`, which is the PO's word for a story, and `tickets.status`,
-    which the ticket sets when its own run closes.
+    A dispatch that delivered a patch belongs here whether or not its story
+    is finished. Read-only: it reads `settled_as` (the PO's word on a story)
+    and `tickets.status` (set when the ticket's run closes).
     """
     out: list[dict[str, Any]] = []
 
@@ -615,21 +556,12 @@ def _inbox(conn: sqlite3.Connection) -> list[dict[str, Any]]:
 
 
 def _ready(conn: sqlite3.Connection) -> list[dict[str, Any]]:
-    """Stories that have cleared the criteria gate and are waiting to be started.
+    """Stories past the criteria gate and waiting to be started.
 
-    **Not an escalation.** An escalation is an event: raised once, answered
-    once, closed forever. Readiness is not an event, it is a state the story
-    stays in until somebody dispatches it. So raising it as a question would
-    make it dismissable while it was still true, which is the one failure this
-    Inbox exists to prevent. Derived instead: the tile exists for exactly as
-    long as the story is ready, and it is gone the moment the ticket is cut.
-
-    It also carries what is still in the way. `control.dispatch` enforces three
-    preconditions and the only way to discover which one you have failed was to
-    press the button and read the refusal. Approving the criteria is the moment
-    the PO thinks the work has started; a tile that says "ready. Except nobody
-    is hired to write in that folder" is the difference between a colony that is
-    waiting on them and a colony they believe is working.
+    **Not an escalation.** Readiness is a state, not an event, so it is
+    derived: the tile exists while the story is ready and goes when the
+    ticket is cut. It also shows which of `control.dispatch`'s preconditions
+    still fail, so the PO need not press the button to find out.
     """
     out: list[dict[str, Any]] = []
     halted = control.is_halted()
@@ -655,10 +587,8 @@ def _ready(conn: sqlite3.Connection) -> list[dict[str, Any]]:
         if not s["project"] or s["project_source"] != "confirmed":
             blockers.append("its project folder is still a guess. Confirm it here")
         if not s["writers"]:
-            # Picking the person is the Scrum Master's job now (`wake.staff_stories`),
-            # so this stopped being an instruction to the PO and became a status.
-            # The old text sent them to browse 270 personas they have never read, which
-            # is the single reason a story that had cleared every gate sat still.
+            # Staffing is the Scrum Master's job (`wake.staff_stories`), so
+            # this is a status, not an instruction to the PO.
             pending = rows(conn, """SELECT e.id, e.reason FROM escalations e
                                       WHERE e.story_id = ? AND e.kind = 'hire'
                                         AND e.resolved_at IS NULL
@@ -693,17 +623,10 @@ def _ready(conn: sqlite3.Connection) -> list[dict[str, Any]]:
 
 
 def _flight(conn: sqlite3.Connection) -> list[dict[str, Any]]:
-    """Work already in motion. Next to the Inbox, because that is where it is decided.
-
-    Two things belong here and they are not the same shape. A **ticket** is work
-    the colony is doing or is staffed to do. A **push** is a change queued for
-    the Notion board that has not left the machine yet. What they have in common
-    is the only thing this panel is about: the PO pressed something, and it has
-    not finished. Before this existed, both were two clicks deep in a story
-    drawer, which meant "did that go through?" had no answer on the page. And a
-    queued change you cannot see is indistinguishable from one that was dropped.
-
-    Sorted by what is furthest along: running first, then staffed, then waiting.
+    """Work in motion, next to the Inbox: tickets the colony is doing or
+    staffed to do, and Notion pushes that have not left the machine. Both
+    answer "did that go through?". Sorted running, then staffed, then
+    waiting.
     """
     tickets = rows(
         conn,
@@ -748,11 +671,8 @@ def _flight(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     )
     out: list[dict[str, Any]] = []
     for t in tickets:
-        # A blocked ticket used to sit here forever saying only "blocked", which
-        # is a state and not a reason. Two identical ones sat in this rail for a
-        # day with nothing on the page explaining either. A blocked ticket that
-        # has closed is finished and belongs in Completed instead, the query
-        # above no longer selects it, and one still open says why here.
+        # An open blocked ticket shows its reason here; a closed one is
+        # finished and belongs in Completed.
         found = _findings(t.pop("findings", None)) or {}
         t["note"] = (found.get("summary") or "").strip() if found else ""
         out.append({"key": f"t{t['id']}", "kind": "ticket", **t})
@@ -777,15 +697,9 @@ def _flight(conn: sqlite3.Connection) -> list[dict[str, Any]]:
 
 
 def _pulses(conn: sqlite3.Connection) -> list[dict[str, Any]]:
-    # `tier` records what the tick DECIDED, not what happened. An hour can be
-    # stamped "wake" because the tick found a reason, and then cost nothing
-    # because the wake looked at its job list and stood down. Both facts are
-    # true and together they read like a contradiction on screen.
-    #
-    # `acted` is the second half, taken from the record rather than sniffed out
-    # of the finding text: `actions.wake` is null when no wake was spawned at
-    # all, and carries `skipped` when one was spawned and declined to spend.
-    # Either way the hour was free, and the page labels it a tick.
+    # `tier` records what the tick decided. `acted` records what happened:
+    # `actions.wake` is null when no wake ran and carries `skipped` when one
+    # stood down. Either way the hour was free, and the page labels it a tick.
     return rows(
         conn,
         "SELECT id, pulse_at, tier, finding, anomalies, tokens, duration_ms, "
@@ -801,24 +715,13 @@ def _pulses(conn: sqlite3.Connection) -> list[dict[str, Any]]:
 
 
 def _forge(conn: sqlite3.Connection) -> dict[str, Any]:
-    """The forge panel. Active skills are included, not just the pending ones.
-
-    The M2 stub listed candidates and drafts only, which made the panel go empty
-    exactly when the forge had succeeded. The same failure the Files panel had
-    (§10.5). What the PO wants to see once a skill is promoted is what it has
-    earned since.
-    """
+    """The forge panel, including active skills and what they have earned."""
     return forge.board(conn)
 
 
 def _spend(conn: sqlite3.Connection) -> dict[str, Any]:
-    """The spend panel's breakdown by role.
-
-    The time series used to live here too, as a fixed fourteen days. It moved to
-    `/api/spend` when the chart grew a grain control: the snapshot is one payload
-    for eleven panels, pushed on every fingerprint change, and there is no reason
-    for the other ten to carry 48 hourly buckets so that one of them can draw a
-    line the PO may not even be looking at.
+    """The spend panel's breakdown by role. The time series is on `/api/spend`,
+    so the shared snapshot does not carry chart buckets.
     """
     by_role = rows(
         conn,
@@ -835,15 +738,9 @@ def _spend(conn: sqlite3.Connection) -> dict[str, Any]:
 
 
 # ── the spend series ──────────────────────────────────────────────────────────
-# Every timestamp in the ledger is `datetime('now','localtime')`, so there is no
-# timezone to reconcile here: the strings are already in the wall-clock the PO
-# reads them in, and the buckets are cut on the same clock.
-#
-# All five grains are rolled up in Python from one hourly query rather than five
-# different `strftime` groupings. The hourly query returns one row per hour that
-# actually had a run, bounded by real activity, not by the length of the window,
-# so it is small however far back you look, and a week that starts on Monday
-# is a line of Python instead of a nest of SQLite date modifiers.
+# Ledger timestamps are `datetime('now','localtime')`, so buckets are cut on
+# the PO's wall clock. All grains roll up in Python from one hourly query,
+# which returns only hours that had runs, so it stays small for any window.
 
 SPAN = {"hour": 48, "day": 30, "week": 26, "month": 12, "year": 5}
 LABEL = {"hour": "%H:00 %a", "day": "%a %d %b", "week": "w/c %d %b",
@@ -879,14 +776,9 @@ def _back(dt: datetime, grain: str) -> datetime:
 
 def _series(conn: sqlite3.Connection, grain: str, span: int,
             end: datetime | None = None) -> dict[str, Any]:
-    """Spend per bucket over the `span` buckets ending with the one `end` falls in.
-
-    Empty buckets are emitted with zeros rather than skipped. A chart that only
-    plots the hours that had runs draws a continuous line across a quiet night
-    and calls it steady spending; the flat stretch at zero *is* the information.
-
-    `end` defaults to now, which is the live view. Any other value is the PO
-    having paged back or picked a date, and the window is anchored there.
+    """Spend per bucket over the `span` buckets ending with the one `end` falls
+    in. Empty buckets are zeros, not skipped; a quiet stretch is
+    information. `end` defaults to now.
     """
     hourly = rows(
         conn,
@@ -913,10 +805,8 @@ def _series(conn: sqlite3.Connection, grain: str, span: int,
             "tokens": 0, "total_tokens": 0, "usd": 0.0, "runs": 0}
            for d in starts]
 
-    # Runs on either side of the window are counted, not merely dropped. Once the
-    # window can be paged away from now, "0 runs" has two very different causes,
-    # a quiet stretch, or a window pointed at the wrong end of the ledger, and
-    # only a count in each direction tells them apart.
+    # Runs on either side of the window are counted, so "0 runs" can be told
+    # apart from a window pointed at the wrong period.
     before = after = 0
     first, last = starts[0], starts[-1]
     for r in hourly:
@@ -956,12 +846,9 @@ def _series(conn: sqlite3.Connection, grain: str, span: int,
 
 
 def _roster_summary(conn: sqlite3.Connection) -> dict[str, Any]:
-    """Divisions with their personas, so Standby can be browsed and not only searched.
-
-    The whole roster is ~270 rows of short text. Small enough to ship in the
-    snapshot and let the browser open a division instantly, which is the point
-    of a dropdown. The persona *body* is not included; that is a per-click read
-    off disk, because 270 markdown files is a different order of payload.
+    """Divisions with their personas, so Standby can be browsed. The roster's
+    short text ships in the snapshot; persona bodies are read from disk per
+    click.
     """
     people = rows(
         conn,
@@ -986,9 +873,9 @@ def _roster_summary(conn: sqlite3.Connection) -> dict[str, Any]:
     }
 
 
-# The full roster is two thirds of the state payload and changes only on a
-# hire, a retire or a rescan. The snapshot carries its hash, and the page
-# fetches `/api/roster/summary` when the hash moves.
+# The roster is two thirds of the state payload and changes only on a hire,
+# retire or rescan. The snapshot carries its hash, and the page fetches
+# `/api/roster/summary` when it moves.
 _roster_cache: dict[str, Any] = {"rev": None, "text": "{}"}
 _roster_lock = threading.Lock()
 
@@ -1017,13 +904,10 @@ def _controls(conn: sqlite3.Connection) -> dict[str, Any]:
         "allowance_min": control.MIN_ALLOWANCE_PCT,
         "allowance_max": control.MAX_ALLOWANCE_PCT,
         "recent": recent,
-        # M5. Separate from HALT on purpose: HALT means "spend nothing", and a
-        # comment on a Notion page is not a token. One can be on while the other
-        # is off, and conflating them would make a paused colony look mute.
+        # Separate from HALT: a Notion comment is not a token.
         "notion_write": control.get_control(conn, "notion_write", "1") == "1",
-        # A forced beat runs on a thread and takes minutes when it wakes, so the
-        # button has to be able to say "running" rather than sit there looking
-        # unpressed. True for a scheduled beat as well. The lock is shared.
+        # A forced beat runs on a thread for minutes, so the button can show
+        # "running". The lock is shared with the scheduled beat.
         "pulse_running": control.pulse_running(),
         "outbox": outbox_mod.depth(conn),
         "notion_statuses": list(notion_mod.WRITABLE_STATUS),
@@ -1042,11 +926,8 @@ def _projects_cached() -> list[dict[str, Any]]:
 
 
 def fingerprint(state: dict[str, Any]) -> str:
-    """What "changed" means for the live feed.
-
-    Elapsed time on a running agent changes every second and is computed in the
-    browser from `started_at`; if it were part of this hash, every poll would
-    push a frame and the feed would be a clock, not a change feed.
+    """What "changed" means for the live feed. Running time is computed in the
+    browser from `started_at`; hashing it would push a frame every poll.
     """
     return _serialize(state)[0]
 
@@ -1057,9 +938,8 @@ def _serialize(state: dict[str, Any]) -> tuple[str, str]:
     return hashlib.sha256(text.encode("utf-8")).hexdigest(), text
 
 
-# One snapshot per interval, shared by every client. Each open page used to
-# build its own every two seconds. `seq` grows each time the state changes, so
-# the page can drop a response that arrives after a newer frame.
+# One snapshot per interval, shared by every client. `seq` grows with each
+# change so the page can drop a response older than its newest frame.
 _frame: dict[str, Any] = {"at": 0.0, "fp": None, "text": "", "seq": 0}
 _frame_lock = threading.Lock()
 
@@ -1107,10 +987,8 @@ def _need(body: dict, key: str) -> Any:
 
 
 def _num(body: dict, key: str, kind: type = int, default: Any = _REQUIRED) -> Any:
-    """A numeric field of an action body, as `kind`. A 400 when it is not a number.
-
-    `default` stands in for a missing or empty field. A 0 is kept, since 0 is
-    what un-snooze sends.
+    """A numeric field of an action body, as `kind`, or a 400. `default`
+    replaces a missing or empty field; 0 is kept, since un-snooze sends it.
     """
     value = body.get(key)
     if value is None or value == "":
@@ -1126,11 +1004,8 @@ def _num(body: dict, key: str, kind: type = int, default: Any = _REQUIRED) -> An
 
 
 def _act(fn, *args, **kwargs) -> dict[str, Any]:
-    """Run one control function in its own transaction.
-
-    `Refused` is a 409 with the reason attached, because every refusal in
-    `control.py` is written to be shown to a person: "this story's project is
-    still a guess" is more useful on screen than "forbidden".
+    """Run one control function in its own transaction. `Refused` becomes a 409
+    with its reason, which is written to be shown to a person.
     """
     conn = _rw()
     try:
@@ -1149,8 +1024,8 @@ def _act(fn, *args, **kwargs) -> dict[str, Any]:
         conn.close()
 
 
-# The page builds its DOM with textContent and loads only its own files, so
-# the policy can be tight. Inline style attributes in index.html are the one
+# The page builds its DOM with textContent and loads only its own files, so the
+# policy can be tight. Inline style attributes in index.html are the one
 # allowance.
 PAGE_CSP = ("default-src 'self'; script-src 'self'; "
             "style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; "
@@ -1203,15 +1078,9 @@ def boot_js(request: Request) -> Response:
 
 
 # ── the phone ─────────────────────────────────────────────────────────────────
-#
-# The dashboard was already a web page; these four routes are what let a phone
-# treat it as an app rather than as a tab. The manifest gives it a name and an
-# icon on the home screen, the service worker is what makes the browser offer to
-# put it there at all, and the icons are the mark from the desktop window.
-#
-# `sw.js` is served from the root on purpose. A service worker may only control
-# pages at or below its own path, so one served from `/ui/sw.js` could not
-# control `/`. The single most common way this is got wrong.
+# These routes let a phone install the dashboard as an app: a manifest, a
+# service worker, and the icons. `sw.js` is served from the root because a
+# service worker controls only pages at or below its own path.
 
 @app.get("/manifest.webmanifest")
 def manifest(request: Request) -> Response:
@@ -1223,9 +1092,7 @@ def service_worker(request: Request) -> Response:
     return _asset("sw.js", "text/javascript; charset=utf-8", request)
 
 
-# Icons are the one thing here worth caching: they are bytes that change when
-# the project is rebranded and not before, and re-fetching them on every launch
-# is the difference between a home-screen icon that appears and one that blinks.
+# Icons change only on a rebrand, so they are cached.
 @app.get("/icon-{name}.png")
 def icon(name: str) -> Response:
     if name not in {"192", "512", "maskable-512"}:
@@ -1265,10 +1132,8 @@ def api_roster_summary(request: Request) -> Response:
 
 @app.get("/api/story/{story_id}")
 def api_story(story_id: int) -> dict[str, Any]:
-    """The detail drawer: the story, its timeline, its tickets, its runs.
-
-    `story_events` exists precisely so this view has something worth reading.
-    Not "where is this" but "what did we find out, and when" (§9.3).
+    """The detail drawer: the story, its timeline, its tickets, its runs
+    (§9.3).
     """
     conn = _conn()
     try:
@@ -1301,10 +1166,7 @@ def api_story(story_id: int) -> dict[str, Any]:
                 """,
                 (story_id,),
             ),
-            # Who is actually on this story, lead first. The dashboard could
-            # only ever render a count of writers before, so a second specialist
-            # hired onto a story was real in the ledger and invisible on screen.
-            # Which is most of the reason nobody hired one.
+            # Everyone on this story, lead first.
             "crew": [
                 {"id": a["id"], "role": a["role"], "roster_slug": a["roster_slug"],
                  "seat": a["seat"], "status": a["status"], "model": a["model"],
@@ -1329,10 +1191,8 @@ def api_spend(grain: str = Query("day"), span: int = Query(0),
     # caller who asked for 9999 buckets wants "as far back as you go", not 30.
     span = max(2, min(400, span)) if span else SPAN[grain]
 
-    # `end` is where the window stops. A bare date is enough for every grain
-    # coarser than an hour, so both spellings are accepted and an unparseable
-    # one is an error rather than a silent fall back to now. A date control
-    # that quietly ignores you is worse than one that says no.
+    # `end` accepts a bare date or a datetime. An unparseable one is a 400, not
+    # a silent fall back to now.
     at: datetime | None = None
     if end:
         for fmt in ("%Y-%m-%d %H:%M", "%Y-%m-%dT%H:%M", "%Y-%m-%d"):
@@ -1395,13 +1255,9 @@ def api_roster(q: str = Query("", max_length=120), limit: int = 40) -> list[dict
 
 @app.get("/api/persona")
 def api_persona(slug: str = Query(..., max_length=200)) -> dict[str, Any]:
-    """One persona, read straight out of its file.
-
-    The ledger stores the frontmatter; the *criteria*, how this persona works,
-    what it refuses, what "done" means to it, live in the markdown body, and
-    that is exactly what you need to read before hiring someone. So the body is
-    read from disk on demand rather than duplicated into SQLite, where it would
-    go stale the next time the agency-agents repo is pulled.
+    """One persona, read from its file. The ledger stores the frontmatter; the
+    body (how the persona works and what it refuses) is read on demand so it
+    cannot go stale after a pull.
     """
     conn = _conn()
     try:
@@ -1433,12 +1289,8 @@ def api_persona(slug: str = Query(..., max_length=200)) -> dict[str, Any]:
 
 
 def _sections(markdown: str) -> list[dict[str, str]]:
-    """Split a persona body on its headings, so the drawer can show structure.
-
-    Persona files are not uniform. Some use `##`, some `**Bold:**`, some
-    neither. Anything that fails to split just comes back as one section, which
-    renders as the whole file. Degrading to "show me the text" is the right
-    failure for a document viewer.
+    """Split a persona body on its headings. Files are not uniform, so anything
+    that fails to split comes back as one section.
     """
     out: list[dict[str, str]] = []
     title, buf = "", []
@@ -1463,12 +1315,8 @@ def api_projects() -> dict[str, Any]:
 
 @app.get("/api/tree")
 def api_tree(path: str = Query("", max_length=400)) -> dict[str, Any]:
-    """One folder's children. The browsable half of the file panel.
-
-    Lazy by design. The caller asks for the folder it is about to draw, and
-    nothing else. `projects_mod.safe_path` is the only thing standing between a
-    query string and the filesystem, so every refusal it raises becomes a 400
-    rather than a stack trace.
+    """One folder's children, loaded lazily. `projects_mod.safe_path` guards
+    the filesystem, and its refusals become 400s.
     """
     try:
         return projects_mod.tree(path)
@@ -1504,9 +1352,7 @@ def api_project(name: str = Query(..., max_length=200)) -> dict[str, Any]:
     return {
         "project": name,
         "state": rows_[0] if rows_ else None,
-        # The baseline travels with the answer. Without it the drawer had a
-        # branch and a sha to print and no source for either, which is how its
-        # eyebrow came to read "UNDEFINED · UNDEFINED" on every project.
+        # The baseline branch and sha for the drawer's header.
         "head": projects_mod.head(),
         "kinds": projects_mod.KIND_LONG,
         "commits": projects_mod.commits(name),
@@ -1517,11 +1363,8 @@ def api_project(name: str = Query(..., max_length=200)) -> dict[str, Any]:
 @app.get("/api/diff")
 def api_diff(project: str = Query(..., max_length=200),
              path: str | None = Query(None, max_length=400)) -> dict[str, Any]:
-    """A working-tree diff, for the project or one file inside it.
-
-    `path` is checked to sit under `project` before it reaches git. Not because
-    git would do anything dangerous with it, but because a viewer that will
-    render any path on the disk is a viewer that has stopped being scoped.
+    """A working-tree diff for the project or one file. `path` must sit under
+    `project`, so the viewer stays scoped.
     """
     if project not in projects_mod.project_dirs():
         raise HTTPException(404, "no such project")
@@ -1536,18 +1379,11 @@ PATCH_MAX_CHARS = 400_000
 
 
 def _diffstat(patch: str, scope: list[str] | None = None) -> dict[str, Any]:
-    """Per-file adds and deletes, counted off the patch itself.
-
-    `git diff --stat` was already captured into the escalation's
-    recommendation, as text, at build time. This re-counts from the patch
-    because the patch is the thing being approved and a summary of a *different*
-    artifact is a summary you cannot check. They should agree; if they ever do
-    not, the one on this side is the one describing what will land.
-
-    Counted, not parsed: a line is an addition if it starts with a single "+",
-    which is true of every added line and of no header, because "+++" is caught
-    by the header test first. Paths come from `worktree.patch_files`, the same
-    parse that `apply_patch` checks scope against.
+    """Per-file adds and deletes, counted off the patch being approved rather
+    than the stored `--stat` text, so the numbers describe what will land. A
+    line starting with a single "+" is an addition; "+++" headers are caught
+    first. Paths come from `worktree.patch_files`, the parse `apply_patch`
+    checks scope against.
     """
     from . import worktree
 
@@ -1591,11 +1427,8 @@ def _diffstat(patch: str, scope: list[str] | None = None) -> dict[str, Any]:
 
 @app.get("/api/patch")
 def api_patch(escalation_id: int = Query(..., ge=1)) -> dict[str, Any]:
-    """Everything the approval drawer shows about a patch.
-
-    What the build says it did (the ticket's findings, written by the agent),
-    what the diff contains (counted here), what it cost (the run row), and the
-    patch text itself.
+    """Everything the approval drawer shows about a patch: the agent's
+    findings, the diff counts, the run's cost, and the patch text.
     """
     with _conn() as conn:
         esc = one(conn, "SELECT * FROM escalations WHERE id = ?", (escalation_id,))
@@ -1769,13 +1602,11 @@ def act_reply(body: dict = Body(...), x_colony: str | None = Header(None)) -> di
 
 @app.post("/api/upload")
 def upload(body: dict = Body(...), x_colony: str | None = Header(None)) -> dict[str, Any]:
-    """Take one pasted file and put it on disk. Not an action. Nothing decided.
+    """Take one pasted file and put it on disk. Decides nothing.
 
-    Uploading is separate from replying so a paste can land the moment it
-    happens: a screenshot appears in the composer as a thumbnail you can look at
-    and remove, rather than as a promise that something got attached. An upload
-    the PO then abandons leaves a file in `.colony/attachments/` and nothing in
-    the ledger, which is the harmless direction for that trade to fail in.
+    Separate from replying so a paste shows as a thumbnail at once. An
+    abandoned upload leaves a file in `.colony/attachments/` and nothing in
+    the ledger.
     """
     _guard(x_colony)
     try:
@@ -1794,9 +1625,9 @@ INLINE_TYPES = {"image/png", "image/jpeg", "image/gif", "image/webp", "image/bmp
 def attachment(name: str) -> FileResponse:
     """Serve one stored file back to the page, for the thumbnail in the thread.
 
-    Anything outside `INLINE_TYPES` downloads instead of rendering, and every
-    response is sandboxed, so an uploaded .html or .svg cannot run on the
-    dashboard's origin.
+    Anything outside `INLINE_TYPES` downloads instead of rendering, and
+    every response is sandboxed, so an uploaded .html or .svg cannot run on
+    the dashboard's origin.
     """
     import mimetypes
 
@@ -1820,19 +1651,9 @@ def _thread_state(conn: sqlite3.Connection, escalation_id: int | None,
                   story_id: int | None) -> dict[str, Any] | None:
     """Whether the work this conversation is about can move, and what stops it.
 
-    "Blockers need to be put within this chat window, obviously color coded,
-    hard to know when there is something that needs to be changed."
-
-    The thread showed what had been *said* and nothing about where the story
-    stood, so the one fact that decides whether a reply matters, is this thing
-    stuck, and on what, lived two panels away. It is a row at the top of the
-    conversation now, and it carries its own severity so the page can colour it
-    without re-deriving any of this in JavaScript.
-
-    `moving` is returned as loudly as `blocked`, and that is deliberate. A
-    banner that only appears when something is wrong teaches you to read its
-    absence, and the absence of a banner is indistinguishable from a panel that
-    failed to load.
+    A row at the top of the conversation, with its own severity so the page
+    can colour it without re-deriving this. `moving` is returned too, so a
+    missing banner never has to mean "all clear".
     """
     if story_id is None and escalation_id:
         row = one(conn, "SELECT story_id FROM escalations WHERE id = ?", (escalation_id,))
@@ -1857,10 +1678,8 @@ def _thread_state(conn: sqlite3.Connection, escalation_id: int | None,
                                   AND (story_id = ? OR story_id IS NULL)""",
                       (s["project"], story_id))["n"]
 
-    # Worst first, because a colour has to mean the same thing every time it
-    # appears. `blocked` is "nothing moves until you answer this". `waiting` is
-    # "nothing moves until you decide, but nobody is stuck on you for words".
-    # `moving` is the good state.
+    # Worst first: `blocked` means nothing moves until the PO answers;
+    # `waiting` means it waits on a decision; `moving` is the good state.
     if s["dropped_at"] or s["settled_as"]:
         level = "settled"
         headline = f"this story is {s['settled_as'] or 'dropped'}. Nothing is running"
@@ -1888,9 +1707,8 @@ def _thread_state(conn: sqlite3.Connection, escalation_id: int | None,
              "text": q["recommendation"] or q["reason"], "raised_at": q["raised_at"]}
             for q in open_qs]
     if s["blocked_reason"] and not any(a["kind"] == "needs-info" for a in asks):
-        # Parked with the reason recorded on the story but no card standing for
-        # it. `pulse.ensure_blocked_visible` repairs that on the next tick; until
-        # it does, the reason is still the truth and belongs on screen.
+        # Parked with a reason but no card; `pulse.ensure_blocked_visible`
+        # repairs that next tick. The reason is shown until then.
         asks.insert(0, {"id": None, "kind": "needs-info",
                         "text": s["blocked_reason"], "raised_at": None})
     if s["project"] and s["project_source"] != "confirmed":
@@ -1919,13 +1737,9 @@ def thread(escalation_id: int | None = None, story_id: int | None = None) -> dic
 
 def _episode(conn: sqlite3.Connection, story_id: int | None,
              since: str, until: str) -> list[dict[str, Any]]:
-    """Everything that happened on a story between two moments, in one order.
-
-    The conversation is `control.conversation`, what was said, what was asked,
-    what was learned, and the rest of it is `story_events`: groomed, staffed,
-    blocked, decided, synced. They are merged rather than listed separately
-    because the order is the story, and reading a decision without the question
-    that came two rows above it is the failure this panel exists to fix.
+    """Everything that happened on a story between two moments, in one order:
+    the conversation from `control.conversation` merged with `story_events`,
+    because a decision reads wrong without the question before it.
     """
     if not story_id:
         return []
@@ -2018,11 +1832,9 @@ def completed_detail(kind: str, id: int) -> dict[str, Any]:
 
 @app.get("/api/phone")
 def api_phone(port: int = 8787) -> dict[str, Any]:
-    """Whether phone access is on, where it is, and the QR code for it.
-
-    Not part of `/api/state`, on purpose. Answering this shells out to Task
-    Scheduler and probes a socket, which is a tenth of a second the live feed
-    polls for every few seconds and nobody reads. The panel asks when it opens.
+    """Whether phone access is on, where, and the QR code. Not in `/api/state`,
+    because it shells out to Task Scheduler and probes a socket; the panel
+    asks when it opens.
     """
     out = phone_mod.state(port, pairing=True)
     out["svg"] = phone_mod.svg(port, pairing=True)
@@ -2031,11 +1843,8 @@ def api_phone(port: int = 8787) -> dict[str, Any]:
 
 @app.post("/api/act/phone")
 def act_phone(body: dict = Body(...), x_colony: str | None = Header(None)) -> dict[str, Any]:
-    """Turn phone access on or off. Not `_act`: this touches no ledger row.
-
-    `_act` opens a write transaction and holds it until the control function
-    returns; this one registers a scheduled task, which takes seconds of
-    PowerShell and would block every writer in the process for the duration.
+    """Turn phone access on or off. Not `_act`: registering the task takes
+    seconds of PowerShell and would hold the write lock that long.
     """
     _guard(x_colony)
     port = _num(body, "port", int, 8787)
@@ -2056,25 +1865,16 @@ def act_phone(body: dict = Body(...), x_colony: str | None = Header(None)) -> di
 @app.post("/api/act/phone-token")
 def act_phone_token(request: Request, body: dict = Body(...),
                     x_colony: str | None = Header(None)) -> dict[str, Any]:
-    """Rotate the access token. Every paired device is logged out by this.
+    """Rotate the access token, logging out every paired device.
 
-    Its own route rather than a flag on `act_phone`, for the same reason it is
-    its own function in `phone.py`: rotating is destructive to anything already
-    paired, and a destructive act reached by passing an extra key to the switch
-    is one that eventually gets passed by accident.
-
-    The QR code comes back with it, because the only sensible next action after
-    rotating is scanning the new one, and making that a second request is making
-    a person press two buttons to finish one thought.
+    Its own route so a destructive act cannot ride along as an extra key on
+    the switch. Returns the new QR code, since scanning it is the next step.
     """
     _guard(x_colony)
 
-    # Loopback only, and enforced here rather than only in the panel that hides
-    # the button. A rotate from the network logs the caller out in the middle of
-    # its own request: the write succeeds, the response comes back, and every
-    # call after it is a 401 -- which reads as the feature being broken rather
-    # than as it having worked. The desktop window is exempt for the same reason
-    # it is exempt from the token: it is on the machine holding the file.
+    # Loopback only, enforced here and not just in the panel. From the network,
+    # a rotate logs its caller out mid-request and every later call is a 401.
+    # The desktop window is exempt, as it is from the token.
     peer = request.client.host if request.client else ""
     if not access.is_loopback(peer):
         raise HTTPException(403, "rotating the token is only allowed from the "
@@ -2086,9 +1886,7 @@ def act_phone_token(request: Request, body: dict = Body(...),
     try:
         out = phone_mod.rotate(port, pairing=True)
     except OSError as exc:
-        # The write is atomic, so this means `.env` is unchanged and the old
-        # token still works. Say so, because "rotate failed" otherwise leaves
-        # someone wondering whether their phone is about to stop working.
+        # The write is atomic, so `.env` and the old token are unchanged.
         raise HTTPException(500, f"could not write .env, so the token is "
                                  f"unchanged and paired devices still work: {exc}")
     out["svg"] = phone_mod.svg(port, pairing=True)
@@ -2100,17 +1898,10 @@ def act_tailscale(request: Request, body: dict = Body(...),
                   x_colony: str | None = Header(None)) -> dict[str, Any]:
     """Run the Tailscale installer, or start a sign-in. Loopback only.
 
-    Both actions are about the machine rather than about the ledger, and both
-    are meaningless from the device they would be pressed on: an installer
-    launched from a phone opens a window on a desktop nobody is looking at, and
-    a sign-in URL is only useful to whoever can finish it. The stronger reason
-    is the shape of the action itself. This starts an executable off the disk
-    with a UAC prompt behind it, and that is not something a request arriving
-    over a network gets to do, however good its token is.
-
-    `do` is `install` or `login`. `login` comes back with a URL and the panel
-    draws it as a QR code, which is the nice accident in all of this: the phone
-    that needs Tailscale can point its camera at the screen and sign itself in.
+    Both act on the machine, and launching an executable behind a UAC prompt
+    is not something a network request may do, token or not. `do` is
+    `install` or `login`; `login` returns a URL the panel draws as a QR
+    code, so the phone can sign itself in.
     """
     _guard(x_colony)
 
@@ -2147,9 +1938,7 @@ def act_halt(body: dict = Body(...), x_colony: str | None = Header(None)) -> dic
 @app.post("/api/act/allowance")
 def act_allowance(body: dict = Body(...), x_colony: str | None = Header(None)) -> dict[str, Any]:
     _guard(x_colony)
-    # Two ways to say the same thing: a step off the baseline, or the number the
-    # PO typed into the box. The box is the one that does not require them to
-    # know what the baseline is.
+    # A step off the baseline, or a typed number.
     if "allowance" in body:
         return _act(control.set_allowance_pct, _num(body, "allowance", float))
     return _act(control.set_allowance, _num(body, "boost", float))
@@ -2157,11 +1946,8 @@ def act_allowance(body: dict = Body(...), x_colony: str | None = Header(None)) -
 
 @app.post("/api/act/pulse")
 def act_pulse(body: dict = Body(...), x_colony: str | None = Header(None)) -> dict[str, Any]:
-    """Beat now. Not `_act`: the pulse opens its own transaction on its own thread.
-
-    Running it inside `_act` would hold a write transaction open across a beat
-    that takes minutes, and the pulse's own `BEGIN` would then sit behind it
-    until the busy timeout gave up.
+    """Beat now. Not `_act`: a write transaction held across a minutes-long
+    beat would block the pulse's own `BEGIN`.
     """
     _guard(x_colony)
     conn = _rw()
@@ -2190,17 +1976,13 @@ def act_hire(body: dict = Body(...), x_colony: str | None = Header(None)) -> dic
 
 @app.get("/api/build")
 def api_build(request: Request) -> dict[str, Any]:
-    """Which build is answering, and from which process.
+    """Which build is answering, and from which process. Read by a second
+    launch deciding whether to attach to the dashboard on the port.
 
-    Read by a second launch deciding whether the dashboard already on the port
-    is worth attaching to. Outside `/api/act/*` because it changes nothing.
-
-    Behind the ordinary token gate, not on the public allowlist, because that
-    allowlist is what a phone gets before it has proved anything and every path
-    on it is a static file. This one costs nothing to gate: any bind that is not
-    loopback goes through `desktop.launch`, which binds loopback as well and
-    sets `TRUST_LOOPBACK` -- so the launch asking this question is always a
-    caller the gate already waves through.
+    Behind the token gate, not the public allowlist. That costs nothing: any
+    non-loopback bind goes through `desktop.launch`, which also binds
+    loopback and sets `TRUST_LOOPBACK`, so the asking launch always passes
+    the gate.
     """
     out: dict[str, Any] = {"stamp": BUILD_STAMP}
     peer = request.client.host if request.client else ""
@@ -2212,18 +1994,11 @@ def api_build(request: Request) -> dict[str, Any]:
 
 @app.post("/api/act/quit")
 def act_quit(request: Request, x_colony: str | None = Header(None)) -> dict[str, Any]:
-    """Stop this dashboard, so a newer one can have the port.
+    """Stop this dashboard so a newer one can have the port.
 
-    Loopback only, and that is not a formality. Everything else under
-    `/api/act/*` writes to a ledger you can read afterwards; this one ends the
-    process, and a phone on the tailnet fat-fingering it would take the
-    dashboard down with no way to bring it back from where it was pressed.
-
-    It refuses while an agent run is open. A run with no `ended_at` is a write
-    the colony has started and not finished, and pulling the interpreter out
-    from under one leaves a worktree and a half-written ticket behind. Waiting
-    is cheap; the alternative is the exact "did that just break something"
-    question a restart is supposed to never raise.
+    Loopback only, since a phone that pressed it could not bring the
+    dashboard back. Refused while an agent run is open, which would leave a
+    worktree and a half-written ticket.
     """
     _guard(x_colony)
     peer = request.client.host if request.client else ""
@@ -2243,11 +2018,8 @@ def act_quit(request: Request, x_colony: str | None = Header(None)) -> dict[str,
                             f"Stopping now would abandon the work mid-write. Wait for "
                             f"it to land, or halt production first.")
 
-    # After the response, not before it. `os._exit` skips the interpreter's
-    # shutdown entirely -- no atexit, no thread joins -- which is what is wanted
-    # from a process whose remaining threads are a uvicorn loop and a webview:
-    # both have something to say about being closed and neither is worth
-    # listening to when the whole point is that the port has to come free.
+    # After the response. `os._exit` skips shutdown (atexit, thread joins), so
+    # the port comes free at once.
     threading.Timer(0.4, lambda: os._exit(0)).start()
     return {"ok": True, "pid": os.getpid(), "stamp": BUILD_STAMP}
 
@@ -2257,19 +2029,13 @@ def act_second_opinion(body: dict = Body(...),
                        x_colony: str | None = Header(None)) -> dict[str, Any]:
     """Ask the orchestrator persona to audit one pending hire. Decides nothing.
 
-    Deliberately not a `decide` decision. Everything under `/api/act/decide`
-    answers a question and closes it; this one only writes a paragraph onto the
-    card and leaves the question exactly as open as it was. Keeping it off that
-    route is what makes "the second opinion cannot approve anything" true in the
-    code rather than only in the prompt.
-
-    It costs a full roster digest, so it runs when the PO presses the button and
-    never on a pulse.
+    Kept off `/api/act/decide`, so "the second opinion cannot approve
+    anything" holds in code, not only in the prompt. It costs a full roster
+    digest, so it runs only on the PO's button.
     """
     _guard(x_colony)
-    # Local import for the same reason the pulse endpoint does it: `wake` pulls
-    # in the agent runner, and a module-level import would make every dashboard
-    # start pay for it.
+    # Local import: `wake` pulls in the agent runner, which startup should not
+    # pay for.
     from . import wake as wake_mod
 
     conn = _rw()
@@ -2278,11 +2044,9 @@ def act_second_opinion(body: dict = Body(...),
         if terms is None:
             raise HTTPException(409, "no active investigator contract. Run "
                                      "`python -m colony init`")
-        # No BEGIN around this one. The run inside it takes minutes, and holding
-        # a write transaction open for that long blocks every other writer on the
-        # ledger, including the pulse. Each statement commits on its own; the
-        # worst interleaving leaves a finished research ticket whose paragraph
-        # never landed, which reads as "ask again" rather than as damage.
+        # No BEGIN: the run takes minutes and would block every writer. Each
+        # statement commits alone; the worst case is a research ticket whose
+        # paragraph never landed.
         return wake_mod.second_opinion(conn, _num(body, "escalation_id", int), terms)
     except control.Refused as exc:
         raise HTTPException(409, str(exc))
@@ -2418,12 +2182,7 @@ def skill(id: int) -> dict[str, Any]:
 
 @app.get("/api/roster/divisions")
 def api_roster_divisions() -> dict[str, Any]:
-    """The divisions that exist, so the import panel offers them before inventing.
-
-    Counted from the roster rather than from the two directories, because the
-    question the dropdown is answering is "where would this persona sit next to
-    the others", and "the others" means what the scan actually found.
-    """
+    """The divisions the roster scan found, for the import panel's dropdown."""
     conn = _conn()
     try:
         return {
@@ -2441,16 +2200,9 @@ def api_roster_divisions() -> dict[str, Any]:
 @app.post("/api/act/persona")
 def act_persona(body: dict = Body(...),
                 x_colony: str | None = Header(None)) -> dict[str, Any]:
-    """Write one persona of this machine's own, then re-scan.
-
-    Both halves matter. A write with no re-scan leaves a file on disk that the
-    Standby panel cannot see, which reads as the button having done nothing --
-    and the fix a person then reaches for is pressing it again, which now fails
-    with "already exists".
-
-    The file lands under `~/.colony-agents`, never in the agency-agents clone.
-    `roster.write_persona` carries the argument for that; the short version is
-    that the clone belongs to somebody else and `git pull` wins every argument.
+    """Write one of this machine's own personas, then re-scan, so Standby sees
+    it at once. It lands under `~/.colony-agents`, never in the
+    agency-agents clone (see `roster.write_persona`).
     """
     _guard(x_colony)
     try:
@@ -2477,11 +2229,8 @@ def act_persona(body: dict = Body(...),
 @app.post("/api/act/persona-delete")
 def act_persona_delete(body: dict = Body(...),
                        x_colony: str | None = Header(None)) -> dict[str, Any]:
-    """Delete one of this machine's own personas. Refuses agency ones.
-
-    Not guarded by loopback: unlike the console this destroys a text file that
-    the person on the phone wrote in the first place, and it cannot reach
-    anything the dashboard does not already show them.
+    """Delete one of this machine's own personas; agency ones are refused. Not
+    loopback-guarded: it only removes a text file the user wrote.
     """
     _guard(x_colony)
     slug = str(body.get("slug") or "")
@@ -2504,15 +2253,9 @@ def act_persona_delete(body: dict = Body(...),
 
 
 def _rescan(why: str) -> dict[str, Any]:
-    """Re-read both persona roots into the `roster` table.
-
-    Factored out because two routes need it and both need it to be the same
-    thing: the explicit rescan button, and the import panel, which would
-    otherwise leave a file on disk the Standby panel cannot see.
-
-    `why` prefixes the ledger note. The counts are appended here rather than
-    passed in, so that the audit line says what actually changed rather than
-    what the caller expected to change.
+    """Re-read both persona roots into `roster`. Shared by the rescan button
+    and the import panel. `why` prefixes the ledger note, and the counts
+    appended are the actual changes.
     """
     conn = _rw()
     try:
@@ -2536,12 +2279,8 @@ def _rescan(why: str) -> dict[str, Any]:
 
 @app.post("/api/act/rescan")
 def act_rescan(x_colony: str | None = Header(None)) -> dict[str, Any]:
-    """Re-read both persona roots. The one write that isn't a decision.
-
-    It changes only the `roster` table, résumés, not employees, and a persona
-    whose file changed upstream is something the PO should see rather than
-    discover the next time they hire. Also the way a persona added by hand, in
-    an editor, outside the dashboard, becomes visible without a restart.
+    """Re-read both persona roots. Changes only `roster`, so upstream edits and
+    hand-added personas show without a restart.
     """
     _guard(x_colony)
     try:
@@ -2552,26 +2291,17 @@ def act_rescan(x_colony: str | None = Header(None)) -> dict[str, Any]:
 
 
 # -- the console ---------------------------------------------------------------
-# The one part of this server that is not a window onto the colony. These four
-# routes are the PO's own terminal, and `console.py` explains at length why they
-# are allowed to do what every other route on this server is built to prevent.
+# These routes are the PO's own terminal; `console.py` explains why they may do
+# what the rest of this server prevents.
 #
-# They do not go through `_act`. `_act` opens a transaction and holds it until
-# the control function returns; `console.send` starts a thread that immediately
-# wants the same write lock, so the two would sit waiting on each other for the
-# five seconds of `busy_timeout` before one of them lost. The ledger connection
-# is autocommit, so each statement here lands on its own.
+# They skip `_act`: `console.send` starts a thread that wants the write lock
+# `_act` would be holding. The ledger connection is autocommit.
 
 
-# Whether the console answers from anywhere, or only from this machine. Read at
-# import from `.env` as well as the environment, and changed at runtime by
-# `act_console_remote` -- which is the only thing allowed to change it, and
-# which writes the file back so the answer survives a restart.
-#
-# It is deliberately not re-read per request. A boundary that moves the moment
-# a file changes on disk is one that can be moved by an editor left open in the
-# background, with nothing anywhere to say when. Every change to it now goes
-# through one route, and that route writes a ledger note.
+# Whether the console answers from anywhere or only from this machine. Read at
+# import, and changed only by `act_console_remote`, which writes `.env` and a
+# ledger note. Not re-read per request, so an open editor cannot move the
+# boundary silently.
 CONSOLE_REMOTE = (db._env_value("COLONY_CONSOLE_REMOTE") or "").strip().lower() \
     in {"1", "true", "yes", "on"}
 
@@ -2583,19 +2313,11 @@ def _console_conn() -> sqlite3.Connection:
 def _at_the_desk(request: Request) -> bool:
     """True when the request came from the machine the colony runs on.
 
-    Not the same question as "is this loopback", which is what it used to ask.
-    The logon task binds `--host auto`, a tailnet or LAN address and nothing
-    else, so the desktop window opens that address too -- and a connection made
-    on this machine to this machine's own address arrives with that address as
-    its peer, not `127.0.0.1`. The console then refused to take a message from
-    the desktop it was running on, and told the person to go and turn it on
-    from the desktop, which is where they were. `net.is_this_machine` carries
-    the argument for why answering the wider question is not a weaker check.
-
-    `access.is_loopback("")` is True by design -- for the token gate, a peer the
-    server cannot identify should fall back to *asking for a token*, which is
-    the safe side there. Every caller here wants the other side, so the empty
-    case is spelled out once rather than borrowed four times.
+    Not the same as loopback: with `--host auto`, the desktop window
+    connects to this machine's own tailnet or LAN address and arrives with
+    that as its peer. See `net.is_this_machine`. The empty peer counts as
+    not this machine, the opposite of `access.is_loopback("")`, which wants
+    a token prompt there.
     """
     peer = request.client.host if request.client else ""
     return bool(peer) and net.is_this_machine(peer)
@@ -2604,26 +2326,14 @@ def _at_the_desk(request: Request) -> bool:
 def _desk_only(request: Request) -> None:
     """Refuse a console write that did not come from this machine.
 
-    Every other route on this server is a window onto a ledger: the worst a
-    stolen access token buys is reading the board and pressing approve. The
-    console is not that. It spawns `claude` with no worktree, no tool
-    restrictions and no PO gate -- it is deliberately a shell -- so the same
-    stolen token buys arbitrary code execution on the machine holding `.env`,
-    which holds the Notion token. The difference in blast radius between those
-    two is the entire reason this function exists.
+    A stolen access token elsewhere buys reading the board and pressing
+    approve. Here it would buy a shell (`claude` with no worktree, tool
+    limits or PO gate) on the machine holding `.env`. The token crosses the
+    LAN over plain HTTP, so the shell is scoped to the peer address, like
+    token rotation.
 
-    That token crosses a home LAN over plain HTTP. It is in the first URL, and
-    anything on the same network can read it off the wire. Which is an
-    acceptable risk for a dashboard and not an acceptable one for a shell.
-
-    So the shell is scoped to the peer address rather than to the token, the
-    same way the token rotation route is (`act_phone_token`), and for the same
-    reason: some actions should not be reachable by anything that can be copied.
-
-    `act_console_remote` lifts it, for the person who has read this and wants
-    the console on their phone anyway. That switch is itself desk-only in the
-    direction that loosens, which is the property that makes it safe to be a
-    button at all: a stolen token cannot turn off the thing that is stopping it.
+    `act_console_remote` lifts this, and only from the desk, so a stolen
+    token cannot turn it off.
     """
     if CONSOLE_REMOTE:
         return
@@ -2641,27 +2351,13 @@ def act_console_remote(request: Request, body: dict = Body(...),
                        x_colony: str | None = Header(None)) -> dict[str, Any]:
     """Move the console's address boundary, and write the move to `.env`.
 
-    The asymmetry is the design, and it is the answer to the obvious objection
-    to putting this behind a button at all -- that a switch which disables a
-    security boundary is worthless if whoever gets past the boundary can flip
-    it:
+      * **Turning it on is desk-only**, since loosening is what the boundary
+        prevents.
+      * **Turning it off works from anywhere**, since tightening is always safe.
 
-      * **Turning it on is desk-only.** Loosening the boundary is exactly the
-        thing the boundary exists to prevent, so it can only be done from the
-        machine that is already trusted. A token read off the wire buys nothing
-        here either.
-      * **Turning it off works from anywhere.** Tightening is always safe, and
-        the moment you want it is the moment you are away from the desk and have
-        realised the phone in your pocket can open a shell at home. Making that
-        wait until you are back at the desk would be the wrong way round.
-
-    The general rule, which is worth keeping if a third switch ever appears: you
-    may tighten from anywhere and loosen only from the desk.
-
-    `.env` is rewritten so the choice survives a restart, and the in-process
-    value is set so it does not *need* one. `db.set_env_value` touches only the
-    `COLONY_CONSOLE_REMOTE=` line, which matters because the Notion token is in
-    the same file.
+    The rule for any future switch: tighten from anywhere, loosen only from
+    the desk. `db.set_env_value` touches only the `COLONY_CONSOLE_REMOTE=`
+    line; the in-process value changes too, so no restart is needed.
     """
     _guard(x_colony)
     on = bool(body.get("on"))
@@ -2699,10 +2395,9 @@ def api_console(request: Request) -> dict[str, Any]:
     conn = _conn()
     try:
         desk = _at_the_desk(request)
-        # Read is allowed from anywhere the token is: watching what the console
-        # did is a window onto the machine, which is what the rest of this server
-        # already is. Only sending is scoped. `writable` is how the panel knows
-        # to draw an explanation instead of an input box -- see `_desk_only`.
+        # Reading is allowed wherever the token is; only sending is scoped.
+        # `writable` tells the panel to show an explanation instead of an
+        # input.
         return {**console_mod.state(conn),
                 "writable": CONSOLE_REMOTE or desk,
                 "remote": CONSOLE_REMOTE,
@@ -2791,16 +2486,9 @@ async def events() -> StreamingResponse:
 
 
 # ── the gate ──────────────────────────────────────────────────────────────────
-#
-# Off by default and off forever on a loopback bind: `serve()` only turns this
-# on when it is handed an address that is reachable from somewhere else, and
-# `access.check` refuses that bind outright unless a token is configured. On the
-# desktop, where this server has spent its whole life, nothing below runs.
-#
-# What it guards is everything. There is no useful public half of this page: the
-# board names projects, the drawers hold run transcripts, and `/api/state` is
-# the whole ledger in one response. The exceptions are the three files a phone
-# needs in order to show the login at all, plus the icons, which are a logo.
+# Off by default and never on a loopback bind: `serve()` enables it only for a
+# reachable address, and `access.check` refuses that bind without a token. It
+# guards everything except what a phone needs to show the login, plus icons.
 
 PUBLIC_PATHS = {"/login", "/manifest.webmanifest", "/sw.js", "/favicon.ico",
                 "/icon-192.png", "/icon-512.png", "/icon-maskable-512.png"}
@@ -2809,21 +2497,13 @@ PUBLIC_PATHS = {"/login", "/manifest.webmanifest", "/sw.js", "/favicon.ico",
 # middleware has to be able to answer "am I on?" before anything else runs.
 REQUIRE_TOKEN = False
 
-# Set by `serve_extra`, and only there. It says something narrower than it
-# sounds: this process is serving loopback *as well as* a network address, and
-# the loopback socket was open, unguarded, before the network one existed.
-# Demanding a token from it now would log out the desktop dashboard that the
-# phone switch was pressed in -- and would be demanding a secret from a caller
-# who can read the file the secret is in.
+# Set only by `serve_extra`: this process serves loopback as well as a network
+# address, and the loopback socket was open before. A token demanded there
+# would log out the desktop window, a caller that can read the token's file.
 #
-# It stays False for a plain `serve()`, where no loopback socket exists and a
-# loopback peer therefore cannot arrive. That is not a technicality: it means a
-# server bound only to the network never trusts an address, only the token.
-#
-# `desktop.launch` now calls `serve_extra(HOST, port)` after any network bind,
-# so the headless logon task reaches this too. Same argument, same conclusion:
-# the loopback socket it opens is reachable only by something already running
-# on the machine that holds `.env`.
+# A plain `serve()` leaves it False, so a network-only server trusts only the
+# token. `desktop.launch` calls `serve_extra(HOST, port)` after any network
+# bind, so the logon task gets the same treatment.
 TRUST_LOOPBACK = False
 
 LOGIN_PAGE = """<!doctype html>
@@ -2863,9 +2543,7 @@ LOGIN_PAGE = """<!doctype html>
 def _login_page(*, error: str = "", next_path: str = "/") -> HTMLResponse:
     html = LOGIN_PAGE.replace(
         "__ERROR__", f'<p class="bad">{error}</p>' if error else "")
-    # The only value that reaches the page is a path this server produced, but
-    # it is still quoted rather than trusted -- a value interpolated into markup
-    # is a value that gets escaped, every time, or the rule stops being a rule.
+    # Escaped even though this server produced the path.
     return HTMLResponse(html.replace("__NEXT__", html_escape(next_path or "/")),
                         headers={"Content-Security-Policy": PAGE_CSP})
 
@@ -2875,16 +2553,12 @@ async def gate(request: Request, call_next):
     if not REQUIRE_TOKEN or request.url.path in PUBLIC_PATHS:
         return await call_next(request)
 
-    # See `TRUST_LOOPBACK`. This is a peer address, not a header:
-    # `X-Forwarded-For` is not consulted and must not be, because it is a claim
-    # made by the caller and anyone could assert they were loopback.
+    # A peer address, not `X-Forwarded-For`, which the caller controls.
     if TRUST_LOOPBACK and request.client and access.is_loopback(request.client.host):
         return await call_next(request)
 
-    # A link or QR code carries either a one-time pairing code or, from the
-    # CLI, the token itself. Both are swapped for the cookie and answered with
-    # a redirect to the same page without them, so neither stays in the
-    # address bar or the history.
+    # A pairing code or token in the URL is swapped for the cookie and
+    # redirected away, so neither stays in the address bar or history.
     peer = request.client.host if request.client else ""
     pair = request.query_params.get("pair")
     via_url = request.query_params.get("k")
@@ -2899,10 +2573,8 @@ async def gate(request: Request, call_next):
     supplied = request.cookies.get(access.COOKIE) or via_url
     ok = access.matches(supplied)
 
-    # Recorded before the answer goes out, and on both paths. The Phone panel
-    # reads this to say whether anything off this machine has arrived at all,
-    # which is the one fact that separates a network dropping the packet from a
-    # token being wrong. See `access.note_arrival`.
+    # Recorded on both paths, so the Phone panel can tell a dropped packet from
+    # a wrong token. See `access.note_arrival`.
     access.note_arrival(peer, ok)
 
     if ok:
@@ -2911,13 +2583,9 @@ async def gate(request: Request, call_next):
             _set_cookie(response, supplied, request)
         return response
 
-    # Only a navigation answers with the login page itself. Everything else --
-    # an API call, a stylesheet, a script -- answers with a status the caller
-    # can act on. Handing the login page's HTML to `fetch` shows up as a JSON
-    # parse error three layers from the cause, and handing it to a
-    # `<script src>` shows up as a syntax error on line 1 of a file that is
-    # fine. A browser asks for `text/html` on a navigation and on nothing else,
-    # which is a better test than a list of paths that would need maintaining.
+    # Only a navigation (Accept: `text/html`) gets the login page. Anything
+    # else gets a status, since login HTML handed to `fetch` or `<script src>`
+    # surfaces as a confusing parse error.
     wants_page = ("text/html" in request.headers.get("accept", "")
                   and not request.url.path.startswith("/api/"))
     if wants_page:
@@ -2926,10 +2594,8 @@ async def gate(request: Request, call_next):
                     media_type="application/json")
 
 
-# Registered after `gate`, so it runs first. The token gate and `_desk_only`
-# both reason about who is connecting; this one is about which page. A request
-# whose Host is not this machine is a DNS rebinding attempt, and a write whose
-# Origin is another site is a cross-site request.
+# Registered after `gate`, so it runs first. A Host that is not this machine is
+# DNS rebinding; a write from another Origin is cross-site.
 @app.middleware("http")
 async def same_host(request: Request, call_next):
     host = request.headers.get("host")
@@ -2954,10 +2620,9 @@ def _without_key(request: Request) -> str:
 
 
 def _is_https(request: Request) -> bool:
-    """Whether the browser reached us over HTTPS, directly or via `tailscale serve`.
-
-    The forwarded header is a claim, but the only thing it decides is whether
-    the cookie gets the stricter Secure flag, so a false claim costs nothing.
+    """Whether the browser reached us over HTTPS, directly or via `tailscale
+    serve`. The forwarded header only decides the cookie's Secure flag, so a
+    false claim costs nothing.
     """
     return (request.url.scheme == "https"
             or request.headers.get("x-forwarded-proto", "").lower() == "https")
@@ -2972,9 +2637,7 @@ def _set_cookie(response: Response, value: str, request: Request) -> None:
 
 @app.post("/login")
 async def login(request: Request) -> Response:
-    # Parsed by hand rather than with `await request.form()`, which pulls in
-    # `python-multipart`. One login form is not worth a fifth runtime
-    # dependency in a project whose whole install story is four packages.
+    # Parsed by hand to avoid a `python-multipart` dependency.
     raw = (await request.body()).decode("utf-8", "replace")
     form = urllib.parse.parse_qs(raw, keep_blank_values=True)
     supplied = (form.get("token") or [""])[0]
@@ -2991,9 +2654,8 @@ async def login(request: Request) -> Response:
 
 def serve(host: str = "127.0.0.1", port: int = 8787) -> None:
     """Run the dashboard. Non-loopback binds require an access token.
-
-    `access.check` raises rather than returning False for the unsafe case, so
-    there is no way to reach `uvicorn.run` with an open server.
+    `access.check` raises for the unsafe case, so `uvicorn.run` never starts
+    an open server.
     """
     global REQUIRE_TOKEN
     REQUIRE_TOKEN = access.check(host)
@@ -3004,20 +2666,14 @@ def serve(host: str = "127.0.0.1", port: int = 8787) -> None:
 
 
 def serve_extra(host: str, port: int) -> None:
-    """Bind a second address in this process, on the app already running.
+    """Bind a second address in this process, on the running app.
 
-    The phone switch is pressed on a page served by a dashboard that is already
-    up on loopback. Installing the logon task makes the network address work at
-    the *next* logon, which is not what someone who just pressed a button means
-    by on -- so the running process opens the second socket itself, and the QR
-    code on screen works before it is scanned.
+    The phone switch should work now, not at next logon, so the running
+    process opens the second socket and the QR code works at once. One app,
+    two sockets: no second connection pool, event stream or pulse.
 
-    One app, two sockets. Nothing is duplicated: no second ledger connection
-    pool, no second event stream, and no second pulse, because the pulse is a
-    scheduled task and has never lived in the server.
-
-    Raises `access.Unconfigured` before binding anything if there is no token,
-    and `OSError` if the address is taken.
+    Raises `access.Unconfigured` before binding if there is no token, and
+    `OSError` if the address is taken.
     """
     import uvicorn
 
@@ -3033,24 +2689,17 @@ def serve_extra(host: str, port: int) -> None:
         try:
             server.run()
         except SystemExit:
-            # A failed bind. uvicorn has already logged one ERROR line saying
-            # which address and why; letting `SystemExit` escape a thread makes
-            # the interpreter print an "Exception in thread" traceback on top of
-            # it, which lands in the same log the person debugging this reads.
-            # `_wait_for_port` below is what actually decides the outcome.
+            # A failed bind; uvicorn has logged it. Swallowing `SystemExit`
+            # avoids a second traceback. `_wait_for_port` decides the outcome.
             pass
 
-    # `Server.run` builds its own event loop, which is why this needs a thread
-    # of its own rather than a task on the loop already running the first
-    # socket. Uvicorn skips signal handling off the main thread on purpose.
+    # `Server.run` builds its own event loop, so it needs its own thread.
     thread = threading.Thread(target=_run, daemon=True,
                               name=f"colony-serve-{host}")
     thread.start()
 
-    # A bind that fails does so inside the thread, where uvicorn logs it and
-    # exits -- and the caller, having started a thread successfully, would go on
-    # to report the phone switch on. So the socket is proven from the outside
-    # before this returns.
+    # A failed bind dies inside the thread, so the socket is checked from
+    # outside before reporting success.
     if not _wait_for_port(host, port, timeout_s=8.0):
         raise OSError(f"could not start serving {host}:{port}. "
                       "something else is probably bound to it")
