@@ -640,7 +640,7 @@ def _colony_writes(conn: sqlite3.Connection, start: str, end: str) -> set[str]:
     useful part. Everything moving outside it moved for a reason that is not the
     colony: an application rewriting its own config, a build step, an editor,
     them. A log that reports movement without saying that much invites the reading
-    The PO actually had, which was that the colony had been in their folders.
+    the PO actually had, which was that the colony had been in their folders.
     """
     return {
         r["project"] for r in conn.execute(

@@ -37,7 +37,7 @@ RESEARCH_STATUS = "Exploring"
 # The other five options on the Notion select, and what they mean here.
 #
 # Only two of the seven statuses are an instruction to the colony. The rest are
-# The PO filing something — finished, parked, or not begun — and a row being
+# the PO filing something — finished, parked, or not begun — and a row being
 # filed is the *absence* of a request. Treating them as work was the loop's
 # loudest mistake: an idea the PO wrote down and left alone came back an hour
 # later as a question in their Inbox asking which folder it belonged to, which is

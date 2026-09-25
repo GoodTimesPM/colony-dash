@@ -353,7 +353,7 @@ def _board(conn: sqlite3.Connection) -> dict[str, Any]:
             ORDER BY dropped_at DESC LIMIT 20""",
     )
     # Filed, not dropped, and the difference is who decided. A dropped story is
-    # The PO overruling their own board from here; a settled one is the board
+    # the PO overruling their own board from here; a settled one is the board
     # itself saying the work is done, shelved or not begun. Both are hidden by
     # default and both keep a count in the header, because the count is the only
     # thing that tells you there is anything behind the toggle.
@@ -627,7 +627,7 @@ def _ready(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     It also carries what is still in the way. `control.dispatch` enforces three
     preconditions and the only way to discover which one you have failed was to
     press the button and read the refusal. Approving the criteria is the moment
-    The PO thinks the work has started; a tile that says "ready — except nobody
+    the PO thinks the work has started; a tile that says "ready — except nobody
     is hired to write in that folder" is the difference between a colony that is
     waiting on them and a colony they believe is working.
     """
@@ -834,7 +834,7 @@ def _spend(conn: sqlite3.Connection) -> dict[str, Any]:
     return {"by_role": by_role}
 
 
-# ── the spend series ────────────────────────────────────────────────────────
+# ── the spend series ──────────────────────────────────────────────────────────
 # Every timestamp in the ledger is `datetime('now','localtime')`, so there is no
 # timezone to reconcile here: the strings are already in the wall-clock the PO
 # reads them in, and the buckets are cut on the same clock.
@@ -1202,7 +1202,7 @@ def boot_js(request: Request) -> Response:
     return _asset("boot.js", "text/javascript; charset=utf-8", request)
 
 
-# ── the phone ────────────────────────────────────────────────────────────────
+# ── the phone ─────────────────────────────────────────────────────────────────
 #
 # The dashboard was already a web page; these four routes are what let a phone
 # treat it as an app rather than as a tab. The manifest gives it a name and an
@@ -1591,21 +1591,11 @@ def _diffstat(patch: str, scope: list[str] | None = None) -> dict[str, Any]:
 
 @app.get("/api/patch")
 def api_patch(escalation_id: int = Query(..., ge=1)) -> dict[str, Any]:
-    """Everything there is to know about a patch before approving it.
+    """Everything the approval drawer shows about a patch.
 
-    "once i get a write approval task on the patch page, give me a brief
-     rundown of what was changed along with the details of changed file amounts
-     and all the statistics"
-
-    The drawer used to show the escalation's own two sentences and then a grey
-    box reading "the patch is on disk at the path above", which is the dashboard
-    telling the PO to go and open a file in another program {D} at the one gate
-    where reading before deciding is the entire point.
-
-    Four things come back, from three places, because no single one of them has
-    the whole picture: what the build says it did (the ticket's findings JSON,
-    written by the agent), what the diff actually contains (counted here), what
-    it cost (the run row), and the patch text itself.
+    What the build says it did (the ticket's findings, written by the agent),
+    what the diff contains (counted here), what it cost (the run row), and the
+    patch text itself.
     """
     with _conn() as conn:
         esc = one(conn, "SELECT * FROM escalations WHERE id = ?", (escalation_id,))
@@ -1622,9 +1612,8 @@ def api_patch(escalation_id: int = Query(..., ge=1)) -> dict[str, Any]:
                   "SELECT * FROM runs WHERE ticket_id = ? ORDER BY id DESC LIMIT 1",
                   (ticket_id,)) if ticket_id else None
 
-    # The agent's own account of the work. It is a claim, not a finding {D} the
-    # diff below is what actually happened {D} but it is the only thing that can
-    # say which acceptance criteria it believes it met and what it skipped.
+    # The agent's own account of the work. The diff below is what happened; this
+    # is the only place that says which criteria it believes it met.
     report: dict[str, Any] = {}
     if ticket and ticket.get("findings"):
         try:
@@ -1785,7 +1774,7 @@ def upload(body: dict = Body(...), x_colony: str | None = Header(None)) -> dict[
     Uploading is separate from replying so a paste can land the moment it
     happens: a screenshot appears in the composer as a thumbnail you can look at
     and remove, rather than as a promise that something got attached. An upload
-    The PO then abandons leaves a file in `.colony/attachments/` and nothing in
+    the PO then abandons leaves a file in `.colony/attachments/` and nothing in
     the ledger, which is the harmless direction for that trade to fail in.
     """
     _guard(x_colony)
@@ -2362,7 +2351,7 @@ def act_retire_skill(body: dict = Body(...),
     return _act(control.retire_skill, _num(body, "skill_id", int), str(body.get("reason") or ""))
 
 
-# ── M5: dropping, and talking back to Notion ─────────────────────────────────
+# ── M5: dropping, and talking back to Notion ──────────────────────────────────
 
 
 @app.post("/api/act/drop")
@@ -2801,7 +2790,7 @@ async def events() -> StreamingResponse:
     )
 
 
-# ── the gate ─────────────────────────────────────────────────────────────────
+# ── the gate ──────────────────────────────────────────────────────────────────
 #
 # Off by default and off forever on a loopback bind: `serve()` only turns this
 # on when it is handed an address that is reachable from somewhere else, and

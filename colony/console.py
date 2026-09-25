@@ -167,7 +167,7 @@ def commands() -> list[dict]:
     """Every slash command this console can actually send, read off disk.
 
     Hard-coding a menu of skills would mean the dropdown lies the first time
-    The PO installs one. So: the verified built-ins, then whatever is on disk
+    the PO installs one. So: the verified built-ins, then whatever is on disk
     under the user's skills and commands folders, the project's `.claude`, and
     the installed plugin marketplaces. Names only -- the dropdown pastes text
     into the box, it does not run anything.

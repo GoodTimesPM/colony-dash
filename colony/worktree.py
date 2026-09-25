@@ -8,8 +8,8 @@ we are about to delete.
 
 The handoff back is a **patch, not a merge**. When the run finishes we take a
 diff, park it in `.colony/patches/`, and raise a `write-approval` escalation. If
-The PO approves, the patch is applied to the live tree and left **uncommitted** —
-The PO reviews it in their own editor and commits it themselves. The colony never
+the PO approves, the patch is applied to the live tree and left **uncommitted** —
+the PO reviews it in their own editor and commits it themselves. The colony never
 runs `git commit` on master, never pushes, and never rewrites history. That is
 not a policy the agents are asked to follow; it is a capability they were not
 given (ARCHITECTURE.md §8.3).

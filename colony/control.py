@@ -43,7 +43,7 @@ HALT_FILE = db.RUNTIME_DIR / "HALT"
 # nobody chose for a reason, and short enough to cut a list of acceptance
 # criteria in half: the last bullet of story #1 reached the PO as "The weekly
 # command runs and pr". A card cut in the middle reads as the whole ask, so
-# The PO answers a question they have not seen the end of.
+# the PO answers a question they have not seen the end of.
 CARD_TEXT = 8000
 
 
@@ -161,7 +161,7 @@ def halt(conn: sqlite3.Connection, on: bool, reason: str = "") -> dict[str, Any]
     return {"halted": on, "reason": reason}
 
 
-# ── forcing a beat ─────────────────────────────────────────────────────────────
+# ── forcing a beat ────────────────────────────────────────────────────────────
 #
 # The heartbeat is a Windows scheduled task that fires at :07 every hour and
 # knows nothing about this module. Forcing a pulse does not touch it: the
@@ -1394,7 +1394,7 @@ def create_story(conn: sqlite3.Connection, *, title: str, description: str = "",
     Named project folders are treated as **confirmed**, not inferred, and that is
     the one substantive difference from a row arriving out of Notion. An inferred
     folder is the colony's guess and can never authorise a write (§8.2); a folder
-    The PO typed into this form is the PO saying so, which is the same act
+    the PO typed into this form is the PO saying so, which is the same act
     `confirm_project` records. A story filed with no folder gets the identical
     needs-info escalation intake would have raised, because it is the identical
     question.
