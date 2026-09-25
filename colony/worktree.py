@@ -27,17 +27,13 @@ import subprocess
 from pathlib import Path
 
 from . import db, proc as proc_mod
+from .secretfiles import is_secret
 
 ROOT = db.PROJECTS_ROOT
 WORKTREE_DIR = db.RUNTIME_DIR / "worktrees"
 PATCH_DIR = db.RUNTIME_DIR / "patches"
 BASE_DIR = db.RUNTIME_DIR / "bases"
 GIT_TIMEOUT_S = 120
-
-# Files a contract with `sees_secrets` gets a copy of. Names, not patterns: a
-# pattern eventually matches something nobody meant to hand over.
-SECRET_NAMES = (".env", ".env.local", ".env.development", "credentials.json",
-                "service-account.json", "secrets.toml")
 
 # One untracked file bigger than this is not source, and copying it into every
 # worktree costs more than it is worth. `personal-desktop-projects` holds
@@ -164,7 +160,7 @@ def _ignored_in(scope: list[str]) -> tuple[list[str], list[str]]:
     for rel in (p for p in raw.split("\0") if p):
         if SEED_SKIP_DIRS & set(rel.split("/")):
             continue
-        if rel.rsplit("/", 1)[-1] in SECRET_NAMES:
+        if is_secret(rel):
             continue
         folder = next((f for f in scope if rel == f or rel.startswith(f + "/")), "")
         rest = rel[len(folder):].lstrip("/")
@@ -197,7 +193,7 @@ def _secret_files(scope: list[str]) -> list[str]:
         if not base.is_dir():
             continue
         for path in base.rglob("*"):
-            if path.name not in SECRET_NAMES or not path.is_file():
+            if not is_secret(path.name) or not path.is_file():
                 continue
             if SEED_SKIP_DIRS & set(path.relative_to(ROOT).parts):
                 continue
@@ -313,7 +309,7 @@ def _drop_secrets(ticket_id: int) -> None:
     """
     path = path_for(ticket_id)
     for found in list(path.rglob("*")):
-        if found.name in SECRET_NAMES and found.is_file():
+        if is_secret(found.name) and found.is_file():
             try:
                 found.unlink()
             except OSError:

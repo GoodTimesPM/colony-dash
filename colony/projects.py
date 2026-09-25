@@ -26,6 +26,7 @@ import subprocess
 from pathlib import Path
 
 from . import db, proc as proc_mod
+from .secretfiles import is_secret
 
 ROOT = db.PROJECTS_ROOT
 GIT_TIMEOUT_S = 25
@@ -300,18 +301,11 @@ def diff(project: str, path: str | None = None) -> str:
 # and a dashboard is a tier.
 HIDDEN_NAMES = {".git", "node_modules", "__pycache__", ".venv", "venv",
                 ".mypy_cache", ".pytest_cache", ".ruff_cache"}
-SECRET_NAMES = {".env", ".env.local", ".env.production", "credentials.json",
-                "token.json", "secrets.json", ".npmrc", ".netrc", "id_rsa"}
 READ_LIMIT_BYTES = 400_000
 TEXT_SUFFIXES = {".md", ".txt", ".py", ".js", ".ts", ".tsx", ".jsx", ".json", ".html",
                  ".css", ".yml", ".yaml", ".toml", ".ini", ".cfg", ".sql", ".sh",
                  ".ps1", ".cmd", ".bat", ".xml", ".csv", ".lua", ".c", ".h", ".cpp",
                  ".cs", ".java", ".rb", ".go", ".rs", ".gitignore", ".env.example"}
-
-
-def is_secret(name: str) -> bool:
-    low = name.lower()
-    return low in SECRET_NAMES or low.startswith(".env")
 
 
 def safe_path(rel: str) -> Path:
@@ -327,6 +321,10 @@ def safe_path(rel: str) -> Path:
     if full != root and root not in full.parents:
         raise ValueError("outside the projects root")
     parts = [p for p in rel.split("/") if p]
+    if full != root:
+        # The resolved parts too, so a symlink named notes.txt that points at a
+        # .env is refused like the .env itself.
+        parts += full.relative_to(root).parts
     if any(p in HIDDEN_NAMES or is_secret(p) for p in parts):
         raise ValueError("not a path this dashboard will open")
     return full
