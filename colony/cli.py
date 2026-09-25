@@ -1,4 +1,4 @@
-"""`python -m colony <command>` — inspect and operate the ledger.
+"""`python -m colony <command>`. Inspect and operate the ledger.
 
 The dashboard (M2) is a read view over exactly these queries. Until it exists,
 this is the whole UI.
@@ -17,8 +17,8 @@ from pathlib import Path
 from . import db, roster as roster_mod, seed as seed_mod, usage as usage_mod
 
 # Dollars are always the grayed secondary; tokens are the unit. ARCHITECTURE.md §6.
-# Piped output gets no escapes — a log file full of \033[2m is worse than plain text.
-# `sys.stdout` is None under pythonw.exe — no console exists at all — and this
+# Piped output gets no escapes. A log file full of \033[2m is worse than plain text.
+# `sys.stdout` is None under pythonw.exe, no console exists at all, and this
 # line runs at import, before main() can repair anything. A windowed launch died
 # here with exit code 1 and no traceback anywhere: the one stream that would
 # have reported the problem was the problem.
@@ -92,7 +92,7 @@ def cmd_status(conn: sqlite3.Connection, args) -> int:
             (sprint["starts_at"] or sprint["starts_on"] + " 00:00:00",
              sprint["ends_at"] or sprint["ends_on"] + " 00:00:00"),
         ).fetchone()
-        rule(f"{sprint['name']} — {sprint['goal'] or 'no goal set'}")
+        rule(f"{sprint['name']}: {sprint['goal'] or 'no goal set'}")
         print(f"  {sprint['starts_at'] or sprint['starts_on']} → "
               f"{sprint['ends_at'] or sprint['ends_on']}"
               f"   allowance {sprint['budget_pct']:.0f}% of week")
@@ -111,7 +111,7 @@ def cmd_status(conn: sqlite3.Connection, args) -> int:
     elif usage:
         print(f"  week   {usage['seven_day_pct']:.1f}% used   resets {usage['seven_day_resets_at']}")
     else:
-        print(f"  week   {DIM}no usage sample yet — see ARCHITECTURE.md §6.2{RESET}")
+        print(f"  week   {DIM}no usage sample yet. See ARCHITECTURE.md §6.2{RESET}")
 
     rule("board")
     counts = conn.execute("SELECT status, COUNT(*) n FROM stories GROUP BY status").fetchall()
@@ -136,7 +136,7 @@ def cmd_status(conn: sqlite3.Connection, args) -> int:
         "SELECT * FROM escalations WHERE resolved_at IS NULL ORDER BY raised_at DESC"
     ).fetchall()
     if not open_esc:
-        print(f"  {DIM}empty — nothing needs you{RESET}")
+        print(f"  {DIM}empty. Nothing needs you{RESET}")
     for e in open_esc:
         print(f"  [{e['kind']}] {e['reason']}")
         if e["recommendation"]:
@@ -267,7 +267,7 @@ def cmd_halt(conn: sqlite3.Connection, args) -> int:
     on = args.command == "halt"
     out = control.halt(conn, on, args.reason if on else "")
     conn.commit()
-    print("production halted — the pulse keeps beating, it just stops spending"
+    print("production halted. The pulse keeps beating, it just stops spending"
           if on else "production resumed")
     if out.get("flag"):
         print(f"{DIM}flag: {out['flag']}{RESET}")
@@ -346,7 +346,7 @@ def cmd_forge(conn: sqlite3.Connection, args) -> int:
             print(f"refused: {exc}")
             return 1
         conn.commit()
-        print(f"queued   {out['slug']} — {out['outcome']}")
+        print(f"queued   {out['slug']}: {out['outcome']}")
         return 0
 
     if args.detect:
@@ -357,7 +357,7 @@ def cmd_forge(conn: sqlite3.Connection, args) -> int:
     board = forge.board(conn)
     rule("forge")
     if not board["skills"]:
-        print("  nothing yet — a skill is proposed once a procedure repeats")
+        print("  nothing yet. A skill is proposed once a procedure repeats")
         return 0
     for s in board["skills"]:
         flag = " !" if s["slug"] in board["decaying"] else "  "
@@ -395,7 +395,7 @@ def cmd_schedule(conn: sqlite3.Connection, args) -> int:
         print(f"  {key:<12}{task.get(key, '')}")
     print()
     print("  windowless" if sched.windowless() else
-          "  ⚠ still runs a console app — re-run without --show to fix it")
+          "  ⚠ still runs a console app. re-run without --show to fix it")
     return 0
 
 
@@ -478,7 +478,7 @@ def cmd_phone(conn: sqlite3.Connection, args) -> int:
     print(f"  {'address':<10}{result['address']}  ({result['kind']})")
     print(f"  {'serving':<10}"
           + ("yes" if result["serving"] else
-             "not yet — the task waits 45s at logon for the network"
+             "not yet. The task waits 45s at logon for the network"
              if result["on"] else "no"))
     if result["on"] and not result["unlimited"]:
         print("  ⚠ the task has a time limit and will be killed after three "
@@ -489,7 +489,7 @@ def cmd_phone(conn: sqlite3.Connection, args) -> int:
     if result.get("firewall") == "blocked":
         print("  ⚠ Windows Firewall has no rule for this port, so the "
               "phone's request will be dropped")
-        print("    rather than refused — the browser loads forever and "
+        print("    rather than refused. The browser loads forever and "
               "neither end logs anything. Fix it with:")
         print()
         print("        py -m colony phone --allow-firewall")
@@ -499,7 +499,7 @@ def cmd_phone(conn: sqlite3.Connection, args) -> int:
         print(f"        {result['firewall_fix']}")
         print()
     elif result.get("firewall") == "unknown":
-        print("  ? could not read the firewall rules — that usually needs "
+        print("  ? could not read the firewall rules. That usually needs "
               "administrator rights.")
         print("    If the phone loads forever, this is the first thing to "
               "check.")
@@ -519,7 +519,7 @@ def cmd_phone(conn: sqlite3.Connection, args) -> int:
     if _can_draw():
         print(qr.text_art(result["url"], ec="M", quiet=2))
     else:
-        print("  (this terminal cannot draw the code — its encoding is "
+        print("  (this terminal cannot draw the code. Its encoding is "
               f"{getattr(sys.stdout, 'encoding', 'unknown')}. Type the address "
               "above, or open the panel in the dashboard under file → phone.)")
     return 0
@@ -617,7 +617,7 @@ def cmd_autostart(conn: sqlite3.Connection, args) -> int:
     if args.remove:
         autostart.remove()
         print(f"removed  {autostart.TASK_NAME}")
-        print("  the dashboard still runs on demand — this only stopped it "
+        print("  the dashboard still runs on demand. This only stopped it "
               "starting by itself")
         return 0
 
@@ -642,13 +642,13 @@ def cmd_autostart(conn: sqlite3.Connection, args) -> int:
     for key in ("execute", "arguments", "state", "last_run", "last_result"):
         print(f"  {key:<12}{task.get(key, '')}")
     print(f"  {'time limit':<12}"
-          + ("none — it is meant to stay up" if autostart.unlimited(task)
+          + ("none. It is meant to stay up" if autostart.unlimited(task)
              else f"{task.get('time_limit')} ⚠ it will be killed; re-run without --show"))
     print()
 
     serving = autostart.live(args.port)
     print(f"  answering now on http://{serving}:{args.port}" if serving else
-          "  nothing answering yet — the task waits 45s at logon for the network")
+          "  nothing answering yet. The task waits 45s at logon for the network")
     return 0
 
 
@@ -659,7 +659,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="colony", description="Colony Dash ledger")
     p.add_argument("--ledger", default=str(db.LEDGER_PATH), help="path to ledger.db")
     p.add_argument("--log", metavar="PATH",
-                   help="append all output to PATH instead of the console — this is how "
+                   help="append all output to PATH instead of the console. This is how "
                         "the scheduled pulse gets a log without needing a shell to "
                         "redirect one, and therefore without needing a console at all")
     # `--log` is accepted on either side of the subcommand. The scheduled task
@@ -704,7 +704,7 @@ def build_parser() -> argparse.ArgumentParser:
     dash = sub.add_parser("dash", help="open the dashboard window")
     dash.add_argument("--port", type=int, default=8787)
     dash.add_argument("--serve", action="store_true",
-                      help="serve only, no window — use a browser at 127.0.0.1")
+                      help="serve only, no window. Use a browser at 127.0.0.1")
     dash.add_argument("--host", default=None,
                       help="address to bind (default 127.0.0.1). 'auto' picks "
                            "this machine's tailnet address, or its private LAN "
@@ -741,7 +741,7 @@ def build_parser() -> argparse.ArgumentParser:
     pul = sub.add_parser("pulse", help="run one pulse (tick, escalating to wake)")
     pul.add_argument("--dry-run", action="store_true", help="report, write nothing")
     pul.add_argument("--no-wake", action="store_true",
-                     help="tick only — never spawn an agent, guaranteeing zero tokens")
+                     help="tick only. Never spawn an agent, guaranteeing zero tokens")
     pul.set_defaults(func=cmd_pulse)
 
     frg = sub.add_parser("forge", help="what the skill forge has noticed")
@@ -755,7 +755,7 @@ def build_parser() -> argparse.ArgumentParser:
     # a QR code on the end. `autostart` stays, because it is the command that
     # shows what the scheduled task actually holds when something is wrong.
     phn = sub.add_parser("phone",
-                         help="open the dashboard on your phone — state, or --on to set it up")
+                         help="open the dashboard on your phone. State, or --on to set it up")
     phn.add_argument("--on", action="store_true",
                      help="mint a token if there is none, register the logon "
                           "task, start it now")
@@ -801,13 +801,13 @@ def _force_utf8() -> None:
     """Redirected stdout on Windows defaults to cp1252, which cannot encode the
     box-drawing and arrow characters this CLI prints. The scheduled pulse writes
     to a log file, so without this a clean tick dies on its own output *after*
-    the ledger row is committed — a crash that means nothing and looks like
+    the ledger row is committed. A crash that means nothing and looks like
     everything. Never let formatting decide whether a run succeeded.
 
     Under `pythonw.exe` there is no console at all and both streams are None, so
     the *first* print raises and the process dies before it does anything. That
-    is how the dashboard is meant to be launched — windowed, no console behind
-    it — so the same rule applies twice over: output is never allowed to decide
+    is how the dashboard is meant to be launched, windowed, no console behind
+    it, so the same rule applies twice over: output is never allowed to decide
     whether a command runs.
     """
     for name in ("stdout", "stderr"):
@@ -820,7 +820,7 @@ def _force_utf8() -> None:
         except (AttributeError, ValueError):
             pass
         try:
-            # A handle can exist and still be unwritable — a windowed launch with
+            # A handle can exist and still be unwritable. A windowed launch with
             # no redirect hands the child a stream that only fails on first use.
             # Find that out here, once, instead of somewhere with a ledger open.
             stream.write("")

@@ -39,7 +39,7 @@ SHORT_TEXT = {"status", "slug", "role", "division", "kind", "tier", "intent",
 
 
 def load_env(path: Path | None = None) -> None:
-    """Minimal .env reader — no dependency, and it never overwrites a real env var."""
+    """Minimal .env reader. No dependency, and it never overwrites a real env var."""
     path = path or Path(__file__).resolve().parent.parent / ".env"
     if not path.is_file():
         return

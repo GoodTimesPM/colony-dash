@@ -1,4 +1,4 @@
-r"""What changed in the project folders — the file manager the PO asked for.
+r"""What changed in the project folders. The file manager the PO asked for.
 
 The colony's whole read scope is `db.PROJECTS_ROOT`, which is one git repo
 containing every project. So "what changed in job-radar this week" is a
@@ -43,7 +43,7 @@ def _git(*args: str, cwd: Path | None = None) -> str:
     """Run one read-only git command. Returns '' rather than raising.
 
     A project that is not a git repo, or a git that is not installed, must
-    degrade the panel — never take the pulse down with it.
+    degrade the panel. Never take the pulse down with it.
     """
     try:
         proc = proc_mod.run(
@@ -60,7 +60,7 @@ def _git(*args: str, cwd: Path | None = None) -> str:
 def project_dirs() -> list[str]:
     """Every project folder, one and two levels deep.
 
-    Same definition the pulse uses — a folder with a PROJECT.md in it — so the
+    Same definition the pulse uses, a folder with a PROJECT.md in it, so the
     two never disagree about what counts as a project.
     """
     if not ROOT.is_dir():
@@ -81,11 +81,11 @@ def project_dirs() -> list[str]:
 # folder lives inside a single git repo, so "modified" means "different from
 # HEAD of that repo" for all sixty of them at once. The panel used to state the
 # count and leave the baseline implicit, which is how a reader ends up asking
-# "modified relative to what?" — a fair question with no answer on screen. The
+# "modified relative to what?" A fair question with no answer on screen. The
 # subject and date ride along with the sha so the baseline can be named in
 # words rather than as seven hex digits nobody recognises.
 def head() -> dict:
-    """Branch and HEAD of the master projects repo — the baseline for "modified"."""
+    """Branch and HEAD of the master projects repo. The baseline for "modified"."""
     line = _git("log", "-1", f"--pretty=format:%h{SEP}%s{SEP}%ad",
                 "--date=format:%Y-%m-%d %H:%M").strip()
     parts = line.split(SEP) if line else []
@@ -101,8 +101,8 @@ def head() -> dict:
 
 # What each porcelain bucket is, in the words a person would use for it. `git`
 # says "untracked", which is a statement about git's index and reads like an
-# accusation; what it means to the PO is "a file that has never been committed"
-# — which is exactly the category their mod loader keeps filling with folders they
+# accusation; what it means to the PO is "a file that has never been committed",
+# which is exactly the category their mod loader keeps filling with folders they
 # never typed. Naming them properly is most of the fix for "modifications I
 # can't find".
 KIND_SHORT = {"modified": "edited", "added": "added", "deleted": "deleted",
@@ -160,7 +160,7 @@ def _mtime(path: str) -> str | None:
 
     Deliberately the file's own mtime rather than a `git log` date: these rows are
     *uncommitted* changes, so the last commit says nothing about when you last
-    touched them. A deleted file cannot be stat'd and simply does not count — it
+    touched them. A deleted file cannot be stat'd and simply does not count. It
     is the one change whose time git alone would know, and one missing sample out
     of hundreds does not move a max.
     """
@@ -174,7 +174,7 @@ def _mtime(path: str) -> str | None:
 def scan(since: str | None = None) -> list[dict]:
     """Per-project working-tree state, plus commits since a timestamp.
 
-    `since` is a git date string — the previous pulse's time. Without it the
+    `since` is a git date string. The previous pulse's time. Without it the
     commit counts are left at zero rather than computed over all history: a
     number nobody asked for is a number the pulse pays for every hour.
     """
@@ -258,7 +258,7 @@ def commits(project: str, limit: int = 12) -> list[dict]:
 def diff(project: str, path: str | None = None) -> str:
     """The working-tree diff for a project, or for one file inside it.
 
-    Untracked files have no diff — git will say nothing about them — so they are
+    Untracked files have no diff, git will say nothing about them, so they are
     shown as their own first lines rather than as an empty change, which reads
     like a bug in the panel.
     """
@@ -271,10 +271,10 @@ def diff(project: str, path: str | None = None) -> str:
         if full.is_file():
             try:
                 lines = full.read_text(encoding="utf-8", errors="replace").splitlines()[:200]
-                return f"(untracked — new file, first {len(lines)} lines)\n\n" + "\n".join(lines)
+                return f"(untracked, new file, first {len(lines)} lines)\n\n" + "\n".join(lines)
             except OSError:
                 pass
-        return stat or "(no working-tree changes — everything here is committed)"
+        return stat or "(no working-tree changes, everything here is committed)"
 
     lines = body.splitlines()
     if len(lines) > DIFF_LIMIT_LINES:
@@ -291,7 +291,7 @@ def diff(project: str, path: str | None = None) -> str:
 # tree is tidy. This half answers "what is there", and hangs the change state off
 # it as decoration rather than as the reason a row exists.
 #
-# It is a lazy tree — one directory per request — because the root has sixty
+# It is a lazy tree, one directory per request, because the root has sixty
 # projects under it and some of those have `node_modules`. Walking eagerly to
 # render a collapsed row is how a file panel becomes the slowest thing on a page.
 
@@ -393,20 +393,20 @@ def read_file(rel: str) -> dict:
     size = full.stat().st_size
     if size > READ_LIMIT_BYTES:
         return {"path": rel, "size": size, "text": None,
-                "why": f"{size:,} bytes — too big to open here. It is on disk at {full}."}
+                "why": f"{size:,} bytes. Too big to open here. It is on disk at {full}."}
     try:
         raw = full.read_bytes()
     except OSError as exc:
         return {"path": rel, "size": size, "text": None, "why": str(exc)}
     if b"\x00" in raw[:4096]:
         return {"path": rel, "size": size, "text": None,
-                "why": "binary — nothing useful to show as text."}
+                "why": "binary. Nothing useful to show as text."}
     return {"path": rel, "size": size,
             "text": raw.decode("utf-8", errors="replace"), "why": None}
 
 
 # How many of a folder's changed files get written into the log. The drawer lists
-# them, and a list is only readable while it is a list — past a dozen it is a
+# them, and a list is only readable while it is a list. Past a dozen it is a
 # wall, and the diff view next to it is the better place to read a wall.
 FILES_LOGGED = 12
 

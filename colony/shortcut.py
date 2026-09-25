@@ -1,7 +1,7 @@
 """The desktop shortcut. `python -m colony shortcut`.
 
 A `.lnk` is a COM object, not a file format you can reasonably hand-write, so
-this shells out to `WScript.Shell` through PowerShell — the same thing every
+this shells out to `WScript.Shell` through PowerShell. The same thing every
 installer on Windows does, minus the installer.
 
 Two details that matter more than they look:
@@ -59,7 +59,7 @@ def create(directory: Path | None = None, *, port: int = 8787) -> Path:
     ico = icon_mod.ensure() or ""
     args = f'-m colony dash --port {port}'
 
-    # Single-quoted PowerShell strings, with any literal quote doubled — these
+    # Single-quoted PowerShell strings, with any literal quote doubled. These
     # paths come from the filesystem, not from a person, but a path with an
     # apostrophe in it would otherwise end the string mid-word.
     def ps(value) -> str:

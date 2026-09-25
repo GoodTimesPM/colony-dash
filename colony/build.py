@@ -1,4 +1,4 @@
-"""The build tier — the first agent allowed to write anything.
+"""The build tier. The first agent allowed to write anything.
 
 Grooming (M1) reads and reports. This module is the other half: a story the PO
 accepted at the Inbox gate, staffed to an agent hired with write scope on a
@@ -10,7 +10,7 @@ The order of the gates matters more than the code does:
     groomed → PO accepts criteria → project confirmed → agent hired with write
     scope → PO dispatches → build runs in a worktree → PO approves the patch
 
-Six gates, four of them human. That is not friction for its own sake — it is the
+Six gates, four of them human. That is not friction for its own sake. It is the
 answer to "what is the worst thing this can do at 3am", and the answer has to
 stay "nothing you haven't already read" (ARCHITECTURE.md §8).
 
@@ -85,7 +85,7 @@ def history_note(events: list[dict] | None) -> str:
         detail = (e.get("detail") or "").strip()
         if detail:
             body = (detail if len(detail) <= 1800
-                    else detail[:1800] + "\n  — the rest is on the story")
+                    else detail[:1800] + "\n  (truncated, the rest is on the story)")
             out.append("\n".join("  " + line for line in body.splitlines()))
         out.append("")
     out.append("--- end of what is already known ---")
@@ -104,7 +104,7 @@ def seeded_note(seeded: dict | None) -> str:
         return ("This checkout is git's copy of the last commit. Files git does not "
                 "track are not here: no `.env`, no build output, nothing the PO has "
                 "edited but not yet committed. If a criterion depends on one of "
-                "those, say so plainly — an absent `.env` means the setting is not "
+                "those, say so plainly. An absent `.env` means the setting is not "
                 "visible to you, not that it is unset.")
 
     moved = (seeded.get("tracked") or 0) + (seeded.get("untracked") or 0)
@@ -122,7 +122,7 @@ def seeded_note(seeded: dict | None) -> str:
             + ", ".join(secrets)
             + ". Read them when a criterion turns on what is configured. Never "
             "copy a value out of one into your report, a comment, a test, or any "
-            "file you write — say which key is set or unset and stop there. "
+            "file you write. Say which key is set or unset and stop there. "
             "Edits you make to these files are discarded and never reach a patch.")
     else:
         lines.append(
@@ -132,7 +132,7 @@ def seeded_note(seeded: dict | None) -> str:
             "not visible to you, not that it is unset.")
     if seeded.get("ignored"):
         lines.append(
-            f"{seeded['ignored']} git-ignored file(s) were copied in too — runtime "
+            f"{seeded['ignored']} git-ignored file(s) were copied in too. Runtime "
             f"state such as a sync cache or a log, which git does not track but the "
             f"code reads. They are current. Edits you make to them are discarded "
             f"and never reach a patch, the same as a credential file.")
@@ -160,7 +160,7 @@ def build_prompt(ticket: sqlite3.Row, workdir: str,
     what every contract holds until they change one. `seeded` is what
     `worktree.seed` put in the checkout on top of the commit.
     """
-    criteria = (ticket["acceptance_criteria"] or "").strip() or "(none recorded — ask, do not guess)"
+    criteria = (ticket["acceptance_criteria"] or "").strip() or "(none recorded. Ask, do not guess)"
     brief = (ticket["description"] or "").strip() or "(the Notion page body is empty)"
     project = ticket["project"]
     folders = list(scope or []) or [project]
@@ -178,28 +178,28 @@ You are working inside an ISOLATED GIT WORKTREE at:
 This is a throwaway checkout. It is not the PO's working tree. Your changes will
 be turned into a patch that the PO reads and approves before anything lands.
 
-WRITE SCOPE — you may create and edit files ONLY under:
+WRITE SCOPE. You may create and edit files ONLY under:
 {scope_lines}
 
 Everywhere else in this checkout is READ-ONLY to you. You have no shell: no
 git commands, no package installs, no network.
 
 Your command starts in {project}/, the top of the write scope. If the thing it
-runs lives deeper — a package in a subfolder, a test suite next to its own
-`requirements.txt` — begin the command with `cd <that subfolder>` and the colony
+runs lives deeper, a package in a subfolder, a test suite next to its own
+`requirements.txt`, begin the command with `cd <that subfolder>` and the colony
 will start it there. Check where the entry point actually is before you write
 the line: `py -m apply.main auto` from a folder with no `apply` package in it
 dies on `No module named 'apply'` and answers nothing. A `cd` that leaves the
 write scope is refused.
 
-You are not the only one working on this. When a criterion needs a command run
-— a script, a test, a real API call — do not skip it and do not fake it. Put
+You are not the only one working on this. When a criterion needs a command run,
+a script, a test, a real API call, do not skip it and do not fake it. Put
 the command in `needs_run` with the criterion it answers and what a correct
 result looks like. The PO sees the command, applies your patch, then runs it
 against the live tree, and the whole transcript comes back on the story for
 whoever picks it up next. Write `expect` carefully: it is recorded next to the
 output and it is what the next agent compares against, so "exit 0" is never
-enough — name the line you want to see. Do the rest of the work in the same
+enough. Name the line you want to see. Do the rest of the work in the same
 run; a `needs_run` entry is a handover, not a stop.
 
 {seeded_note(seeded)}
@@ -216,13 +216,13 @@ STORY #{ticket['sid']}: {ticket['story_title']}
 {attach.evidence(attached or [])}
 {history_note(known)}
 
-Read {project}/PROJECT.md first — it is that project's source of truth for
+Read {project}/PROJECT.md first. It is that project's source of truth for
 status and decisions. Match the surrounding code: its naming, its comment
 density, its idioms. Do not restructure things you were not asked to change,
 and do not add dependencies.
 
 Work the criteria in order. If one of them turns out to be impossible or wrong,
-do the others in full and say precisely which one you left and why — scaling the
+do the others in full and say precisely which one you left and why. Scaling the
 work down is the PO's call, not yours.
 
 {voice.STYLE}
@@ -305,7 +305,7 @@ def run_one(conn: sqlite3.Connection, ticket: sqlite3.Row) -> dict:
     except Exception as exc:  # git refused; a blocked ticket, never a crashed pulse
         conn.execute("UPDATE tickets SET status = 'blocked', findings = ? WHERE id = ?",
                      (f"could not open a worktree: {exc}", tid))
-        _event(conn, sid, "note", "build could not start — no isolated checkout", str(exc), tid)
+        _event(conn, sid, "note", "build could not start. No isolated checkout", str(exc), tid)
         outcome["verdict"] = "no worktree"
         return outcome
 
@@ -338,14 +338,14 @@ def run_one(conn: sqlite3.Connection, ticket: sqlite3.Row) -> dict:
             (sid, tid,
              f"Building \"{ticket['story_title']}\" spent {result.chargeable_tokens:,} chargeable "
              f"tokens against a {terms.get('max_tokens_run'):,} ceiling.",
-             "The work was kept — the diff is waiting for you either way. Raise the ceiling "
+             "The work was kept. The diff is waiting for you either way. Raise the ceiling "
              "or split the story before the next build.",
              result.chargeable_tokens),
         )
 
     # The diff is taken whatever the run's status. A timeout that wrote three
     # good files still wrote three good files, and throwing them away means
-    # paying twice for the same work — the same lesson the over-budget path
+    # paying twice for the same work. The same lesson the over-budget path
     # learned in M1.
     try:
         patch = worktree.diff(tid)
@@ -421,7 +421,7 @@ def run_one(conn: sqlite3.Connection, ticket: sqlite3.Row) -> dict:
                                     proposal, est_tokens)
            VALUES (?,?,'write-approval',?,?,?,?)""",
         (sid, tid,
-         f'"{ticket["story_title"]}" has a patch waiting — {files} file'
+         f'"{ticket["story_title"]}" has a patch waiting. {files} file'
          f'{"s" if files != 1 else ""} changed in {ticket["project"]}/.',
          "\n\n".join(b for b in detail_bits if b),
          json.dumps({"ticket_id": tid, "patch": str(path), "project": ticket["project"],
@@ -443,8 +443,8 @@ def _park_no_change(conn: sqlite3.Connection, ticket: sqlite3.Row,
     """Where a story goes when the build wrote no files.
 
     Not back to `ready`. `ready` means "dispatch me", and dispatching the same
-    story to the same agent over the same tree produces the same empty build —
-    that loop is what put two identical blocked tickets in the Ticket Queue with
+    story to the same agent over the same tree produces the same empty build.
+    That loop is what put two identical blocked tickets in the Ticket Queue with
     nothing anywhere on the page saying why.
 
     It waits in `needs-info` instead. That is the lane the board reads as "the
@@ -485,7 +485,7 @@ def _park_no_change(conn: sqlite3.Connection, ticket: sqlite3.Row,
     body = [why]
     for sk in (answer.get("skipped") or []):
         if isinstance(sk, dict):
-            body.append(f"Skipped: {sk.get('criterion')}\n— {sk.get('why')}")
+            body.append(f"Skipped: {sk.get('criterion')}\n  why: {sk.get('why')}")
     body.append("Change what it is being asked for, or drop the criterion it "
                 "could not meet, and dispatch again.")
     conn.execute(
@@ -596,7 +596,7 @@ def _raise_run_requests(conn: sqlite3.Connection, ticket: sqlite3.Row,
             # story, so this is where the answer has to be for it to stop
             # asking, and the PO has already spent their attention on this one.
             _event(conn, ticket["sid"], "note",
-                   f"{ticket['role']} asked again for `{command}` — not raised",
+                   f"{ticket['role']} asked again for `{command}`. Not raised",
                    f"$ {command}\n\nNot put in front of the PO: {settled}."
                    "\n\nThe earlier answer is on this story. Read it. If it "
                    "does not settle the criterion, say so in your report and say "

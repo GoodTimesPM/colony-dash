@@ -1,4 +1,4 @@
-/* Colony Dash — the service worker, which deliberately caches almost nothing.
+/* Colony Dash. The service worker, which deliberately caches almost nothing.
  *
  * A service worker exists here for one reason: a browser will not offer to
  * install a page to the home screen without one. It is not here to make the
@@ -24,7 +24,7 @@ const SHELL = "colony-shell-" + VERSION;
 const OFFLINE_HTML = `<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Colony Dash — offline</title>
+<title>Colony Dash, offline</title>
 <style>
   html { color-scheme: dark; }
   body { margin: 0; min-height: 100vh; display: grid; place-items: center;
@@ -37,7 +37,7 @@ const OFFLINE_HTML = `<!doctype html>
 </style>
 <h1>no answer from the colony</h1>
 <p>The dashboard is served from your desktop. If that machine is asleep, off, or
-off the tailnet, there is nothing here to reach — this page is the only part
+off the tailnet, there is nothing here to reach. This page is the only part
 that lives on the phone.</p>
 <button onclick="location.reload()">try again</button>`;
 
@@ -62,8 +62,8 @@ self.addEventListener("fetch", (event) => {
   const req = event.request;
   if (req.method !== "GET") return;
 
-  // Navigations get the offline page as a fallback. Everything else — the API,
-  // the script, the stylesheet, the event stream — is allowed to fail the way
+  // Navigations get the offline page as a fallback. Everything else, the API,
+  // the script, the stylesheet, the event stream, is allowed to fail the way
   // it would with no service worker at all, because the page already knows how
   // to say "the ledger did not answer".
   if (req.mode === "navigate") {

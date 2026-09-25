@@ -1,7 +1,7 @@
 r"""The one thing a build agent cannot do, done by the colony instead.
 
 A build agent gets Read, Grep, Glob, Edit and Write. It has no shell, no
-network and no package manager, and that is not an oversight — an unattended
+network and no package manager, and that is not an oversight. An unattended
 run with a shell is one bad line away from `git push`, `rm -rf` or `curl | sh`
 (ARCHITECTURE.md §8.3). The price of the rule is that a criterion phrased "run
 `py -m apply.main auto` and confirm the OG tracker row appears" was
@@ -40,12 +40,12 @@ TIMEOUT_S = 90
 MAX_OUTPUT = 40000
 
 # The things the colony may not do at any tier, whoever asks. These are not a
-# security boundary — the PO can open a terminal and type any of them themselves.
+# security boundary. The PO can open a terminal and type any of them themselves.
 # They are here so that a command which *looks* routine on a card cannot turn
 # out to have been one of these.
 FORBIDDEN = [
     (re.compile(r"\bgit\s+push\b", re.I), "the colony never pushes"),
-    (re.compile(r"\bgit\s+commit\b", re.I), "the colony never commits — you commit"),
+    (re.compile(r"\bgit\s+commit\b", re.I), "the colony never commits. You commit"),
     (re.compile(r"\bgit\s+(reset|checkout|restore|clean)\b.*(--hard|-f\b|-fd)", re.I),
      "that throws away working-tree changes"),
     # Scoped to git. A lone `-f` means "follow" to tail, "file" to grep and
@@ -75,7 +75,7 @@ def check(command: str) -> str:
     if len(command) > 600:
         raise RunRefused("that is longer than a command and shorter than a script")
     if "\n" in command:
-        raise RunRefused("one command per request — a script belongs in a file")
+        raise RunRefused("one command per request. A script belongs in a file")
     for pattern, why in FORBIDDEN:
         if pattern.search(command):
             raise RunRefused(f"refused: {why}")
@@ -93,7 +93,7 @@ def check_folder(project: str) -> Path:
     return path
 
 
-# `cd job-search/assisted-apply; py -m apply.main auto` — written by an agent
+# `cd job-search/assisted-apply; py -m apply.main auto`. Written by an agent
 # that had no way to know which of those two folders the colony was going to
 # start it in. Both spellings have to work, because both are things a person
 # would type and the agent cannot tell them apart from where it sits.
@@ -146,8 +146,8 @@ def resolve_cd(command: str, cwd: Path) -> tuple[str, Path]:
 def execute(command: str, project: str) -> dict:
     """Run one command in one project folder and bring back everything it said.
 
-    Never raises for a command that fails. A failing command is an answer —
-    often the answer the criterion was asking for — so the exit code and both
+    Never raises for a command that fails. A failing command is an answer,
+    often the answer the criterion was asking for, so the exit code and both
     streams come back and the caller writes them down.
     """
     command = check(command)
@@ -214,14 +214,14 @@ _ZERO_COUNT = re.compile(r"\b(0|no) (failed|failures|errors?|warnings?|skipped)\
 # Exit 0 is a weak claim. `py -m apply.main auto` printed "Notion query failed
 # (ConnectionError)" and returned 0, and the colony wrote that down as a clean
 # run against a criterion that had asked for proof the sync worked. These
-# patterns do not decide whether the criterion was met — nothing here can —
+# patterns do not decide whether the criterion was met, nothing here can,
 # they decide whether the run is allowed to look like it settled anything.
 SUSPECT = [
     (re.compile(r"traceback \(most recent call last\)", re.I),
      "it printed a traceback"),
     (re.compile(r"\bno tests? (ran|were run|collected|found)\b", re.I),
      "no test ran"),
-    # `0 newly-applied row(s) in the Job Radar Tracker` — the real output of
+    # `0 newly-applied row(s) in the Job Radar Tracker`. The real output of
     # `py -m apply.main auto`, and the reason the noun is allowed to sit a few
     # words away from the zero and to be written `row(s)`. A command run to
     # prove a sync touched a row, reporting that it touched none, is the exact
@@ -251,7 +251,7 @@ def judge(result: dict) -> tuple[str, str]:
     the transcript against the expectation, can say that.
     """
     if result.get("timed_out"):
-        return "failed", f"it never finished — gave up after {TIMEOUT_S}s"
+        return "failed", f"it never finished. Gave up after {TIMEOUT_S}s"
     if result.get("code") is None:
         return "failed", "the shell would not start it"
     if result["code"] != 0:

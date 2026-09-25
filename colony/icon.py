@@ -1,8 +1,8 @@
 """The colony's mark: a longhouse with the fire lit.
 
 Drawn rather than downloaded, for two reasons. The obvious one is that the
-default Python icon is the same icon as every other Python app on this machine —
-including the Balatro mod manager — and a taskbar where two different programs
+default Python icon is the same icon as every other Python app on this machine,
+including the Balatro mod manager, and a taskbar where two different programs
 look identical is a taskbar you have to read instead of glance at. The less
 obvious one is that this file *is* the brand asset: no binary blob in the repo
 that nobody can edit, just twenty lines of geometry anyone can adjust.
@@ -61,7 +61,7 @@ def _draw(px: int):
     detail = px >= 40
 
     if detail:
-        # A second, smaller house behind — one house is a building, two are a
+        # A second, smaller house behind. One house is a building, two are a
         # settlement, and the whole point of this project is the second one.
         poly([(0.79, 0.33), (0.99, 0.53), (0.59, 0.53)], THATCH)
         box(0.67, 0.51, 0.94, 0.79, WALL)

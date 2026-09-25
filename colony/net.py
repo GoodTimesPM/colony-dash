@@ -14,8 +14,8 @@ about what it will accept:
     friends hand out) is preferred, because that network is already private and
     the access token is a second lock rather than the only one;
   * a **private LAN** address (RFC 1918) is the fallback, and it is a real
-    fallback rather than a consolation — a phone and a desktop on the same home
-    wifi is the ordinary case — but it is announced differently, because "your
+    fallback rather than a consolation, a phone and a desktop on the same home
+    wifi is the ordinary case, but it is announced differently, because "your
     home network" and "the coffee shop's network" are the same sentence to a
     laptop;
   * anything else, including a public address, is **never** chosen. If neither
@@ -54,7 +54,7 @@ def _candidates() -> list[str]:
     Two sources, because neither is complete on Windows. `getaddrinfo` on the
     hostname finds the addresses DNS knows about and routinely misses a
     Tailscale interface; the UDP trick finds whichever interface the default
-    route would use and misses everything else. No packet is sent — connecting a
+    route would use and misses everything else. No packet is sent. Connecting a
     UDP socket only picks a route.
     """
     found: list[str] = []
@@ -134,8 +134,8 @@ def is_this_machine(host: str) -> bool:
 
     Loopback is the obvious case and not the only one. When the server binds a
     tailnet or LAN address, a connection opened *on this machine* to that
-    address gets that same address as its source — the kernel picks the
-    interface it is routing out of — so the peer the server sees is its own
+    address gets that same address as its source, the kernel picks the
+    interface it is routing out of, so the peer the server sees is its own
     address, not `127.0.0.1`. A check that only knows about loopback reads that
     as a stranger, which is how the console managed to lock out the desktop it
     was running on.
@@ -146,7 +146,7 @@ def is_this_machine(host: str) -> bool:
     replies would be delivered here rather than to it.
 
     An address that will not parse is not this machine, same as everywhere else
-    in this module — the unknown case fails towards asking for a token.
+    in this module. The unknown case fails towards asking for a token.
     """
     host = (host or "").strip().strip("[]")
     if not host:
@@ -175,8 +175,8 @@ def auto() -> tuple[str, str]:
     raise NoAddress(
         "no tailnet or private LAN address on this machine, so there is "
         "nothing safe to bind.\n\n"
-        "Either connect to a network — Tailscale is the one worth having, "
-        "since it works off your home wifi too — or pass --host with the "
+        "Either connect to a network, Tailscale is the one worth having, "
+        "since it works off your home wifi too, or pass --host with the "
         "address you mean."
     )
 
@@ -206,7 +206,7 @@ def advice(kind: str) -> str:
     # tailnet is said by the Tailscale block instead, where it is not a warning.
     if kind == "lan":
         return ("this address only exists inside your building. The phone can "
-                "reach it on the same wifi and nowhere else — not on cellular, "
+                "reach it on the same wifi and nowhere else. Not on cellular, "
                 "not from work. It is also your local network rather than a "
                 "private one, so the token is the only lock. Tailscale fixes "
                 "both.")

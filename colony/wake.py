@@ -1,4 +1,4 @@
-"""The wake tier — the only part of the pulse that costs anything.
+"""The wake tier. The only part of the pulse that costs anything.
 
 A tick decides *whether* this hour is worth a model. This module is what happens
 when the answer is yes. M1 gives it exactly one job: **groom** (ARCHITECTURE.md
@@ -6,15 +6,15 @@ when the answer is yes. M1 gives it exactly one job: **groom** (ARCHITECTURE.md
 draft acceptance criteria or say precisely what's missing.
 
 Grooming is the right first job for three reasons. It is read-only, so nothing it
-does can damage a project. It ends at a human gate — Ordis never marks its own
-criteria `ready` — so the loop cannot run away with the backlog. And it exercises
+does can damage a project. It ends at a human gate, Ordis never marks its own
+criteria `ready`, so the loop cannot run away with the backlog. And it exercises
 the whole spawn → harvest → record path that staffing and dispatch will reuse, on
 work whose worst failure is a bad paragraph.
 
 Since M3 it has a second job: **build**. A story the PO accepted and dispatched
 runs here too, in a git worktree, and comes back as a patch nobody has applied.
 That path lives in `build.py`; this module decides whether the hour can afford
-it and in what order the two jobs run. Grooming goes first — it is cheaper, and
+it and in what order the two jobs run. Grooming goes first. It is cheaper, and
 a story groomed this hour can be dispatched before the next one.
 """
 
@@ -29,8 +29,8 @@ from . import (agent, attachments as attach, build as build_mod, control, db,
                forge as forge_mod, pulse as pulse_mod, roster as roster_mod,
                usage as usage_mod, voice)
 
-# How many stories one wake may groom. A wake is coalescing — an hour with six
-# new stories is one wake — so this is the throttle that keeps a bulk Notion
+# How many stories one wake may groom. A wake is coalescing, an hour with six
+# new stories is one wake, so this is the throttle that keeps a bulk Notion
 # import from becoming a bulk token spend.
 GROOM_LIMIT = int(os.environ.get("COLONY_GROOM_LIMIT", "2"))
 
@@ -73,11 +73,11 @@ def budget_state(conn: sqlite3.Connection, usage: dict | None) -> dict:
 
     if not usage or usage.get("seven_day") is None:
         return {"ok": False, "allowance": allowance, "used": None,
-                "why": "no usage sample — refusing to dispatch blind"}
+                "why": "no usage sample. Refusing to dispatch blind"}
     used = float(usage["seven_day"])
     if used >= allowance:
         # base and delta, not a hardcoded 35 and a "+" that assumed the dial
-        # only went up — the PO can now walk the allowance down as well.
+        # only went up. The PO can now walk the allowance down as well.
         boosted = f" ({band['base']:g}% baseline {band['boost']:+.0f})" if band["boost"] else ""
         return {"ok": False, "allowance": allowance, "used": used,
                 "why": f"week at {used:.0f}% is at or past the {allowance:.0f}% "
@@ -92,7 +92,7 @@ def budget_state(conn: sqlite3.Connection, usage: dict | None) -> dict:
 # nothing to do.
 #
 # `po-review` and `ready` are already past this stage, and `needs-info` waits on
-# the PO, not on us — re-grooming it hourly would spend tokens to reproduce an
+# the PO, not on us. re-grooming it hourly would spend tokens to reproduce an
 # answer we already have. MAX_ATTEMPTS is the stop on the other failure mode: a
 # story the agent keeps failing to parse would otherwise be groomed again every
 # hour, forever, at full price.
@@ -100,8 +100,8 @@ MAX_ATTEMPTS = 2
 
 # `t.status <> 'wontfix'` is how the attempt budget resets. When a story's brief
 # changes under an open question, M5 marks that story's old groom tickets
-# wontfix — they answered a question about a version of the story that no longer
-# exists — and the count drops back to zero. Without it, a story groomed twice
+# wontfix, they answered a question about a version of the story that no longer
+# exists, and the count drops back to zero. Without it, a story groomed twice
 # early on could never be re-read no matter how much the PO rewrote it, which is
 # the same stale-prose failure the rest of M5 exists to fix, one layer down.
 GROOMABLE_WHERE = """
@@ -161,11 +161,11 @@ def _progress_section(story: sqlite3.Row) -> str:
         return ""
     out = ["", "--- progress, as of the last Notion sync ---"]
     if done:
-        out.append(f"ALREADY DONE ({len(done)}) — treat these as closed. Do not"
+        out.append(f"ALREADY DONE ({len(done)}). Treat these as closed. Do not"
                    " re-raise them, do not ask about them, do not put them in criteria:")
         out += [f"  [x] {i}" for i in done[:40]]
     if todo:
-        out.append(f"STILL OPEN ({len(todo)}) — this is the actual scope:")
+        out.append(f"STILL OPEN ({len(todo)}). This is the actual scope:")
         out += [f"  [ ] {i}" for i in todo[:40]]
     out.append("--- end progress ---")
     return "\n".join(out)
@@ -175,7 +175,7 @@ def _settled_section(story: sqlite3.Row) -> str:
     """Decisions the PO has already made in a thread, stated as standing fact.
 
     These came out of the Inbox rather than out of Notion, and before 013 they
-    lived only in `po_messages` — a transcript nothing grooms from. An agent
+    lived only in `po_messages`. A transcript nothing grooms from. An agent
     re-reading this story would ask the question again, which is how a board of
     eight stories ended up parked on answers that had all been given.
     """
@@ -200,7 +200,7 @@ Read, Grep and Glob and nothing else. Do not attempt to modify anything.
 
 STORY #{story['id']}: {story['title']}
 Notion status: {story['notion_status'] or 'unknown'}
-Current guess at project folder: {story['project'] or 'none — unknown'}
+Current guess at project folder: {story['project'] or 'none, unknown'}
 
 --- brief from the Notion page body ---
 {body[:6000]}
@@ -214,13 +214,13 @@ of these, or to none if it is new work):
 {chr(10).join('  ' + p for p in projects)}
 
 You may read files under {db.PROJECTS_ROOT} to understand context. Each
-project has a PROJECT.md at its root that states its current status — read the
+project has a PROJECT.md at its root that states its current status. Read the
 relevant one before deciding anything. Be frugal: a few targeted reads, not a
 survey.
 
 Your job is to answer one question: **is there enough here to build?**
 
-- If NO, say precisely what decision is missing. Not "needs more detail" — name
+- If NO, say precisely what decision is missing. Not "needs more detail". Name
   the specific thing only the PO can decide (a target platform, a scope
   boundary, which of two approaches). One missing decision is enough.
 - If YES, draft acceptance criteria: 3-6 concrete, checkable statements. Each
@@ -258,7 +258,7 @@ def _gist(text: str, limit: int = 220) -> str:
 def _said(conn, story_id, kind, text, ticket_id=None, tokens=0):
     """Record something a colonist wrote, without losing the end of it.
 
-    `_event` truncates `summary` at 400 characters, which is right — the summary
+    `_event` truncates `summary` at 400 characters, which is right. The summary
     is a line in a timeline. What was wrong was calling it with the whole thought
     and no `detail`, because then the 401st character did not exist anywhere: the
     learnings in the drawer ended mid-word ("...surfacing the direct ATS apply
@@ -284,7 +284,7 @@ def groom_story(conn: sqlite3.Connection, story: sqlite3.Row, terms: dict,
                 projects: list[str]) -> dict:
     """One story, one spawned agent, one outcome recorded."""
     # Whatever the forge has promoted for this role rides in front of the work
-    # order. This is the only place a skill has any effect at all — an active
+    # order. This is the only place a skill has any effect at all. An active
     # skill that no run loads is a file, not a capability.
     skills = forge_mod.active_for(conn, terms["role"])
     prompt = forge_mod.preamble(skills) + groom_prompt(
@@ -331,7 +331,7 @@ def groom_story(conn: sqlite3.Connection, story: sqlite3.Row, terms: dict,
             (story["id"], ticket_id,
              f"Grooming \"{story['title']}\" spent {result.chargeable_tokens:,} chargeable tokens "
              f"against a {terms.get('max_tokens_run'):,} ceiling.",
-             "Raise the investigator's ceiling or narrow the work order — the run itself "
+             "Raise the investigator's ceiling or narrow the work order. The run itself "
              "completed and its answer was kept.",
              result.chargeable_tokens),
         )
@@ -390,7 +390,7 @@ def groom_story(conn: sqlite3.Connection, story: sqlite3.Row, terms: dict,
              f'"{story["title"]}" has draft acceptance criteria awaiting your approval.',
              control.card_text(criteria), result.chargeable_tokens, story["notion_hash"]),
         )
-        # The story just stopped being blocked — it has criteria and it is
+        # The story just stopped being blocked. It has criteria and it is
         # waiting on the PO, which is a different thing and a different colour.
         control.clear_needs_info(conn, story["id"])
         _event(conn, story["id"], "groomed",
@@ -408,7 +408,7 @@ def groom_story(conn: sqlite3.Connection, story: sqlite3.Row, terms: dict,
         # `question_settled` covers two cases. A stale card is an open row that
         # is explicitly no longer trusted, and letting it suppress a fresh
         # question would mean the Inbox keeps showing the outdated wording
-        # forever — so stale rows do not count. A dismissed card does count,
+        # forever. So stale rows do not count. A dismissed card does count,
         # for as long as the brief it was dismissed against stays put.
         if not control.question_settled(conn, story["id"], "needs-info",
                                         story["notion_hash"]):
@@ -440,7 +440,7 @@ def groom_story(conn: sqlite3.Connection, story: sqlite3.Row, terms: dict,
 #
 # The Inbox got a reply box, so the wake got a job that runs before every other
 # job: read what the PO typed and answer it. It goes first for the same reason a
-# standup starts with blockers — an hour spent grooming a story the PO has just
+# standup starts with blockers. An hour spent grooming a story the PO has just
 # redefined is an hour spent on the wrong story.
 #
 # This is capped hard. A reply is a short question about one item, so the answer
@@ -492,7 +492,7 @@ def reply_prompt(msg: sqlite3.Row, esc: sqlite3.Row | None, story: sqlite3.Row |
 
     lines += [
         "--- what they just said ---",
-        msg["body"][:6000] or "(nothing written — see the attachments)",
+        msg["body"][:6000] or "(nothing written, see the attachments)",
         "--- end ---",
         "",
     ]
@@ -507,7 +507,7 @@ def reply_prompt(msg: sqlite3.Row, esc: sqlite3.Row | None, story: sqlite3.Row |
         *(f"  {p}" for p in projects),
         "",
         f"You may read files under {db.PROJECTS_ROOT} to check anything the PO",
-        "refers to. Be frugal — a few targeted reads, not a survey.",
+        "refers to. Be frugal. A few targeted reads, not a survey.",
         "",
         "What you can establish, and what you cannot. Your tools are Read, Grep",
         "and Glob. You have no Bash, you cannot run a script, and you cannot call",
@@ -533,7 +533,7 @@ def reply_prompt(msg: sqlite3.Row, esc: sqlite3.Row | None, story: sqlite3.Row |
         "`.env.example` is a committed template: a value in it says nothing about",
         "the `.env` sitting next to it, and reporting one as the other is how this",
         "rule came to be written. If the claim rests on a file you cannot read,",
-        "say so — \"I cannot read .env, so I am taking your word for it\" is a",
+        "say so. \"I cannot read .env, so I am taking your word for it\" is a",
         "useful sentence and a false confirmation is not.",
         "",
         "Your job is NOT to have a conversation. A reply that produces only prose",
@@ -541,19 +541,19 @@ def reply_prompt(msg: sqlite3.Row, esc: sqlite3.Row | None, story: sqlite3.Row |
         "the two of you talk about it is the failure this loop exists to prevent.",
         "Every reply must move the ledger, and there are only three ways to do that:",
         "",
-        "  settled          — they told you something the work needed. Write it",
+        "  settled:           they told you something the work needed. Write it",
         "                     as standing fact and the story goes back in the groom",
         "                     queue, where an agent turns it into build tasks.",
-        "  still_blocked_on — something is STILL missing. Name the one decision,",
+        "  still_blocked_on:  something is STILL missing. Name the one decision,",
         "                     as a direct question, and it becomes a card in",
         "                     their Inbox rather than a sentence in a thread",
         "                     remember to re-read.",
-        "  rescope          — they changed WHAT THE WORK IS. Not a fact the work",
+        "  rescope:           they changed WHAT THE WORK IS. Not a fact the work",
         "                     needed: a different job.",
         "",
         "Both of the first two at once is normal and is the most useful answer you",
         "can give: the answered part of it, and here is precisely the next thing",
-        "you need. Neither is a last resort — use it only when they asked a",
+        "you need. Neither is a last resort. Use it only when they asked a",
         "question that was purely informational and nothing about the work",
         "changed.",
         "",
@@ -563,14 +563,14 @@ def reply_prompt(msg: sqlite3.Row, esc: sqlite3.Row | None, story: sqlite3.Row |
         "line of history under them; it does not touch them. So if the PO has",
         "narrowed, widened, replaced or abandoned the work and you file that as",
         "`settled`, the next build reads the old criteria, builds the old thing,",
-        "finds it already shipped, and hands back an empty build — while the PO",
+        "finds it already shipped, and hands back an empty build. While the PO",
         "watches the colony ignore what they just said. That has happened, more",
         "than once, on this exact story.",
         "",
         "Put it in `rescope` when the PO says any of: only do X, drop Y, forget",
         "what you were working on, do Z instead, that part is done, start on the",
         "next thing. Anything that changes which items are in play. Write it as",
-        "the new scope in full — the whole job as it stands now, not the delta —",
+        "the new scope in full, the whole job as it stands now, not the delta, ",
         "because the agent that grooms it reads that line and nothing else about",
         "what changed. Naming the items the way the PO names them is right; if",
         "they said items 12, 14 and 15, say items 12, 14 and 15 and say where",
@@ -579,7 +579,7 @@ def reply_prompt(msg: sqlite3.Row, esc: sqlite3.Row | None, story: sqlite3.Row |
         "A rescope clears the criteria and sends the story back to be groomed",
         "against the new scope. That is the point. Nothing already built is",
         "touched or undone. Do not withhold it to protect work in flight, and do",
-        "not use it for a fact that leaves the job the same — that is `settled`.",
+        "not use it for a fact that leaves the job the same. That is `settled`.",
         "",
         "Do not write \"next step is scoping this as a real build task\" and stop.",
         "Putting it in `settled` IS how you scope it: the next wake grooms it.",
@@ -595,9 +595,9 @@ def reply_prompt(msg: sqlite3.Row, esc: sqlite3.Row | None, story: sqlite3.Row |
         '  "answer": "what you are saying back to the PO, under 1200 characters",',
         '  "settled": "what they decided, written as fact for an agent not in',
         '              this conversation and will read only this line. If you could not',
-        '              check it yourself, begin the line with `the PO says` — or null",',
+        '              check it yourself, begin the line with `the PO says`, or null",',
         '  "still_blocked_on": "the ONE specific decision that now blocks this work,',
-        '              phrased as a question only they can answer — or null if nothing',
+        '              phrased as a question only they can answer, or null if nothing',
         '              is blocking and the work can proceed",',
         '  "rescope": "the whole job as it now stands, if they changed what the work',
         '              is. The criteria are cleared and rewritten from this line, so',
@@ -607,7 +607,7 @@ def reply_prompt(msg: sqlite3.Row, esc: sqlite3.Row | None, story: sqlite3.Row |
         '  "recommendation": "a revised one-line recommendation for the Inbox tile, or null",',
         '  "learned": "one durable thing worth keeping, or null",',
         '  "checked": ["the files you actually opened to support `settled`, by path.',
-        '              Empty if you opened none — that is a fine answer and a far',
+        '              Empty if you opened none, that is a fine answer and a far',
         '              better one than a path you did not read"]',
         "}",
     ]
@@ -633,8 +633,8 @@ def answer_po(conn: sqlite3.Connection, terms: dict, projects: list[str]) -> lis
                               attach.for_story(conn, msg["story_id"]))
 
         # `control.reply` already opened the ticket the PO has been watching in
-        # the Queue. Claim that one — staffing it and filling in the work order
-        # it could not know an hour ago — rather than opening a second. A reply
+        # the Queue. Claim that one, staffing it and filling in the work order
+        # it could not know an hour ago, rather than opening a second. A reply
         # written before 010 has no ticket, so one is made here; that branch is
         # for the rows already in the ledger, not a second way to do this.
         row = conn.execute(
@@ -710,8 +710,8 @@ def answer_po(conn: sqlite3.Connection, terms: dict, projects: list[str]) -> lis
         # So a reply now lands in one of two places. `settled` becomes standing
         # fact on the story and puts it back in the groom queue. `still_blocked`
         # becomes a card in the Inbox naming the one thing missing. Both may
-        # happen at once. If neither does, the old card stays open on purpose —
-        # an exchange that moved nothing has not answered anything, and letting
+        # happen at once. If neither does, the old card stays open on purpose.
+        # An exchange that moved nothing has not answered anything, and letting
         # it close would be the loop agreeing that talking counted as progress.
         settled = str(answer.get("settled") or "").strip()
         blocked_on = str(answer.get("still_blocked_on") or "").strip()
@@ -721,7 +721,7 @@ def answer_po(conn: sqlite3.Connection, terms: dict, projects: list[str]) -> lis
         # acceptance criteria on top of it, and never sees this conversation. So
         # the basis has to travel with the claim. Ordis has no Bash and cannot
         # observe a running program, and the reply that forced this said
-        # "NOTION_OG_TRACKER_DB is set in .env.example — it's live now, not just
+        # "NOTION_OG_TRACKER_DB is set in .env.example. It's live now, not just
         # logging 'not set'", having read a committed template and nothing else.
         # The key really is set, but in `.env`, which Ordis cannot read; and
         # "live now" was something it had no way to observe and which was not
@@ -765,8 +765,8 @@ def answer_po(conn: sqlite3.Connection, terms: dict, projects: list[str]) -> lis
                 # Which lane it goes back to depends on whether it has already
                 # been groomed. `backlog` is only groomable while the criteria
                 # are empty (GROOMABLE_WHERE), so a story that was groomed,
-                # blocked, and then unblocked landed in `backlog` WITH criteria
-                # — not groomable, not dispatched, read by nothing. It sat there
+                # blocked, and then unblocked landed in `backlog` WITH criteria.
+                # Not groomable, not dispatched, read by nothing. It sat there
                 # until the PO noticed, which is the failure this loop exists to
                 # prevent.
                 #
@@ -797,7 +797,7 @@ def answer_po(conn: sqlite3.Connection, terms: dict, projects: list[str]) -> lis
                 elif has_criteria:
                     # Groomed but never approved. The criteria were drafted
                     # without the answer just given, so they are cleared and
-                    # the next wake re-reads the whole brief — the same
+                    # the next wake re-reads the whole brief. The same
                     # treatment a brief that grew after delivery gets.
                     conn.execute(
                         """UPDATE stories
@@ -885,7 +885,7 @@ def answer_po(conn: sqlite3.Connection, terms: dict, projects: list[str]) -> lis
 
 
 def unanswered_count(conn: sqlite3.Connection) -> int:
-    """How many PO replies are waiting — the tick uses this to decide to wake."""
+    """How many PO replies are waiting. The tick uses this to decide to wake."""
     return conn.execute(
         "SELECT COUNT(*) n FROM po_messages WHERE author = 'po' AND status = 'unread'"
     ).fetchone()["n"]
@@ -913,7 +913,7 @@ STAFF_LIMIT = int(os.environ.get("COLONY_STAFF_LIMIT", "1"))
 STAFF_TIMEOUT_S = int(os.environ.get("COLONY_STAFF_TIMEOUT", "420"))
 
 # The most seats one staffing run may propose for one story. Three is a ceiling
-# rather than a target — the prompt argues hard for one — and it exists because
+# rather than a target, the prompt argues hard for one, and it exists because
 # an unbounded list is an unbounded number of approval cards for the PO, each
 # carrying its own token ceiling. Lower it to 1 to get the old behaviour back
 # exactly.
@@ -1121,7 +1121,7 @@ def _diversity_note(conn: sqlite3.Connection, pick: sqlite3.Row,
 # card. It writes one paragraph next to the pick and the PO still answers.
 #
 # The PO presses the button. Never the pulse. It costs a full roster digest and
-# most hires do not need one — the ones worth spending it on are the hire you
+# most hires do not need one. The ones worth spending it on are the hire you
 # are unsure about and the fourth contract in a row for the same persona.
 
 SECOND_OPINION_SLUG = "specialized/agents-orchestrator"
@@ -1207,10 +1207,10 @@ def second_opinion(conn: sqlite3.Connection, esc_id: int, terms: dict) -> dict:
     if not esc:
         raise control.Refused("no such escalation")
     if esc["kind"] != "hire":
-        raise control.Refused("a second opinion is about a hire — this card is a "
+        raise control.Refused("a second opinion is about a hire. This card is a "
                               f"{esc['kind']}")
     if esc["resolved_at"]:
-        raise control.Refused("this hire is already decided — a second opinion now "
+        raise control.Refused("this hire is already decided. A second opinion now "
                               "would cost a run and change nothing")
     if esc["second_opinion"]:
         raise control.Refused("this hire already has a second opinion. Reading it "
@@ -1229,14 +1229,14 @@ def second_opinion(conn: sqlite3.Connection, esc_id: int, terms: dict) -> dict:
     ).fetchone()
     if not pick:
         raise control.Refused(f"the proposed persona {proposal.get('roster_slug')!r} is "
-                              f"no longer in the roster — refuse this card and let the "
+                              f"no longer in the roster. Refuse this card and let the "
                               f"next pulse propose someone who is")
 
     persona_file = PERSONA_ROOT / f"{SECOND_OPINION_SLUG}.md"
     if not persona_file.exists():
         raise control.Refused(
             f"{SECOND_OPINION_SLUG} is not on disk at {persona_file}. It ships with the "
-            f"agency roster clone — without the file there is no second opinion to give, "
+            f"agency roster clone. Without the file there is no second opinion to give, "
             f"only a generic one")
 
     digest = roster_mod.digest(conn)
@@ -1263,7 +1263,7 @@ def second_opinion(conn: sqlite3.Connection, esc_id: int, terms: dict) -> dict:
             ((result.error or result.text or "no usable answer")[:2000], ticket_id),
         )
         return {"ok": False, "escalation_id": esc_id, "tokens": result.chargeable_tokens,
-                "verdict": "the second opinion came back unreadable — the hire card is "
+                "verdict": "the second opinion came back unreadable. The hire card is "
                            "unchanged and you can ask again"}
 
     verdict = str(answer.get("verdict") or "").strip().lower()
@@ -1283,7 +1283,7 @@ def second_opinion(conn: sqlite3.Connection, esc_id: int, terms: dict) -> dict:
         text += f"\n\nWould take instead: {alt['name']} ({instead}, {alt['division']})."
     elif instead:
         text += f"\n\nNamed {instead!r} as an alternative, which is not a slug in the "
-        text += "roster — treat that half of the answer as noise."
+        text += "roster. Treat that half of the answer as noise."
     if watch:
         text += f"\n\nWatch: {watch}"
 
@@ -1521,7 +1521,7 @@ def run(conn: sqlite3.Connection, usage: dict | None) -> dict:
         # Belt-and-braces: the tick already refuses to escalate to a wake while
         # HALT is present. This is the second reader of the same file, because
         # the one control that must never fail open is the stop switch.
-        report["skipped"] = "HALT — dispatch disabled"
+        report["skipped"] = "HALT. Dispatch disabled"
         return report
 
     budget = budget_state(conn, usage)
@@ -1533,7 +1533,7 @@ def run(conn: sqlite3.Connection, usage: dict | None) -> dict:
     # this hour can be dispatched before the next one comes round.
     terms = contract(conn, "investigator")
     if terms is None:
-        report["skipped"] = "no active investigator contract — run `python -m colony init`"
+        report["skipped"] = "no active investigator contract. Run `python -m colony init`"
     else:
         # Before anything else: whatever the PO said. Working a backlog they have
         # just re-scoped is the most expensive kind of wrong.
@@ -1543,8 +1543,8 @@ def run(conn: sqlite3.Connection, usage: dict | None) -> dict:
             report["tokens"] += outcome["tokens"]
 
         # Then any skill draft the PO asked for. Ahead of grooming because it is
-        # bounded — one draft per requested candidate, and the request had to be
-        # made by hand — while the groom queue is however long Notion made it.
+        # bounded, one draft per requested candidate, and the request had to be
+        # made by hand, while the groom queue is however long Notion made it.
         for skill in forge_mod.pending_drafts(conn)[:FORGE_DRAFT_LIMIT]:
             if not _room(conn, usage, report, "the PO replies"):
                 break
@@ -1554,8 +1554,8 @@ def run(conn: sqlite3.Connection, usage: dict | None) -> dict:
 
     # Read the queue *after* the replies, not before. A reply that supplies the
     # missing decision puts its story straight back into this queue, and asking
-    # an hour early would mean the answer waits a full pulse to become work —
-    # which is most of what "nothing is happening" felt like.
+    # an hour early would mean the answer waits a full pulse to become work.
+    # Which is most of what "nothing is happening" felt like.
     stories = stories_to_groom(conn, GROOM_LIMIT) if terms is not None else []
     if terms is not None and stories:
         projects = pulse_mod.candidate_projects()

@@ -6,7 +6,7 @@ the logon task, and `qr.svg()` draws the result. What did not exist was a way to
 get all four without leaving the dashboard: the documented path was mint a
 token, open `.env` in an editor, paste it, save, then run `py -m colony
 autostart` in a terminal. Five steps, one of which is "edit a credential file
-correctly", and all five happen at the desk — which is the machine you are
+correctly", and all five happen at the desk, which is the machine you are
 sitting at *because* you are about to walk away from it.
 
 So: one button. `turn_on()` does the four things, `turn_off()` undoes the one

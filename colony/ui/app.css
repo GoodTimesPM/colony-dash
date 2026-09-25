@@ -1,4 +1,4 @@
-/* Colony Dash — the whole stylesheet.
+/* Colony Dash. The whole stylesheet.
    Lived inside index.html until 2026-08-27. Split out so the markup is
    readable and so an editor can syntax-check it. Served by `/app.css`. */
 
@@ -6,7 +6,7 @@
    Bare :root is the complete light set. The system-dark block is guarded so an
    explicit light choice beats a dark OS, and [data-theme="dark"] repeats it so
    the picker wins in the other direction. The named themes after that are
-   opt-in only — a viewer who never touches the picker sees the first three.   */
+   opt-in only. A viewer who never touches the picker sees the first three.   */
 :root {
   color-scheme: light dark;
 
@@ -33,7 +33,7 @@
   --sans: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif;
 
   /* One dial moves all of it. Every size on the page is a step and every step
-     is the same multiplier, so "make the text bigger" keeps the *ratios* — a
+     is the same multiplier, so "make the text bigger" keeps the *ratios*. A
      flat +2px would take the 9px label to 11 and the 26px figure to 28, and a
      type scale whose ends have met is no longer a scale. --ui-scale is set on
      the root element from the appearance drawer; 1 is the design size. */
@@ -47,7 +47,7 @@
   --step-3:  calc(26px * var(--ui-scale));
 }
 
-/* The guard is `:not([data-theme])` — no attribute at all — and not a list of
+/* The guard is `:not([data-theme])`, no attribute at all, and not a list of
    the light themes to exclude. The list version was a specificity trap: it
    scored higher than `:root[data-theme="ember"]`, so on a dark OS every named
    theme lost to it and the picker appeared to do nothing except for the two
@@ -85,9 +85,9 @@
   --shadow: 0 1px 0 rgba(255,255,255,.02), 0 12px 32px -18px #000;
 }
 
-/* Ember — the forge at night, and a fire is not one colour. The ground is the
+/* Ember. The forge at night, and a fire is not one colour. The ground is the
    banked coal bed, the rules are iron scale, coral is the ingot still too hot
-   to touch, mint is the green a copper offcut throws when it catches — and
+   to touch, mint is the green a copper offcut throws when it catches. And
    violet is the blue at the base of the flame, which is the hottest part of
    the picture and the one nobody paints. */
 :root[data-theme="ember"] {
@@ -101,7 +101,7 @@
   --shadow: 0 1px 0 rgba(255,180,90,.05), 0 16px 40px -20px #000;
 }
 
-/* Moss — a longhouse in the woods, in the hour before the light goes. Deep wet
+/* Moss. A longhouse in the woods, in the hour before the light goes. Deep wet
    green, and the accents are the four things in a forest that are not green:
    lichen on the north face, a rowan berry, moving water, and bluebell haze. */
 :root[data-theme="moss"] {
@@ -115,10 +115,10 @@
   --shadow: 0 1px 0 rgba(255,255,255,.02), 0 12px 32px -18px #000;
 }
 
-/* Slate — roofing slate in the rain, which is blue-purple; the grey is what it
+/* Slate. Roofing slate in the rain, which is blue-purple; the grey is what it
    looks like dry and in a photograph. Chalk yellow, the green a copper nail
    weathers to, and the rust it bleeds down the tile. Still the theme for when
-   colour is a distraction — without being colourless about it. */
+   colour is a distraction, without being colourless about it. */
 :root[data-theme="slate"] {
   --ground:      #15161C;  --panel:      #1E2029;  --panel-sunk: #181A22;
   --rule:        #2E3140;  --rule-soft:  #232532;
@@ -130,7 +130,7 @@
   --shadow: 0 1px 0 rgba(255,255,255,.02), 0 12px 32px -18px #000;
 }
 
-/* Parchment — a ledger on a table. Warm paper, iron-gall ink, red rubrication.
+/* Parchment. A ledger on a table. Warm paper, iron-gall ink, red rubrication.
    Pushed further into the sepia than the first pass: the panels are tinted
    rather than white-with-a-hint, the rules carry the same hue as the ground,
    and the accents are pigments (ochre, verdigris, vermilion) instead of the
@@ -158,8 +158,8 @@
    is Ordis. That rationing is why a glance at the page tells you something
    before you've read a word, and a theme that traded it for a prettier swatch
    would be trading away the signal itself. What changes between them is the
-   hue each accent is made of — a forge-red coral under Ember, a hazard orange
-   under Vault — never the meaning.
+   hue each accent is made of, a forge-red coral under Ember, a hazard orange
+   under Vault, never the meaning.
 
    The *-ground pairs matter as much as the accents. An accent with no tinted
    ground behind it makes a chip that shouts, and a page of shouting chips is a
@@ -168,7 +168,7 @@
 /* ── eras ───────────────────────────────────────────────────────────────── */
 
 
-/* Diner — 1955, but at 1am from the parking lot. The sign is the theme: neon
+/* Diner. 1955, but at 1am from the parking lot. The sign is the theme: neon
    red tubing, blue gas, chrome, and black glass behind it. The one palette
    here where the ground is lit rather than printed, and the only shadow with
    a colour in it. */
@@ -184,7 +184,7 @@
 }
 
 
-/* Miami — 1986, an hour after the sun went down. Not navy-with-pink: the
+/* Miami. 1986, an hour after the sun went down. Not navy-with-pink: the
    ground is the purple the sky actually goes, the pink is the hotel sign, the
    cyan is the pool lit from underneath. The only theme allowed to be gaudy,
    and the only one whose shadow is pink. */
@@ -200,7 +200,7 @@
 }
 
 
-/* Y2K — 1999 going on 2001, the *good* half of it: a rave flyer, a translucent
+/* Y2K. 1999 going on 2001, the *good* half of it: a rave flyer, a translucent
    console, a menu screen with nothing subtle on it. The first pass was frosted
    chrome on white, which is the era's packaging rather than the era. Black
    ground, and the four accents are the flyer's four inks. */
@@ -219,7 +219,7 @@
 
 /* ── worlds ─────────────────────────────────────────────────────────────── */
 
-/* Cyberpunk — the acid yellow is the whole identity, and the first pass buried
+/* Cyberpunk. The acid yellow is the whole identity, and the first pass buried
    it under teal and magenta, which is how you end up with a theme that is only
    "dark and neon". Yellow leads here, on a ground with no blue left in it. */
 :root[data-theme="cyberpunk"] {
@@ -233,7 +233,7 @@
   --shadow: 0 1px 0 rgba(252,238,10,.06), 0 18px 44px -22px #000;
 }
 
-/* Neon noir — the difference between this and cyberpunk is water. Everything
+/* Neon noir. The difference between this and cyberpunk is water. Everything
    here is seen through rain: a teal-black street, sodium lamps doing most of
    the lighting, and colours that arrive diluted rather than lit. The one dark
    theme that is deliberately *less* saturated than its neighbours. */
@@ -249,7 +249,7 @@
 }
 
 
-/* Grid — inside the machine, where nothing is lit from outside. Two colours
+/* Grid. Inside the machine, where nothing is lit from outside. Two colours
    exist: the cyan every line is drawn in, and the orange belonging to whatever
    is running the place. The ground is as close to absolute black as the page
    allows, because a light-line only reads as light with nothing behind it, and
@@ -265,7 +265,7 @@
   --shadow: 0 1px 0 rgba(111,233,255,.08), 0 18px 44px -22px #000;
 }
 
-/* Vault — a shelter terminal thirty years in, which is a green screen bolted
+/* Vault. A shelter terminal thirty years in, which is a green screen bolted
    into a machine that has been rusting the whole time. That is what separates
    it from phosphor: phosphor is only the tube, this has a door, a warning lamp
    and corrosion around the bolts. */
@@ -281,7 +281,7 @@
 }
 
 
-/* Imperial — black, white and red, and nothing else. Not gunmetal-with-a-red:
+/* Imperial. Black, white and red, and nothing else. Not gunmetal-with-a-red:
    the greys carry no hue at all, so the one saturated thing on the page is the
    anomaly. The Inbox is stark white rather than gold, which is the only way an
    accent stays an accent when the palette has no colour left to spend. */
@@ -296,7 +296,7 @@
   --shadow: 0 1px 0 rgba(255,255,255,.03), 0 16px 40px -20px #000;
 }
 
-/* Nostromo — a commercial towing vehicle, and a crew that is not being told
+/* Nostromo. A commercial towing vehicle, and a crew that is not being told
    everything. Plastic gone yellow under work light, a green screen that only
    answers some questions, and hazard paint: the yellow and the red here are
    the two colours off the stripes on the doors. */
@@ -311,10 +311,10 @@
   --shadow: 0 1px 0 rgba(255,255,255,.02), 0 12px 32px -18px #000;
 }
 
-/* Bridge — the console designed by somebody who liked rounded rectangles, and
+/* Bridge. The console designed by somebody who liked rounded rectangles, and
    its palette is famous enough to quote rather than approximate: orange,
    apricot, lilac-blue and mauve on black. The accents read as panel colours
-   rather than warnings, which is the point — on that bridge nothing is red
+   rather than warnings, which is the point. On that bridge nothing is red
    until it genuinely is. */
 :root[data-theme="bridge"] {
   --ground:      #04040A;  --panel:      #0E0E16;  --panel-sunk: #08080F;
@@ -329,7 +329,7 @@
 
 
 
-/* Meadow — a hand-painted background, mid-afternoon. Sage, but the pigment
+/* Meadow. A hand-painted background, mid-afternoon. Sage, but the pigment
    rather than the wash: the ground is a full step down from white and the
    accents are mixed at strength, because the first pass desaturated everything
    until the page read as one pale rectangle. */
@@ -346,7 +346,7 @@
 
 /* ── terminals ──────────────────────────────────────────────────────────── */
 
-/* Phosphor — a P1 tube, and on a P1 tube there is one colour and a brightness
+/* Phosphor. A P1 tube, and on a P1 tube there is one colour and a brightness
    knob. Everything here is that green at a different intensity, the ink
    included, which is what makes the accents work at all. Coral is the single
    lie in the theme: no monochrome CRT ever showed an orange, but an anomaly
@@ -362,7 +362,7 @@
   --shadow: 0 1px 0 rgba(51,255,102,.07), 0 14px 36px -20px #000;
 }
 
-/* Ochre CRT — the same tube in P3 amber, which is #FFB000 and nothing else.
+/* Ochre CRT. The same tube in P3 amber, which is #FFB000 and nothing else.
    Half the terminals of that era were sold this way because it is easier on
    the eyes at 3am than green is. Same monochrome discipline as phosphor, same
    single lie for the anomaly, warmer everywhere. */
@@ -377,7 +377,7 @@
   --shadow: 0 1px 0 rgba(255,176,0,.07), 0 14px 36px -20px #000;
 }
 
-/* Dusk — the sky twenty minutes after sunset, which is two colours at once:
+/* Dusk. The sky twenty minutes after sunset, which is two colours at once:
    indigo directly overhead and a rose still sitting on the horizon. The first
    pass kept the indigo and threw the rose away, which left a grey-violet page
    with nothing happening in it. Coral is the horizon. */
@@ -392,7 +392,7 @@
   --shadow: 0 1px 0 rgba(255,255,255,.03), 0 14px 36px -20px #000;
 }
 
-/* Fjord — arctic, and arctic light is *pale*, not dim. The palette that gets
+/* Fjord. Arctic, and arctic light is *pale*, not dim. The palette that gets
    this right already exists and there is no point pretending otherwise: polar
    night for the grounds, snow for the ink, four muted accents. One deviation
    from it: the aurora red is lifted two steps, because at its published value
@@ -410,7 +410,7 @@
   --shadow: 0 1px 0 rgba(255,255,255,.04), 0 14px 34px -20px #10141C;
 }
 
-/* Kiln — warm dark for people who find blue-grey clinical, and the accents are
+/* Kiln. Warm dark for people who find blue-grey clinical, and the accents are
    glazes rather than colours: tenmoku brown in the ground, celadon, iron red,
    and the mauve an ash glaze goes where the flame touched it. Everything here
    came out of the same firing, which is why it holds together. */
@@ -426,7 +426,7 @@
 }
 
 
-/* Blueprint — a drawing, not a document. White lines on process blue, panels
+/* Blueprint. A drawing, not a document. White lines on process blue, panels
    lighter than the ground because that is how a print reads, and the accents
    are what somebody added *after* it came off the machine: a red pencil
    revision, a highlighter, an approval stamp. */
@@ -441,10 +441,10 @@
   --shadow: 0 1px 0 rgba(255,255,255,.05), 0 14px 36px -20px #001127;
 }
 
-/* Ink wash — sumi-e, where the whole page is one grey and the only colour in
+/* Ink wash. sumi-e, where the whole page is one grey and the only colour in
    the frame is the seal in the corner. Taken literally: amber, mint and violet
    are barely tinted greys, and coral is the vermilion. Which means the anomaly
-   colour is the single saturated thing on screen — either the most restrained
+   colour is the single saturated thing on screen. Either the most restrained
    theme on the list or the loudest, depending on the day the colony has had. */
 :root[data-theme="inkwash"] {
   --ground:      #101112;  --panel:      #191A1C;  --panel-sunk: #141516;
@@ -480,8 +480,8 @@
 
   /* What a file's git state is painted in, everywhere it shows: the stacked bar
      on a project row and the dot beside a file in the tree. They start as the
-     accents because the meanings line up — added is live work, deleted is an
-     anomaly — but they are tokens of their own so that repainting them does not
+     accents because the meanings line up, added is live work, deleted is an
+     anomaly, but they are tokens of their own so that repainting them does not
      also repaint Ordis and the Colony panel, which is the confusion that comes
      from editing `--violet` when what you meant was "the modified bar". */
   --git-added:     var(--mint);
@@ -525,7 +525,7 @@ header.bar .goal {
 /* ── the view menu ────────────────────────────────────────────────────────────
    A <details> and not a modal: it opens in place, it closes when you click
    away, and it survives a re-render because nothing inside it is redrawn by
-   the poll. Every box here writes localStorage and nothing else — the server
+   the poll. Every box here writes localStorage and nothing else. The server
    has no idea what you have chosen to look at, which is the point. Hiding a
    panel is a display decision, not a colony decision, and a page that phoned
    home about it would be a page you could not trust to be only a page. */
@@ -632,8 +632,8 @@ body.halted .halt-banner { display: flex; }
 
 /* ── the inbox strip ──────────────────────────────────────────────────────────
    Full width, above everything else. The Inbox is the only panel on this page
-   that is *about* the PO, so it is not a column of leftovers in the corner —
-   it is the first thing the eye lands on, and it disappears when it is empty. */
+   that is *about* the PO, so it is not a column of leftovers in the corner.
+   It is the first thing the eye lands on, and it disappears when it is empty. */
 
 /* The Inbox and what it set in motion share one row: the padding lives on the
    row so the two panels meet at a gap rather than at doubled gutters. */
@@ -653,7 +653,7 @@ body.halted .halt-banner { display: flex; }
 .strip.quiet h2 { color: var(--ink-dim); }
 
 /* The Inbox scrolls rather than growing. Left to itself it wrapped downwards,
-   and a fifth question pushed the whole board off the screen — the panel that
+   and a fifth question pushed the whole board off the screen. The panel that
    exists to say "this needs you" was the one that made everything else
    unreadable. Capping it costs a scrollbar and buys a page whose shape does not
    depend on how behind you are. The appearance drawer can override the height. */
@@ -675,8 +675,8 @@ body.halted .halt-banner { display: flex; }
 
 /* The one slot that speaks. An Inbox with nothing in it used to collapse to a
    line of grey text under a heading, which reads as a panel that failed to load
-   rather than as the best state this panel has. It keeps its row now — the same
-   hollow shapes that would be holding questions — and the good news sits in the
+   rather than as the best state this panel has. It keeps its row now, the same
+   hollow shapes that would be holding questions, and the good news sits in the
    first of them, at the size and place a real tile would have been. */
 .tile.slot.note {
   display: flex; align-items: center; justify-content: center; text-align: center;
@@ -694,7 +694,7 @@ body.halted .halt-banner { display: flex; }
 .tile[data-kind="run-request"] .rec .detail { font-family: var(--mono); }
 
 /* Ready to start. Amber across the rest of this panel means "this needs you",
-   and it does need them — but it needs a go, not an answer, and a tile that
+   and it does need them. But it needs a go, not an answer, and a tile that
    looks like every unanswered question is one more thing to feel behind on.
    Mint is live work everywhere else on the page; this is work that is one
    press from being live. */
@@ -784,7 +784,7 @@ body.halted .halt-banner { display: flex; }
 .tile .picker { display: flex; gap: 6px; align-items: center; width: 100%; min-width: 0; }
 .tile .picker select.pick, .tile .picker input.field { flex: 1 1 auto; width: 100%; min-width: 0; }
 
-/* A snoozed item is still open — it just stops shouting until the snooze runs
+/* A snoozed item is still open. It just stops shouting until the snooze runs
    out. Everything about it recedes: the amber ground, the border, the type. */
 .tile.snoozed {
   background: var(--panel); border-color: var(--rule); box-shadow: none; opacity: .62;
@@ -817,8 +817,8 @@ button.act.solid { background: var(--coral); border-color: var(--coral); color: 
    Beside the Inbox rather than under it, because it answers the question the
    Inbox creates: you queue something from a tile or a drawer, and then there is
    nowhere on the page that says it is still queued. Tickets and Notion pushes
-   are different shapes but the same question — the PO pressed something and it
-   has not finished — so they share one rail, distinguished by the stripe down
+   are different shapes but the same question, the PO pressed something and it
+   has not finished, so they share one rail, distinguished by the stripe down
    their left edge rather than by being filed apart.
 
    It is short and it scrolls. This panel is a status light, not a list to work
@@ -838,7 +838,7 @@ button.act.solid { background: var(--coral); border-color: var(--coral); color: 
   transition: background .12s ease, border-color .12s ease;
 }
 /* The stripe is the state. Mint is running, amber is staffed and waiting on the
-   next pulse, coral is blocked or given up on — the same rationing the rest of
+   next pulse, coral is blocked or given up on. The same rationing the rest of
    the page uses, so no legend is needed. */
 .fl[data-state="running"] { border-left-color: var(--mint); }
 .fl[data-state="staffed"] { border-left-color: var(--amber); }
@@ -937,7 +937,7 @@ section.panel {
    One rule per section rather than a colour written into each panel, because
    the panels are markup and the hues are a scheme: this way the scheme is in
    one place and every theme inherits it through the tokens above. The bar down
-   the left edge of the title is the part that actually does the work — the
+   the left edge of the title is the part that actually does the work. The
    text is uppercase mono at 11px and colour alone was never going to carry it
    at that size. */
 
@@ -957,7 +957,7 @@ section.panel {
 .empty { color: var(--ink-dim); font-size: var(--step--1); padding: 2px 0 4px; }
 
 /* ── Ordis ────────────────────────────────────────────────────────────────────
-   The Scrum Master is not a row in `agents` — it is the loop itself. But a
+   The Scrum Master is not a row in `agents`. It is the loop itself. But a
    colony dashboard that shows every colonist and not the thing running them is
    missing its own supervisor, so it gets a panel: when it last beat, when it
    beats next, and what its judgment has cost. */
@@ -1093,7 +1093,7 @@ button.persona.hired .nm { color: var(--mint); }
 .story .t { font-size: var(--step-1); }
 .story .sub { grid-column: 1 / -1; display: flex; text-align: left; gap: 9px; align-items: center; font-family: var(--mono); font-size: var(--step--1); color: var(--ink-dim); flex-wrap: wrap; }
 
-/* A board row is a <button>, so the drop control cannot live inside it — the
+/* A board row is a <button>, so the drop control cannot live inside it. The
    row and the control are siblings in a line instead. The control stays
    invisible until the row is hovered or something in the line has focus:
    destructive affordances should be reachable, not ambient. */
@@ -1110,7 +1110,7 @@ button.persona.hired .nm { color: var(--mint); }
 
 /* The progress pair. Two numbers, one meaning: how much of this story Notion
    says is already ticked. It is the fix for the whole class of "the colony is
-   asking me about something I finished last week" — now visible from the
+   asking me about something I finished last week". Now visible from the
    board, before you open anything. */
 .chip.prog { background: var(--mint-ground); color: var(--mint); }
 .chip.prog.none { background: var(--panel-sunk); color: var(--ink-dim); }
@@ -1125,11 +1125,11 @@ button.persona.hired .nm { color: var(--mint); }
 .dropped-line .t { flex: 1; min-width: 0; color: var(--ink-dim); text-decoration: line-through; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dropped-line .why { font-family: var(--mono); font-size: var(--step--1); color: var(--ink-dim); }
 /* A filed story is finished, parked or not begun. It is not struck through the
-   way a dropped one is — nothing was abandoned, it just is not the colony's
+   way a dropped one is. Nothing was abandoned, it just is not the colony's
    business today.
 
    And its title is not truncated. The dropped line was built for a row whose
-   interesting half is the *reason* — one line, ellipsis, move on — and filing
+   interesting half is the *reason*, one line, ellipsis, move on, and filing
    inherited that shape by accident, so shelving a story took a full-size board
    title and dropped it into a dim one-line stub with its end cut off. A title
    you can no longer read is not filing, it is losing. The line wraps, sits at
@@ -1180,8 +1180,8 @@ button.persona.hired .nm { color: var(--mint); }
 /* One folder's movement, in the pulse drawer. Four rows in a fixed order,
    because they answer four questions in a fixed order: what changed since the
    last beat, what the folder looks like now, when it was last written, and
-   which files. The delta line is the loud one — it is the reason the entry
-   exists — and everything under it is context for it. */
+   which files. The delta line is the loud one, it is the reason the entry
+   exists, and everything under it is context for it. */
 .moved { display: flex; flex-direction: column; gap: 8px; }
 .moved .item {
   display: grid; grid-template-columns: 1fr auto; gap: 2px 12px;
@@ -1249,7 +1249,7 @@ button.pulse[disabled] { cursor: default; }
 .pulse .tier { color: var(--ink-dim); }
 .pulse[data-tier="wake"] .tier { color: var(--mint); }
 /* An hour the tick escalated and the wake declined to spend. Worth picking out
-   of the log — something was found — but it is not a wake, and it must not wear
+   of the log, something was found, but it is not a wake, and it must not wear
    the colour that means tokens left the account. */
 .pulse[data-tier="escalated"] .tier { color: var(--ink); }
 .pulse .find { color: var(--ink-soft); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1273,7 +1273,7 @@ button.pulse[disabled] { cursor: default; }
   display: flex; align-items: baseline; gap: 8px; min-height: 1.5em;
   font-family: var(--mono); font-size: var(--step--1);
 }
-/* The readout never empties — with nothing hovered it holds the window total.
+/* The readout never empties. With nothing hovered it holds the window total.
    A line that appears on hover and vanishes on leave makes the whole panel jump
    every time the pointer crosses it. */
 .chart .readout .rl { color: var(--ink); }
@@ -1290,7 +1290,7 @@ button.pulse[disabled] { cursor: default; }
 
 .chartbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 /* A segmented control, because these are five views of one number rather than
-   five separate switches — exactly one is on, and the box around them says so. */
+   five separate switches. Exactly one is on, and the box around them says so. */
 .seg { display: inline-flex; border: 1px solid var(--rule); border-radius: 6px; overflow: hidden; }
 .seg button {
   appearance: none; background: none; border: 0; cursor: pointer;
@@ -1303,7 +1303,7 @@ button.pulse[disabled] { cursor: default; }
 .chartbar .spacer { margin-left: auto; }
 
 /* Paging and the date jump. The arrows move a whole window at a time, the date
-   box lands on one bucket, and the arrow keys walk bucket by bucket — three
+   box lands on one bucket, and the arrow keys walk bucket by bucket. Three
    sizes of step over the same axis, which is why they sit in one group. `now`
    and the forward arrow grey out once the window already ends at the present,
    because a control that does nothing is a control that teaches you not to
@@ -1356,7 +1356,7 @@ button.pulse[disabled] { cursor: default; }
 
    Four levels on the page's existing rationing: coral is stuck, amber is
    waiting on you, mint is moving, grey is finished. The mint one is drawn as
-   loudly as the coral one on purpose — a banner that only appears when
+   loudly as the coral one on purpose. A banner that only appears when
    something is wrong teaches you to read its absence, and an absent banner is
    indistinguishable from a panel that failed to load. */
 .compose .state {
@@ -1399,7 +1399,7 @@ button.pulse[disabled] { cursor: default; }
 /* Four things happen in one of these conversations and each gets its own
    colour, on the page's existing rationing: amber is the PO, violet is Ordis,
    mint is the thing that outlives the exchange. A question the colony raised is
-   deliberately the quiet one — it is context for the reply under it, not
+   deliberately the quiet one. It is context for the reply under it, not
    another voice. */
 .msg.po { align-self: flex-end; }
 .msg.po .who { text-align: right; }
@@ -1416,7 +1416,7 @@ button.pulse[disabled] { cursor: default; }
 }
 .msg.ask.closed .bubble { color: var(--ink-dim); }
 /* One exception to the quiet. A question still open is not context for the
-   reply under it — it is the reason nothing below it exists yet, and reading
+   reply under it. It is the reason nothing below it exists yet, and reading
    down a thread of grey rules gave no way to tell which of six asks was the
    one still holding the story. An open `needs-info` is what parks a story, so
    it gets the colour that means parked; anything else still open is the colour
@@ -1532,7 +1532,7 @@ textarea.compose-box {
   font-family: var(--mono); font-size: var(--step-0); line-height: 1.55;
 }
 textarea.compose-box:focus-visible { outline: 2px solid var(--violet); outline-offset: -1px; }
-/* What they pasted, under the box they typed it into — and again under the message
+/* What they pasted, under the box they typed it into. And again under the message
    once it is sent. Thumbnails rather than filenames, because a pasted
    screenshot is always called `image.png` and the name tells you nothing while
    fifty pixels of the picture tells you which one it is. */
@@ -1594,7 +1594,7 @@ textarea.compose-box:focus-visible { outline: 2px solid var(--violet); outline-o
 .ev:last-child .stem { display: none; }
 /* One palette for one conversation. The timeline and the reply drawer are two
    views of the same exchange and they were colour-coded on two different
-   schemes — violet meant "a learning" here and "Ordis said it" there, amber
+   schemes. Violet meant "a learning" here and "Ordis said it" there, amber
    meant "blocked" here and "you said it" there. Reading them side by side meant
    re-learning the colours halfway down the drawer. They agree now, on the
    thread's scheme: amber is the PO, violet is Ordis, mint is the learning, and
@@ -1604,8 +1604,8 @@ textarea.compose-box:focus-visible { outline: 2px solid var(--violet); outline-o
    by their summary, which is written at exactly one place each (`control.py`
    for the PO, `wake.py` for Ordis). Their `kind` cannot say it: `story_events`
    has a CHECK on the column, and adding a value to it means rebuilding the
-   table — which would still leave every row already in the ledger uncoloured. */
-/* The shared shape first, then the four voices on top of it — a `border`
+   table, which would still leave every row already in the ledger uncoloured. */
+/* The shared shape first, then the four voices on top of it. A `border`
    shorthand written after a `border-color` would quietly reset it to
    transparent, and every one of these colours is a border colour. */
 .ev[data-role] .sum { border: 1px solid transparent; border-radius: 7px; padding: 5px 9px; }
@@ -1629,7 +1629,7 @@ textarea.compose-box:focus-visible { outline: 2px solid var(--violet); outline-o
 pre.detail.tall { max-height: 60vh; }
 /* Long text, folded to a few lines with the last one fading out, because a
    timeline where every entry is a paragraph is not a timeline. The fade is the
-   affordance — a hard cut reads as the text having ended, which is exactly the
+   affordance. A hard cut reads as the text having ended, which is exactly the
    thing that made a truncated learning look like a complete sentence. */
 .long { display: flex; flex-direction: column; align-items: flex-start; }
 .long .detail.clip {
@@ -1638,7 +1638,7 @@ pre.detail.tall { max-height: 60vh; }
   mask-image: linear-gradient(180deg, #000 55%, transparent);
 }
 .long .more { margin-top: 3px; }
-/* A diff is the one place on this page where colour is not rationed — it is
+/* A diff is the one place on this page where colour is not rationed. It is
    the whole point of the view. */
 pre.diff { white-space: pre; }
 pre.diff .plus  { color: var(--mint); }
@@ -1682,8 +1682,8 @@ pre.diff .file  { color: var(--ink); font-weight: 600; }
                 font-variant-numeric: tabular-nums; }
 
 /* Recent commits are three columns rather than two, because the time earns its
-   own: the useful reading is *down* that column — when did this folder last
-   actually move — and a date tucked at the end of a wrapping subject line can
+   own: the useful reading is *down* that column, when did this folder last
+   actually move, and a date tucked at the end of a wrapping subject line can
    only be read across. */
 .commits { display: grid; grid-template-columns: auto minmax(0, 1fr) auto;
            gap: 3px 14px; font-family: var(--mono); font-size: var(--step--1);
@@ -1738,12 +1738,12 @@ section.panel.capped > h2, .strip.capped > h2 {
 }
 
 /* Folded. A capped tile is "this one is long, keep it in a box"; a folded one
-   is "not this week" — the difference between rationing a panel's height and
+   is "not this week". The difference between rationing a panel's height and
    getting it off the page entirely without losing where it lives. The title bar
    stays because it is the handle: it is what you click to bring it back, and a
    row of nine names is still a readable board. */
 /* There was a caret here, and it was printing the string "u25BE" on every
-   heading on the page: `\u25BE` is a JavaScript escape, not a CSS one — CSS
+   heading on the page: `\u25BE` is a JavaScript escape, not a CSS one. CSS
    spells it `\25BE`, and `\u` in a CSS string is just the letter u. Rather than
    fix the escape the caret is gone. Nine headings were each carrying a marker
    for a control most of them will never be used for, and the fold announces
@@ -1753,7 +1753,7 @@ section.panel > h2, .strip > h2 { cursor: pointer; user-select: none; }
 section.panel.min > *:not(h2), .strip.min > *:not(h2) { display: none; }
 section.panel.min > h2 { border-bottom: 0; }
 /* The strip headings are bare text with no box of their own, so folding one has
-   to draw the outline the panels already have — otherwise it reads as a stray
+   to draw the outline the panels already have. Otherwise it reads as a stray
    label rather than a closed tile. */
 .strip.min > h2 {
   margin: 0; padding: 10px 13px 9px; background: var(--panel);
@@ -1772,7 +1772,7 @@ body.snapping section.panel > h2, body.snapping .strip > h2 { cursor: grab; }
 .sw { display: flex; align-items: center; gap: 10px; min-width: 0;
       font-family: var(--mono); font-size: var(--step--1); }
 /* Square and large enough to judge. A 26×21 chip is a colour you can identify
-   but not compare, and comparing is the whole job here — the swatch *is* the
+   but not compare, and comparing is the whole job here. The swatch *is* the
    readout, and the ratio beside it is only the second opinion. */
 .sw input[type=color] {
   flex: none; width: 38px; height: 38px; padding: 0; cursor: pointer;
@@ -1798,7 +1798,7 @@ body.snapping section.panel > h2, body.snapping .strip > h2 { cursor: grab; }
              text-transform: uppercase; color: var(--ink-soft); }
 .grp > .note { font-size: var(--step--1); color: var(--ink-dim); line-height: 1.4; margin: -4px 0 0; }
 
-/* Revert throws away work — every colour you mixed — so it warns on hover
+/* Revert throws away work, every colour you mixed, so it warns on hover
    rather than after the click, which is the only moment it can still help. */
 .set .revert:hover, .set .revert:focus-visible { color: var(--coral); }
 
@@ -1882,7 +1882,7 @@ body.snapping .snapbar { display: flex; }
    The page already collapsed to one column at 1240px, which is the whole of
    what "responsive" meant here: three columns became one and everything else
    kept desktop proportions. That is fine on a narrow window and wrong on a
-   390px screen, where the failures are not layout failures at all — they are a
+   390px screen, where the failures are not layout failures at all. They are a
    header that wraps into four lines of chrome before any content, controls
    sized for a mouse, and panels that scroll inside a page that also scrolls.
 
@@ -1892,7 +1892,7 @@ body.snapping .snapbar { display: flex; }
    list and the Ticket Queue each cap their own height and scroll internally, so
    the page's shape does not depend on how behind you are. On a phone that
    produces a small box inside a tall page, and a swipe that starts inside the
-   box moves the box instead of the page — you cannot reach the board without
+   box moves the box instead of the page. You cannot reach the board without
    finding a gap between panels to push on. On narrow screens they stop
    scrolling and simply get as tall as they are.
 
@@ -1934,7 +1934,7 @@ body.snapping .snapbar { display: flex; }
 
   /* The header stops being one line. `order` puts the connection dot and the
      title together and pushes the four menus onto a row of their own, so the
-     one thing worth glancing at — is this thing live — is never the item that
+     one thing worth glancing at, is this thing live, is never the item that
      got wrapped off. */
   header.bar { flex-wrap: wrap; align-items: center; gap: 8px 10px;
                padding-top: calc(10px + env(safe-area-inset-top)); }
@@ -1953,12 +1953,12 @@ body.snapping .snapbar { display: flex; }
   .sprint .meta { gap: 6px 16px; }
   #week-meta { justify-self: start !important; }
 
-  /* One tile per row, and no internal scrollers — see the note above. */
+  /* One tile per row, and no internal scrollers. See the note above. */
   .tiles { grid-template-columns: minmax(0, 1fr); max-height: none; overflow: visible; }
   .done-list { max-height: none; overflow: visible; }
   .flight .rail { max-height: none; overflow: visible; }
-  /* Padding for a grid that no longer has columns. `.note` is the exception —
-     it is the empty-Inbox message wearing a slot's clothes, and hiding it would
+  /* Padding for a grid that no longer has columns. `.note` is the exception.
+     It is the empty-Inbox message wearing a slot's clothes, and hiding it would
      leave a panel that says nothing when there is nothing to say. */
   .tiles .tile.slot:not(.note) { display: none; }
 
@@ -2005,7 +2005,7 @@ body.snapping .snapbar { display: flex; }
 
   /* Drag-to-arrange is a mouse gesture, and on a touch screen the drag it
      collides with is the scroll. The layout it arranges is a desktop layout
-     anyway — at this width there is one column and nothing to arrange. */
+     anyway. At this width there is one column and nothing to arrange. */
   .snapbar { display: none !important; }
 }
 
@@ -2027,7 +2027,7 @@ body.snapping .snapbar { display: flex; }
 
 /* ── the persona drop zone ─────────────────────────────────────────────────
    Dashed rather than solid so it reads as a target and not as a disabled
-   button, and tall enough to be a drop target rather than a link — a 20px
+   button, and tall enough to be a drop target rather than a link. A 20px
    strip is aimable with a mouse and not with a thumb, and this panel is used
    from a phone, where it is a file picker instead. */
 .dropzone {

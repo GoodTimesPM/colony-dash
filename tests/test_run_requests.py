@@ -180,7 +180,7 @@ class ApprovingARun(AskingTwice):
         self.conn.execute("BEGIN")
         said = control.record_run(self.conn, esc_id, result)
         self.conn.execute("COMMIT")
-        self.assertIn("exit 0", said)
+        self.assertIn("Exit 0", said)
         head = self.conn.execute(
             "SELECT summary FROM story_events WHERE story_id = ? ORDER BY id DESC LIMIT 1",
             (self.sid,)).fetchone()[0]

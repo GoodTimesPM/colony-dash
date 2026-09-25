@@ -1,6 +1,6 @@
 r"""Run child processes without flashing a console window.
 
-Every subprocess this codebase starts is a headless helper — `git status` for
+Every subprocess this codebase starts is a headless helper. `git status` for
 the Projects panel, `git worktree add` for a build, the `claude` CLI for a run,
 `WScript.Shell` for the desktop shortcut. None of them has anything to say to a
 terminal. But on Windows a console application launched from a GUI process gets
@@ -14,7 +14,7 @@ Windows-only flag, so it resolves to an empty dict everywhere else and every
 call site can pass `**proc.hidden()` unconditionally.
 
 One thing it does *not* do: hide a console that the process was launched with.
-If the parent has a console, the child can still inherit it — which is why the
+If the parent has a console, the child can still inherit it, which is why the
 scheduled pulse runs under `pythonw.exe` rather than `cmd.exe`. Suppressing the
 window has to happen on both sides of the launch.
 """

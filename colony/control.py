@@ -1,4 +1,4 @@
-"""PO actions — the only writes the dashboard is allowed to make.
+"""PO actions. The only writes the dashboard is allowed to make.
 
 M2 was read-only by construction: every request opened the ledger with
 `read_only=True` and the dashboard could not be the reason state changed. M3
@@ -11,7 +11,7 @@ Two rules hold for every function here:
 
   1. **The action is recorded before it takes effect.** `po_actions` gets a row
      first, inside the same transaction. If a change landed, the reason it
-     landed is in the ledger next to it — an autonomous system whose state moves
+     landed is in the ledger next to it. An autonomous system whose state moves
      without an attributable decision is a system you stop trusting.
 
   2. **Nothing here spends tokens.** Approving a story does not dispatch an
@@ -58,7 +58,7 @@ def card_text(text: str) -> str:
 
 # The whole dial, end to end. `allowance_boost` is stored as a *signed* delta
 # from the sprint's designed baseline, so the baseline stays visible next to
-# whatever the PO has done to it — and the PO can take it to the whole week or
+# whatever the PO has done to it. And the PO can take it to the whole week or
 # down to nothing. It used to stop at +25 and refuse to go below the baseline
 # at all, which made it a ratchet rather than a dial: every press raised the
 # ceiling and the only way down was to drop the boost entirely and rebuild it.
@@ -66,7 +66,7 @@ def card_text(text: str) -> str:
 # The cap is gone because the cap was a guess on the PO's behalf. The quota is
 # shared with the PO's own Claude Code sessions and they are the one who knows what
 # they need this week; the honest job of this control is to show them the number,
-# not to hold it down. Zero is a real setting too — it stops the colony spending
+# not to hold it down. Zero is a real setting too. It stops the colony spending
 # without the finality of HALT.
 MAX_ALLOWANCE_PCT = 100.0
 MIN_ALLOWANCE_PCT = 0.0
@@ -141,7 +141,7 @@ def halt(conn: sqlite3.Connection, on: bool, reason: str = "") -> dict[str, Any]
     """Stop or resume all dispatch, colony-wide.
 
     Halting does not stop the pulse. The heartbeat keeps logging, keeps syncing
-    Notion and keeps reaping orphans — it just refuses to spend. A halt that
+    Notion and keeps reaping orphans. It just refuses to spend. A halt that
     also blinded the dashboard would make the emergency harder to diagnose,
     which is the opposite of what an emergency switch is for.
 
@@ -169,8 +169,8 @@ def halt(conn: sqlite3.Connection, on: bool, reason: str = "") -> dict[str, Any]
 # happens on time. What a forced beat must not do is collide with a
 # scheduled one, because two pulses running at once would both sync Notion,
 # both reap the same orphaned runs, and possibly both dispatch the same
-# story. So every pulse — scheduled, typed at the CLI, or forced from the
-# dashboard — takes this lock first, and a second one stands down rather
+# story. So every pulse, scheduled, typed at the CLI, or forced from the
+# dashboard, takes this lock first, and a second one stands down rather
 # than queueing.
 PULSE_LOCK = db.RUNTIME_DIR / "pulse.lock"
 # The scheduled task is killed at 30 minutes (schedule.py sets
@@ -241,14 +241,14 @@ def pulse_lock():
 def force_pulse(conn: sqlite3.Connection, *, allow_wake: bool = True) -> dict[str, Any]:
     """Beat now, in the background, without moving the schedule.
 
-    This is the one control that can spend tokens on its own — the wake it
+    This is the one control that can spend tokens on its own. The wake it
     escalates to is the same wake the hourly beat would run. HALT and the
     allowance still get their say, exactly as they do at :07, so the button
     is not a way around either of them; it only asks the question sooner.
 
     A pulse takes seconds when it is clean and minutes when it wakes, which
     is far too long to hold an HTTP request open, so it runs on a thread with
-    its own connection. What comes back is "started", not "finished" — the
+    its own connection. What comes back is "started", not "finished". The
     pulse log is where it finishes.
     """
     if pulse_running():
@@ -264,7 +264,7 @@ def force_pulse(conn: sqlite3.Connection, *, allow_wake: bool = True) -> dict[st
             pulse_mod.run(own, allow_wake=allow_wake, forced=True)
         except Busy:
             pass          # the scheduled task got there first; it will log its own row
-        except Exception as exc:                      # noqa: BLE001 — a thread
+        except Exception as exc:                      # noqa: BLE001 (a thread
             # has nowhere to raise to, and a forced beat that dies silently is
             # exactly the "pulses are not happening" complaint this control
             # exists to answer.
@@ -302,7 +302,7 @@ def set_allowance(conn: sqlite3.Connection, boost_points: float) -> dict[str, An
 
     The sprint's `budget_pct` is left alone and a *delta* is stored separately,
     so the baseline the colony was designed around stays visible next to the
-    exception. Clearing is the same call with 0 — there is no separate reset
+    exception. Clearing is the same call with 0. There is no separate reset
     path to forget about.
 
     The delta is signed and the only clamp left is the range of the thing being
@@ -324,7 +324,7 @@ def set_allowance(conn: sqlite3.Connection, boost_points: float) -> dict[str, An
 def set_allowance_pct(conn: sqlite3.Connection, pct: float) -> dict[str, Any]:
     """Set the allowance to a number the PO typed, rather than to a step.
 
-    Same store, same clamp — this exists because "I need 80% this week" is a
+    Same store, same clamp. This exists because "I need 80% this week" is a
     thing you know directly, and reaching it by counting +5s is arithmetic the
     dashboard should be doing rather than asking for.
     """
@@ -385,7 +385,7 @@ def clear_needs_info(conn: sqlite3.Connection, story_id: int) -> int:
     A needs-info card is the story saying it is blocked, and the reply drawer
     reads it exactly that way: one open card of that kind paints the banner
     coral and says nothing can start until it is answered. Nothing closed
-    those cards on the happy path — only the branch that raised a *new*
+    those cards on the happy path. Only the branch that raised a *new*
     blocker superseded the old one. So story #1 answered its blocker at
     09:07, was groomed, drafted criteria and reached `po-review`, and the
     drawer still told the PO it could not start, while what it was actually
@@ -404,7 +404,7 @@ def clear_needs_info(conn: sqlite3.Connection, story_id: int) -> int:
 
 def question_settled(conn: sqlite3.Connection, story_id: int, kind: str,
                      story_hash: str | None) -> bool:
-    """Is this question already handled — either still open, or dismissed?
+    """Is this question already handled. Either still open, or dismissed?
 
     The raise paths already refused to ask twice while a card was open. They had
     no way to know a card had been *dismissed*, so the next groom re-derived the
@@ -470,7 +470,7 @@ def decide(conn: sqlite3.Connection, esc_id: int, decision: str,
     And one non-answer. `dismiss` is the Inbox's "x": the question stopped
     mattering, close it and change nothing. It exists because the four
     decisions above are all answers, and the only control that could actually
-    clear a tile without answering was "drop story" — which takes the whole
+    clear a tile without answering was "drop story", which takes the whole
     story off the board. Tidying the Inbox should not be the most destructive
     thing you can do in it.
     """
@@ -486,7 +486,7 @@ def decide(conn: sqlite3.Connection, esc_id: int, decision: str,
         # There is a real patch on disk and a worktree still checked out behind
         # it. Closing that question without answering it would strand both, and
         # the story would sit in `po-review` with nothing left to review it.
-        raise Refused("a patch cannot be dismissed — apply it or reject it")
+        raise Refused("a patch cannot be dismissed. Apply it or reject it")
     if esc["kind"] == "run-request" and decision == "approve" and esc["ticket_id"]:
         # The command a build agent hands over usually verifies the code that
         # build just wrote, and that code is in a patch, not in the tree. Run it
@@ -503,7 +503,7 @@ def decide(conn: sqlite3.Connection, esc_id: int, decision: str,
             "AND resolved_at IS NULL", (esc["ticket_id"],)).fetchone()
         if waiting:
             raise Refused(
-                "the patch this command checks is still waiting — decide on the "
+                "the patch this command checks is still waiting. Decide on the "
                 "patch first, then run it against the real tree")
 
     _record(conn, decision, "escalation", esc_id, note or esc["reason"][:400])
@@ -516,7 +516,7 @@ def decide(conn: sqlite3.Connection, esc_id: int, decision: str,
         # stops meaning what it says.
         #
         # But it does stop being *loud*. `snoozed_until` is what lets the tile
-        # gray itself out and sort to the back until the snooze runs out — the
+        # gray itself out and sort to the back until the snooze runs out. The
         # difference between "not now" and "not important", which an Inbox with
         # only one visual weight cannot express.
         conn.execute(
@@ -527,7 +527,7 @@ def decide(conn: sqlite3.Connection, esc_id: int, decision: str,
         deferred = f"snoozed {float(snooze_hours):g}h" if snooze_hours else "back in the Inbox"
         _decision_ticket(
             conn, story_id=esc["story_id"], title=f"Deferred: {esc['reason'][:140]}",
-            question=_asked(esc), answer=f"PO deferred — {deferred}."
+            question=_asked(esc), answer=f"PO deferred, {deferred}."
                                         + (f"\n\n{note}" if note else ""),
             esc_id=esc_id)
         return {"ok": True, "kind": kind, "outcome": deferred}
@@ -547,8 +547,8 @@ def decide(conn: sqlite3.Connection, esc_id: int, decision: str,
         #
         # It stops asking about this version of the story, not forever. The row
         # keeps its `raised_hash`, and the raise paths consult it, so a brief
-        # that gets edited afterwards is allowed to raise the question again
-        # — which is right, because by then the answer might have changed.
+        # that gets edited afterwards is allowed to raise the question again,
+        # which is right, because by then the answer might have changed.
         # Silence bought by a dismissal is silence about one particular fact.
         if esc["story_id"]:
             _event(conn, esc["story_id"], "decided",
@@ -557,7 +557,7 @@ def decide(conn: sqlite3.Connection, esc_id: int, decision: str,
         _decision_ticket(
             conn, story_id=esc["story_id"], title=f"Dismissed: {esc['reason'][:140]}",
             question=_asked(esc),
-            answer="PO dismissed this — the question stopped mattering. Nothing on the "
+            answer="PO dismissed this. The question stopped mattering. Nothing on the "
                    "story was changed." + (f"\n\n{note}" if note else ""),
             esc_id=esc_id)
         return {"ok": True, "kind": kind, "outcome": "dismissed"}
@@ -569,7 +569,7 @@ def decide(conn: sqlite3.Connection, esc_id: int, decision: str,
             (esc["story_id"],),
         )
         _event(conn, esc["story_id"], "decided",
-               "PO accepted the acceptance criteria — story is ready to staff", note or None)
+               "PO accepted the acceptance criteria. Story is ready to staff", note or None)
         outcome = "story is ready"
     elif kind == "decision" and esc["story_id"] and decision == "reject":
         conn.execute(
@@ -582,13 +582,13 @@ def decide(conn: sqlite3.Connection, esc_id: int, decision: str,
         # spent both its attempts, and sits there permanently.
         regroom_budget(conn, esc["story_id"])
         _event(conn, esc["story_id"], "decided",
-               "PO rejected the draft criteria — back for re-grooming", note or None)
+               "PO rejected the draft criteria. Back for re-grooming", note or None)
         outcome = "sent back for re-grooming"
     elif kind == "brief-changed" and esc["story_id"] and decision == "approve":
         # The same move `decision`/reject makes, and for the same reason: the
         # criteria on this story describe a brief that no longer exists, and
         # clearing them is what puts a story back in the groom queue. The
-        # attempt budget goes with it — a story groomed twice months ago must
+        # attempt budget goes with it. A story groomed twice months ago must
         # not be permanently unreadable because the PO rewrote it today.
         conn.execute(
             "UPDATE stories SET status = 'needs-criteria', acceptance_criteria = NULL, "
@@ -597,7 +597,7 @@ def decide(conn: sqlite3.Connection, esc_id: int, decision: str,
         )
         regroom_budget(conn, esc["story_id"])
         _event(conn, esc["story_id"], "decided",
-               "PO reopened the story — the brief changed after grooming, "
+               "PO reopened the story. The brief changed after grooming, "
                "criteria cleared for a re-read", note or None)
         outcome = "reopened for grooming"
     elif kind == "brief-changed" and esc["story_id"] and decision == "reject":
@@ -606,7 +606,7 @@ def decide(conn: sqlite3.Connection, esc_id: int, decision: str,
         # not return for this version of the brief because `raised_hash` already
         # names it.
         _event(conn, esc["story_id"], "decided",
-               "PO left the story as it stands — the edit did not change the work",
+               "PO left the story as it stands. The edit did not change the work",
                note or None)
         outcome = "left as it stands"
     elif kind == "hire" and decision == "approve":
@@ -625,7 +625,7 @@ def decide(conn: sqlite3.Connection, esc_id: int, decision: str,
     _decision_ticket(
         conn, story_id=esc["story_id"], title=f"Decision: {esc['reason'][:140]}",
         question=_asked(esc),
-        answer=f"PO {_PAST.get(decision, decision)} — {outcome}."
+        answer=f"PO {_PAST.get(decision, decision)}. {outcome}."
                                     + (f"\n\n{note}" if note else ""),
         esc_id=esc_id)
     out = {"ok": True, "outcome": outcome, "kind": kind}
@@ -706,7 +706,7 @@ def record_run(conn: sqlite3.Connection, esc_id: int, result: dict) -> str:
         # An exit code alone let "Notion query failed (ConnectionError)" go into
         # the record as `exit 0`, and the next agent read that as the criterion
         # being answered.
-        head = "ran `" + command + "` — "
+        head = "ran `" + command + "`. "
         head += ("timed out" if result["timed_out"]
                  else "exit " + str(result["code"]))
         if verdict != "clean":
@@ -722,7 +722,7 @@ def record_run(conn: sqlite3.Connection, esc_id: int, result: dict) -> str:
         # the card's own reply claiming it had gone back to the queue. A story
         # whose verification failed is not delivered. It goes to `needs-info`
         # from any lane but `archived`, carrying the reason, which also hands it
-        # to `pulse.ensure_blocked_visible` — that invariant runs every tick and
+        # to `pulse.ensure_blocked_visible`. That invariant runs every tick and
         # re-raises the card for any blocked story that has lost one, so this
         # cannot go quiet.
         if verdict == "clean":
@@ -741,15 +741,15 @@ def record_run(conn: sqlite3.Connection, esc_id: int, result: dict) -> str:
                  story_id))
             _raise_failed_run(conn, story_id, command, why)
     _record(conn, "run", "escalation", esc["id"],
-            f"{command} — exit " + str(result["code"]))
+            f"{command}. Exit " + str(result["code"]))
     if result["timed_out"]:
         return f"gave up after {runner.TIMEOUT_S}s"
     if verdict != "clean":
         # Say the lane it is actually in. The previous wording named a lane the
         # SQL above had declined to move it to.
-        return (f"ran it — {why}. Nothing is settled; the story is parked in "
+        return (f"ran it. {why}. Nothing is settled; the story is parked in "
                 "NEEDS INFO with the run on it and a card in your Inbox.")
-    return (f"ran it — exit {result['code']}, {len(result['out'])} characters of "
+    return (f"ran it. Exit {result['code']}, {len(result['out'])} characters of "
             "output. Nothing in it contradicts what the agent expected.")
 
 
@@ -759,7 +759,7 @@ def _raise_failed_run(conn: sqlite3.Connection, story_id: int,
 
     The PO's rule, after watching a run fail into silence: an error like this is
     escalated immediately. So the card goes up in the same transaction that
-    parks the story, and it is a `needs-info` card on purpose — that is the
+    parks the story, and it is a `needs-info` card on purpose. That is the
     kind `pulse.ensure_blocked_visible` guarantees for a blocked story, so if
     anything closes this one without the story moving, the next tick puts it
     back.
@@ -820,7 +820,7 @@ def _settle_patch(conn: sqlite3.Connection, esc: sqlite3.Row, decision: str,
                 "UPDATE stories SET status = 'ready', updated_at = datetime('now','localtime') "
                 "WHERE id = ?", (story_id,))
             _event(conn, story_id, "decided",
-                   "PO rejected the patch — nothing was applied", note or None)
+                   "PO rejected the patch. Nothing was applied", note or None)
         return "patch discarded, nothing applied"
 
     try:
@@ -839,7 +839,7 @@ def _settle_patch(conn: sqlite3.Connection, esc: sqlite3.Row, decision: str,
                      "WHERE id = ?", (esc["id"],))
         if story_id:
             _event(conn, story_id, "note",
-                   f"patch applied with {len(exc.paths)} conflict(s) — needs your merge",
+                   f"patch applied with {len(exc.paths)} conflict(s). Needs your merge",
                    "The rest of the patch is in your working tree already. These "
                    "files have conflict markers in them:\n\n"
                    + "\n".join(exc.paths)
@@ -869,7 +869,7 @@ def _settle_patch(conn: sqlite3.Connection, esc: sqlite3.Row, decision: str,
                    "tree, so git would not let the patch near the index. "
                    "`git diff` shows what landed.")
         _event(conn, story_id, "accepted",
-               f"PO approved the patch — {applied['files']} file(s) applied, uncommitted",
+               f"PO approved the patch. {applied['files']} file(s) applied, uncommitted",
                "Review and commit it yourself; the colony does not commit." + how)
     tail = "" if applied.get("staged", True) else " and unstaged (you had staged work on it)"
     return f"{applied['files']} file(s) applied to your working tree, uncommitted" + tail
@@ -879,8 +879,8 @@ def clear_spent_groom_tickets(conn: sqlite3.Connection) -> int:
     """Retire blocked groom tickets on stories that have nothing left to ask.
 
     A groom that ends in a question leaves a `blocked` ticket behind as its
-    receipt. The receipt is useful exactly as long as the question is open —
-    after that it is a duplicate row in the Ticket Queue saying BLOCKED about
+    receipt. The receipt is useful exactly as long as the question is open.
+    After that it is a duplicate row in the Ticket Queue saying BLOCKED about
     something already answered, and, worse, it still counts against
     `wake.MAX_ATTEMPTS`, so answering the question is what stopped the story
     from ever being re-groomed. Two identical BLOCKED tiles for one story is the
@@ -905,7 +905,7 @@ def regroom_budget(conn: sqlite3.Connection, story_id: int) -> int:
     `wake.MAX_ATTEMPTS` counts groom tickets that are not `wontfix`, and that is
     the right rule while the tickets still describe the story as it stands. The
     moment the PO answers the question those runs were asking, they describe a
-    version of the story that is gone — so retiring them is not tidying up, it
+    version of the story that is gone. So retiring them is not tidying up, it
     is the difference between a story that can be re-groomed with the new
     information and one that is stuck at two attempts forever.
     """
@@ -917,7 +917,7 @@ def regroom_budget(conn: sqlite3.Connection, story_id: int) -> int:
 
 
 def confirm_project(conn: sqlite3.Connection, story_id: int, project: str) -> dict[str, Any]:
-    """Name the folder a story belongs to — the answer to five of six Inbox items.
+    """Name the folder a story belongs to. The answer to five of six Inbox items.
 
     This is the moment an inference becomes a permission. `project_source` goes
     to 'confirmed', and only a confirmed project can ever become a write scope
@@ -934,10 +934,10 @@ def confirm_project(conn: sqlite3.Connection, story_id: int, project: str) -> di
 
     known = set(_project_dirs())
     if project not in known:
-        # A folder that does not exist yet is a legitimate answer — new work is
-        # new work — but it is recorded as such rather than silently accepted as
+        # A folder that does not exist yet is a legitimate answer, new work is
+        # new work, but it is recorded as such rather than silently accepted as
         # if it were an existing tree.
-        note = f"{project} (does not exist yet — new project)"
+        note = f"{project} (does not exist yet. New project)"
     else:
         note = project
 
@@ -975,7 +975,7 @@ def confirm_project(conn: sqlite3.Connection, story_id: int, project: str) -> di
 #
 # A backlog you cannot take things off is not a backlog, it is a guilt trip. The
 # PO asked for this in exactly those terms: some rows arrive from Notion, get
-# looked at, and are simply not going to happen — and until now the only way to
+# looked at, and are simply not going to happen. And until now the only way to
 # say so was to change the row in Notion and wait an hour for the sync.
 #
 # Dropping is local, reversible, and honest about being a decision: the story
@@ -997,7 +997,7 @@ def drop_story(conn: sqlite3.Connection, story_id: int, *, reason: str = "",
         # Not a rule about tidiness: a running ticket has a worktree and a budget
         # attached, and archiving the story out from under it would leave both
         # orphaned. Cancel the ticket first and the drop goes through.
-        raise Refused("a ticket is running on this story — cancel it first")
+        raise Refused("a ticket is running on this story. Cancel it first")
 
     reason = (reason or "").strip()
     _record(conn, "drop", "story", story_id, reason or "(no reason given)")
@@ -1067,7 +1067,7 @@ def settle_story(conn: sqlite3.Connection, story_id: int, settled_as: str,
     life the moment the Notion status moves again. What it stops doing is
     *asking*. Every open question about it is closed as moot and every open
     ticket goes wontfix, because a question about a shipped story is not a
-    question — it is the colony still holding a conversation the PO walked away
+    question. It is the colony still holding a conversation the PO walked away
     from.
 
     The distinction that matters: an escalation resolved with `po_decision` set
@@ -1093,7 +1093,7 @@ def settle_story(conn: sqlite3.Connection, story_id: int, settled_as: str,
     )
     # An unanswered reply on a story that has just been filed is a conversation
     # its subject walked out of. Leaving it unread would have the next wake buy
-    # an answer to it — and the ticket carrying it was wontfixed a line ago, so
+    # an answer to it. And the ticket carrying it was wontfixed a line ago, so
     # the answer would arrive with nowhere on the page to land.
     conn.execute(
         "UPDATE po_messages SET status = 'read' "
@@ -1104,7 +1104,7 @@ def settle_story(conn: sqlite3.Connection, story_id: int, settled_as: str,
         """INSERT INTO story_events (story_id, kind, summary, detail)
            VALUES (?, 'decided', ?, ?)""",
         (story_id, f"filed as {settled_as}",
-         f'Notion status is "{notion_status}" — the colony stops asking about this one.'),
+         f'Notion status is "{notion_status}". The colony stops asking about this one.'),
     )
 
 
@@ -1126,7 +1126,7 @@ def revive_story(conn: sqlite3.Connection, story_id: int, notion_status: str | N
 
 def queue_notion(conn: sqlite3.Connection, *, story_id: int, kind: str,
                  payload: dict, record: bool = True) -> int:
-    """Queue one upward write. Nothing here touches the network — see outbox.py.
+    """Queue one upward write. Nothing here touches the network. See outbox.py.
 
     The button is instant and transactional; the tick does the HTTP an hour
     later, or sooner if the PO runs `python -m colony pulse` themselves. Same shape
@@ -1139,7 +1139,7 @@ def queue_notion(conn: sqlite3.Connection, *, story_id: int, kind: str,
     if not story:
         raise Refused("no such story")
     if not story["notion_page_id"]:
-        raise Refused("this story was written by the loop — it has no Notion page")
+        raise Refused("this story was written by the loop. It has no Notion page")
 
     if kind == "status":
         status = (payload or {}).get("status")
@@ -1154,7 +1154,7 @@ def queue_notion(conn: sqlite3.Connection, *, story_id: int, kind: str,
         # The push is a mirror of a decision that has already been made: the PO
         # pressed Done, and the story should stop asking at that instant, not up
         # to an hour later when the next sync happens to read the row. Waiting
-        # on the round trip also makes the ledger hostage to the network — with
+        # on the round trip also makes the ledger hostage to the network. With
         # `notion_write` off, or the token read-only, the button would appear to
         # do nothing at all. The sync stays the authority on what Notion says;
         # this is the colony agreeing with an instruction it was given directly.
@@ -1190,14 +1190,14 @@ def queue_notion(conn: sqlite3.Connection, *, story_id: int, kind: str,
 def set_notion_write(conn: sqlite3.Connection, on: bool) -> dict[str, Any]:
     """The kill switch for the whole upward direction.
 
-    Off does not drop the queue — it holds it. Turning the colony's voice off
+    Off does not drop the queue. It holds it. Turning the colony's voice off
     for an afternoon should not lose the three things it was going to say.
     """
     _record(conn, "note", "colony", None, f"notion_write -> {'on' if on else 'off'}")
     set_control(conn, "notion_write", "1" if on else "0",
                 "the colony may push status, comments and checkboxes back to Notion")
     return {"ok": True, "on": bool(on),
-            "message": "Notion writes on" if on else "Notion writes held — nothing is lost"}
+            "message": "Notion writes on" if on else "Notion writes held. Nothing is lost"}
 
 
 def reask(conn: sqlite3.Connection, esc_id: int) -> dict[str, Any]:
@@ -1207,7 +1207,7 @@ def reask(conn: sqlite3.Connection, esc_id: int) -> dict[str, Any]:
     exists. Answering it would be answering the wrong question; rejecting it
     would lose the fact that something here still needs a look. So it resolves
     as 'amend' and the story goes back in the groom queue, where the next wake
-    reads it as it is now — the one path where free detection turns into a
+    reads it as it is now. The one path where free detection turns into a
     deliberate, budgeted re-read.
     """
     esc = conn.execute("SELECT * FROM escalations WHERE id = ?", (esc_id,)).fetchone()
@@ -1216,7 +1216,7 @@ def reask(conn: sqlite3.Connection, esc_id: int) -> dict[str, Any]:
     if esc["resolved_at"]:
         raise Refused("already decided")
     if not esc["story_id"]:
-        raise Refused("nothing to re-read — this question is not about a story")
+        raise Refused("nothing to re-read. This question is not about a story")
 
     _record(conn, "note", "escalation", esc_id, "re-ask: brief changed under the question")
     conn.execute(
@@ -1236,8 +1236,8 @@ def reask(conn: sqlite3.Connection, esc_id: int) -> dict[str, Any]:
         (esc["story_id"],),
     )
     _event(conn, esc["story_id"], "decided",
-           "PO sent this back to Ordis — the brief changed after the question was written")
-    return {"ok": True, "message": "back in the groom queue — Ordis re-reads it on the next wake"}
+           "PO sent this back to Ordis, the brief changed after the question was written")
+    return {"ok": True, "message": "back in the groom queue, Ordis re-reads it on the next wake"}
 
 
 def rescope_story(conn: sqlite3.Connection, story_id: int, scope: str) -> str:
@@ -1335,7 +1335,7 @@ def create_project(conn: sqlite3.Connection, name: str, *, why: str = "") -> dic
         raise Refused("projects live one or two levels under the root, not deeper")
     for part in parts:
         if not SAFE_SEGMENT.match(part):
-            raise Refused(f"{part!r} is not a folder name I will create — letters, "
+            raise Refused(f"{part!r} is not a folder name I will create. Letters, "
                           "digits, spaces, dot, dash and underscore only")
 
     rel = "/".join(parts)
@@ -1352,7 +1352,7 @@ def create_project(conn: sqlite3.Connection, name: str, *, why: str = "") -> dic
     if not stub.exists():
         stub.write_text(
             f"# {parts[-1]}\n\n"
-            f"**Status:** new — folder created from the Colony Dash Inbox on "
+            f"**Status:** new. Folder created from the Colony Dash Inbox on "
             f"{_today(conn)}.\n\n"
             f"{(why or 'No brief yet.').strip()}\n\n"
             "## Next\n\n- Say what this project is for.\n",
@@ -1372,7 +1372,7 @@ def create_project(conn: sqlite3.Connection, name: str, *, why: str = "") -> dic
 # something" and "the colony knows about it", and all of it lives on somebody
 # else's server.
 #
-# This does not retire Notion. The two paths coexist by construction — a story
+# This does not retire Notion. The two paths coexist by construction. A story
 # filed here has a NULL `notion_page_id`, intake only ever touches rows it can
 # match to a page it just read, and neither one deletes what the other made. The
 # point is that Notion becomes a source rather than *the* source.
@@ -1399,7 +1399,7 @@ def create_story(conn: sqlite3.Connection, *, title: str, description: str = "",
     needs-info escalation intake would have raised, because it is the identical
     question.
 
-    Lands in `backlog`. Grooming, criteria and staffing are unchanged — this
+    Lands in `backlog`. Grooming, criteria and staffing are unchanged. This
     writes the row and then gets out of the way.
     """
     title = " ".join((title or "").split())[:MAX_TITLE]
@@ -1422,7 +1422,7 @@ def create_story(conn: sqlite3.Connection, *, title: str, description: str = "",
         # about a story that already exists and a typo costs one more question.
         # Here the typo would become the story's confirmed write scope at the
         # moment of creation, with nothing left to catch it.
-        raise Refused(f"no folder named {project!r} under the projects root — "
+        raise Refused(f"no folder named {project!r} under the projects root. "
                       "create the project first, or leave it blank and answer in the Inbox")
 
     dupe = conn.execute(
@@ -1432,7 +1432,7 @@ def create_story(conn: sqlite3.Connection, *, title: str, description: str = "",
         (title, f"-{DUPLICATE_WINDOW_S} seconds"),
     ).fetchone()
     if dupe:
-        raise Refused(f"just filed that one — story #{dupe['id']}")
+        raise Refused(f"just filed that one. Story #{dupe['id']}")
 
     cur = conn.execute(
         """INSERT INTO stories (notion_page_id, title, description, project,
@@ -1452,7 +1452,7 @@ def create_story(conn: sqlite3.Connection, *, title: str, description: str = "",
             """INSERT INTO escalations (story_id, kind, reason, recommendation)
                VALUES (?, 'needs-info', ?, ?)""",
             (story_id,
-             f'"{title}" — filed here with no project folder named.',
+             f'"{title}". Filed here with no project folder named.',
              f"Name the folder under {db.PROJECTS_ROOT.as_posix()}, or say it is "
              "a new project."),
         )
@@ -1473,7 +1473,7 @@ def reply(conn: sqlite3.Connection, *, escalation_id: int | None = None,
     The message is queued, not delivered: nothing here spends a token, same as
     every other function in this module. The next wake picks up the unread rows,
     answers them, and writes the answer back into the same thread as an `ordis`
-    message (`wake.answer_po`). Until then the tile says so — an Inbox that
+    message (`wake.answer_po`). Until then the tile says so. An Inbox that
     swallows what you typed and shows no sign of it is worse than one with no
     reply box at all.
 
@@ -1482,7 +1482,7 @@ def reply(conn: sqlite3.Connection, *, escalation_id: int | None = None,
     """
     body = (body or "").strip()
     files = list(attachments or [])[:attach.MAX_PER_MESSAGE]
-    # A screenshot on its own is a complete message — "look at this" is the
+    # A screenshot on its own is a complete message. "look at this" is the
     # whole sentence, and demanding prose to go with it would make the feature
     # useless for the case it was asked for.
     if not body and not files:
@@ -1490,7 +1490,7 @@ def reply(conn: sqlite3.Connection, *, escalation_id: int | None = None,
     for f in files:
         attach.resolve(f.get("name", ""))   # it is on disk, and it is ours
     if len(body) > 8000:
-        raise Refused("that is longer than a work order — trim it to 8,000 characters")
+        raise Refused("that is longer than a work order. Trim it to 8,000 characters")
 
     if escalation_id:
         esc = conn.execute("SELECT * FROM escalations WHERE id = ?", (escalation_id,)).fetchone()
@@ -1508,7 +1508,7 @@ def reply(conn: sqlite3.Connection, *, escalation_id: int | None = None,
     # The reply becomes a ticket now, not when the wake gets to it. `answer_po`
     # used to create, run and close its own ticket inside a single wake, so the
     # row was born staffed and died done between two page loads and the Queue
-    # never showed it — from the PO's side, answering a question sent it
+    # never showed it. From the PO's side, answering a question sent it
     # nowhere. Queueing it here is what the outbox does for a Notion push, for
     # the same reason: **the wait is the thing worth showing.**
     #
@@ -1579,7 +1579,7 @@ def conversation(conn: sqlite3.Connection, escalation_id: int | None = None,
 
     Four different things happen in a conversation with the colony and only one
     of them was ever on screen. The PO writes. Ordis answers. The colony raises
-    a question — which is the thing that *starts* most of these conversations
+    a question, which is the thing that *starts* most of these conversations
     and was invisible inside them, so a reply arrived with no sign of what it
     was replying to. And Ordis records a learning, which is the only durable
     output of the whole exchange and lived two clicks away in the story
@@ -1684,11 +1684,11 @@ def _check_scope_folder(name: str) -> str:
     """One folder the PO picked, or a refusal saying which rule it broke."""
     name = str(name).strip().replace("\\", "/").strip("/")
     if not name or name == ".":
-        raise Refused("a write scope needs a folder — 'write anywhere' is not a scope")
+        raise Refused("a write scope needs a folder. 'write anywhere' is not a scope")
     if ".." in name.split("/") or ":" in name:
         raise Refused(f"{name!r} is not a folder inside the projects directory")
     if name.split("/")[0].startswith("."):
-        raise Refused(f"{name!r} is a dot folder — the colony never writes in one")
+        raise Refused(f"{name!r} is a dot folder. The colony never writes in one")
     if not (db.PROJECTS_ROOT / name).is_dir():
         raise Refused(f"there is no folder {name!r} under {ROOT_POSIX}")
     return name
@@ -1700,14 +1700,14 @@ def set_write_scope(conn: sqlite3.Connection, agent_id: int,
 
     Only the folders change. The agent keeps the project it was hired on,
     because that is what `dispatch` matches a story against and what
-    `build.contract` looks the contract up by — widening the scope is not the
+    `build.contract` looks the contract up by. Widening the scope is not the
     same as moving the agent to a different project.
     """
     row = conn.execute("SELECT * FROM agents WHERE id = ?", (agent_id,)).fetchone()
     if not row:
         raise Refused("no such agent")
     if row["status"] == "retired":
-        raise Refused(f"{row['role']} is retired — hire it again before changing its scope")
+        raise Refused(f"{row['role']} is retired. Hire it again before changing its scope")
     if not row["write_capable"]:
         raise Refused(
             f"{row['role']} is read-only. A read-only contract has no write scope to widen; "
@@ -1720,7 +1720,7 @@ def set_write_scope(conn: sqlite3.Connection, agent_id: int,
         if name not in folders:
             folders.append(name)
     if not folders:
-        raise Refused("pick at least one folder — an empty scope would block every build")
+        raise Refused("pick at least one folder. An empty scope would block every build")
 
     before = scope_projects(row["write_scope"])
     conn.execute("UPDATE agents SET write_scope = ? WHERE id = ?",
@@ -1751,7 +1751,7 @@ def set_secrets(conn: sqlite3.Connection, agent_id: int, on: bool) -> dict[str, 
     if not row:
         raise Refused("no such agent")
     if row["status"] == "retired":
-        raise Refused(f"{row['role']} is retired — hire it again first")
+        raise Refused(f"{row['role']} is retired. Hire it again first")
     on = bool(on)
     conn.execute("UPDATE agents SET sees_secrets = ? WHERE id = ?", (int(on), agent_id))
     _record(conn, "scope", "agent", agent_id,
@@ -1777,7 +1777,7 @@ def team(conn: sqlite3.Connection, story_id: int) -> list[sqlite3.Row]:
     somebody without the colony re-hiring for work that is already covered.
 
     The project still has to match. A story that was moved to another folder
-    after its team was hired must not carry the old contract with it — the write
+    after its team was hired must not carry the old contract with it. The write
     scope on those rows names the old folder, and honouring them would be
     writing outside the story's project.
     """
@@ -1801,7 +1801,7 @@ def propose_hire(conn: sqlite3.Connection, *, roster_slug: str, role: str,
 
     The proposal is written down on the escalation rather than reconstructed at
     approval time. An approval that has to re-derive what it is approving is an
-    approval of something else — the roster can change between the two clicks.
+    approval of something else. The roster can change between the two clicks.
 
     `story_id` goes in the proposal as well as on the escalation row. They look
     redundant and are not: the escalation column says which card this question
@@ -1839,21 +1839,21 @@ def hire(conn: sqlite3.Connection, *, roster_slug: str | None, role: str,
     """Turn a persona into an agent with a contract.
 
     The persona says how to think; the contract says what may be touched
-    (§2.1). Nothing is inherited from the persona file — not tools, not model,
-    not scope — because those files carry no governance and never will.
+    (§2.1). Nothing is inherited from the persona file, not tools, not model,
+    not scope, because those files carry no governance and never will.
 
     A write-capable contract without a project is refused. "Write, somewhere"
     is not a scope; it is the absence of one.
 
     `story_id` and `seat` are what make a team possible. The contract is still
-    scoped to one project folder and nothing else — that has not changed and
-    must not — but it now also records the piece of work it was cut for, and
+    scoped to one project folder and nothing else, that has not changed and
+    must not, but it now also records the piece of work it was cut for, and
     which seat on it. Seat 0 is the lead and receives the implement ticket;
     higher seats are specialists hired alongside them. Both are optional, so a
     hire made by hand from Standby behaves exactly as it did before.
     """
     if write_capable and not project:
-        raise Refused("a write-capable contract needs a project — 'write anywhere' is not a scope")
+        raise Refused("a write-capable contract needs a project. 'write anywhere' is not a scope")
 
     persona = None
     if roster_slug:
@@ -1898,7 +1898,7 @@ def hire(conn: sqlite3.Connection, *, roster_slug: str | None, role: str,
     # The bias counter, kept at the one place a persona actually gets picked.
     # "I do not want to only see one agent being chosen over and over again just
     # because we found one that works" is not enforceable by asking nicely in a
-    # prompt — the thing producing the preference would be the thing policing it.
+    # prompt. The thing producing the preference would be the thing policing it.
     # A number in the ledger can be put in front of the next selection and can be
     # checked afterwards, which is the difference between a rule and a wish.
     if roster_slug:
@@ -1920,13 +1920,13 @@ def hire(conn: sqlite3.Connection, *, roster_slug: str | None, role: str,
 
 
 def retire(conn: sqlite3.Connection, agent_id: int) -> dict[str, Any]:
-    """Take an agent off the books. History stays — runs still point at the role."""
+    """Take an agent off the books. History stays. Runs still point at the role."""
     row = conn.execute("SELECT * FROM agents WHERE id = ?", (agent_id,)).fetchone()
     if not row:
         raise Refused("no such agent")
     if row["project"] is None:
         raise Refused(
-            f"{row['role']} is structural — the colony needs it to groom and review. "
+            f"{row['role']} is structural. The colony needs it to groom and review. "
             f"Halt dispatch instead if you want it to stop."
         )
     _record(conn, "retire", "agent", agent_id, row["role"])
@@ -1946,28 +1946,28 @@ def dispatch(conn: sqlite3.Connection, story_id: int) -> dict[str, Any]:
     Four things have to be true, and each refusal names which one failed rather
     than saying "not allowed":
 
-      * the story is `ready` — the PO accepted its criteria at the Inbox gate;
+      * the story is `ready`. The PO accepted its criteria at the Inbox gate;
       * its project is *confirmed*, not inferred (§8.2);
       * an agent is hired with write scope on that project;
       * the colony is not halted.
 
     What this creates is a ticket, not a run. The next wake picks it up, opens a
-    git worktree and spends the tokens — so the gate and the spender stay
+    git worktree and spends the tokens. So the gate and the spender stay
     separate, and the budget guard still gets to refuse after you have approved.
     """
     story = conn.execute("SELECT * FROM stories WHERE id = ?", (story_id,)).fetchone()
     if not story:
         raise Refused("no such story")
     if is_halted():
-        raise Refused("the colony is halted — resume dispatch first")
+        raise Refused("the colony is halted. Resume dispatch first")
     if story["status"] != "ready":
         raise Refused(
             f"story is {story['status']}, not ready. Accept its acceptance criteria "
-            f"in the Inbox first — that gate is what makes a story dispatchable."
+            f"in the Inbox first. That gate is what makes a story dispatchable."
         )
     if not story["project"] or story["project_source"] != "confirmed":
         raise Refused(
-            "this story's project folder is still a guess. Confirm it first — an "
+            "this story's project folder is still a guess. Confirm it first. An "
             "inference cannot authorise a write."
         )
 
@@ -2005,15 +2005,15 @@ def dispatch(conn: sqlite3.Connection, story_id: int) -> dict[str, Any]:
         "WHERE id = ?", (story_id,)
     )
     _event(conn, story_id, "staffed",
-           f"PO dispatched to {agent['role']} — worktree, write scope "
+           f"PO dispatched to {agent['role']}. Worktree, write scope "
            + ", ".join(f"{f}/" for f in folders),
            f"ticket #{ticket_id}")
     _decision_ticket(
         conn, story_id=story_id, title=f"Decision: start building “{story['title'][:90]}”?",
         question="Criteria accepted, folder confirmed, writer hired. Dispatch is the "
                  "last gate before the colony opens a worktree and spends real tokens.",
-        answer=f"PO dispatched to {agent['role']} on {story['project']}/ "
-               f"— implement ticket #{ticket_id}.")
+        answer=f"PO dispatched to {agent['role']} on {story['project']}/, "
+               f"implement ticket #{ticket_id}.")
     return {"ok": True, "ticket_id": ticket_id, "role": agent["role"]}
 
 
@@ -2023,7 +2023,7 @@ def cancel_ticket(conn: sqlite3.Connection, ticket_id: int) -> dict[str, Any]:
     if not t:
         raise Refused("no such ticket")
     if t["status"] == "running":
-        raise Refused("that ticket is already running — halt the colony to stop new work; "
+        raise Refused("that ticket is already running. Halt the colony to stop new work; "
                       "a run in flight is a child process and has to finish")
     _record(conn, "cancel", "ticket", ticket_id, t["title"])
     conn.execute("UPDATE tickets SET status = 'wontfix', closed_at = datetime('now','localtime') "
@@ -2040,17 +2040,17 @@ def cancel_ticket(conn: sqlite3.Connection, ticket_id: int) -> dict[str, Any]:
 # Three gates, and the middle one is the reason the other two are cheap. Asking
 # for a draft costs nothing (the next wake pays); promoting writes a file; and
 # retiring is how a skill that stopped earning its context window gets removed.
-# Detection is not here at all — it is free, it runs on the pulse, and it needs
+# Detection is not here at all. It is free, it runs on the pulse, and it needs
 # no permission to notice something.
 
 
 def request_draft(conn: sqlite3.Connection, skill_id: int) -> dict[str, Any]:
-    """Ask Ordis to write this candidate up. Queued, not spent — see forge.py."""
+    """Ask Ordis to write this candidate up. Queued, not spent. See forge.py."""
     row = conn.execute("SELECT * FROM skills WHERE id = ?", (skill_id,)).fetchone()
     if not row:
         raise Refused("no such skill")
     if row["status"] != "candidate":
-        raise Refused(f"that skill is already {row['status']} — only a candidate can be drafted")
+        raise Refused(f"that skill is already {row['status']}. Only a candidate can be drafted")
     if row["draft_requested_at"]:
         raise Refused("already queued; the next wake will draft it")
 
@@ -2067,7 +2067,7 @@ def promote_skill(conn: sqlite3.Connection, skill_id: int,
 
     The one PO action in this file with an effect outside the ledger. The order
     matters: the decision is recorded, the row is updated, and the file is
-    written *last* — so a failed write rolls the whole transaction back and
+    written *last*. So a failed write rolls the whole transaction back and
     never leaves a `skills` row pointing at a path that does not exist. The
     reverse residue (a written file whose COMMIT then failed) is the lesser
     harm: an unreferenced SKILL.md is inert until something attaches it.
@@ -2078,10 +2078,10 @@ def promote_skill(conn: sqlite3.Connection, skill_id: int,
     if not row:
         raise Refused("no such skill")
     if row["status"] != "drafted":
-        raise Refused(f"that skill is {row['status']} — only a drafted skill can be promoted. "
+        raise Refused(f"that skill is {row['status']}. Only a drafted skill can be promoted. "
                       "Ask for a draft first.")
     if not (row["draft_md"] or "").strip():
-        raise Refused("the draft is empty — there is nothing to promote")
+        raise Refused("the draft is empty. There is nothing to promote")
 
     roles = [r.strip() for r in (roles or ["ordis"]) if r and r.strip()]
     if not roles:
@@ -2136,7 +2136,7 @@ def retire_skill(conn: sqlite3.Connection, skill_id: int, reason: str = "") -> d
         conn.execute("UPDATE agents SET skills = ? WHERE id = ?",
                      (json.dumps(kept), agent_row["id"]))
 
-    return {"ok": True, "slug": row["slug"], "outcome": f"retired — {reason}"}
+    return {"ok": True, "slug": row["slug"], "outcome": f"retired. {reason}"}
 
 
 def skill_draft(conn: sqlite3.Connection, skill_id: int) -> dict[str, Any]:

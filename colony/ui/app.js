@@ -1,4 +1,4 @@
-// Colony Dash — the whole dashboard.
+// Colony Dash. The whole dashboard.
 //
 // One script, no build step and no framework: this page is served from
 // 127.0.0.1 to one person, and a toolchain would be more moving parts than
@@ -25,8 +25,8 @@ const store = {
 const STATUS_LABEL = {
   "backlog": "backlog", "needs-info": "needs info", "needs-criteria": "needs criteria",
   "ready": "ready", "in-progress": "running", "po-review": "po review",
-  // Not "done". `accepted` means the PO approved one patch and the files landed
-  // — it says nothing about whether the project is finished, and printing DONE
+  // Not "done". `accepted` means the PO approved one patch and the files landed.
+  // It says nothing about whether the project is finished, and printing DONE
   // over a story whose Notion row still reads In Progress is the board deciding
   // that for them. The real finished state is `settled_as`, which only their Notion
   // status or their own button can set, and it has its own chip.
@@ -94,7 +94,7 @@ function el(tag, cls, text) {
 // One function for every control on the page. The custom header is what stops
 // a stray page in a browser from POSTing here across origins; the server
 // requires it (see server.py). Refusals come back as 409 with the reason
-// written for a person — so show that text, not "request failed".
+// written for a person. So show that text, not "request failed".
 
 async function act(path, body) {
   try {
@@ -108,7 +108,7 @@ async function act(path, body) {
     refresh();
     return data;
   } catch (err) {
-    toast("the ledger did not answer — is the server still up?", "bad");
+    toast("the ledger did not answer. Is the server still up?", "bad");
     return null;
   }
 }
@@ -134,7 +134,7 @@ function hash32(str) {
 }
 // Roster colours are whatever the persona file's author typed: "#0A66C2",
 // "blue", "slate", "neon-green". Canvas does not throw on a colour it cannot
-// parse — it *ignores the assignment*, and whatever was in `fillStyle` before
+// parse. It *ignores the assignment*, and whatever was in `fillStyle` before
 // stays. What was in it before, here, was the panel background. So every hired
 // persona whose file named a colour CSS has never heard of was painted onto the
 // panel in the panel's own colour, and came out blank. The two structural
@@ -143,7 +143,7 @@ function hash32(str) {
 //
 // The words below are the ones the roster actually uses that CSS does not know.
 // Anything else unrecognised falls through to the seed, so a persona still gets
-// a face — never nothing.
+// a face. Never nothing.
 const TINT_WORDS = {
   slate: "#94a3b8", amber: "#f59e0b", rose: "#fb7185",
   "neon-green": "#39ff14", "neon-cyan": "#00e5ff", "metallic-blue": "#4a749b",
@@ -175,8 +175,8 @@ function hex2hsl(hex) {
 }
 
 // A hue is character and belongs to the persona; a lightness that survives this
-// theme is arithmetic and does not. Nine roster colours are near-black —
-// "#000000" among them — which on a sunk dark panel is the same failure as an
+// theme is arithmetic and does not. Nine roster colours are near-black,
+// "#000000" among them, which on a sunk dark panel is the same failure as an
 // unparseable word by a different route. `toward` is the function that already
 // keeps a randomised palette legible; it keeps these legible too.
 // `toward` takes its direction from the colour, which is right when the colour
@@ -320,7 +320,7 @@ function renderSprint(sp) {
   meta.replaceChildren();
   if (sprint) {
     // The day comes from the server, which counts it from the allowance week's
-    // real edge — Friday 05:00 — rather than from midnight on whatever date the
+    // real edge, Friday 05:00, rather than from midnight on whatever date the
     // sprint row happens to carry. Counting whole days off a date was five
     // hours out at both ends of every week and, on the seeded placeholder
     // window, five days out at the start.
@@ -353,7 +353,7 @@ function renderSprint(sp) {
   if (usage) {
     // `seven_day_resets_at` is a local timestamp now. It used to be the first
     // sixteen characters of the UTC string the cache carries, so a window that
-    // closes at five in the morning was on screen as "08:59" — the right
+    // closes at five in the morning was on screen as "08:59". The right
     // instant, told in a timezone nobody here lives in.
     weekMeta.append(tag("week " + Number(usage.seven_day_pct).toFixed(1) + "%"),
                     tag("5h " + Number(usage.five_hour_pct).toFixed(0) + "%"),
@@ -367,13 +367,13 @@ function renderSprint(sp) {
       weekMeta.append(s);
     }
   } else {
-    weekMeta.append(tag("no usage sample — is the tray app running?"));
+    weekMeta.append(tag("no usage sample. Is the tray app running?"));
   }
 
   // The bar measures spend against the colony's *allowance*, not the whole week:
   // 35% of the window is the ceiling, so 35% consumed has to read as full.
   const ceiling = band.effective || 35;
-  // The cache can carry a null percentage — the tray app writes what the API
+  // The cache can carry a null percentage. The tray app writes what the API
   // gave it, and the API sometimes gives it nothing. `Number(null)` is 0, which
   // is at least a number; `null.toFixed` is a blank strip.
   const wk = usage ? Number(usage.seven_day_pct) || 0 : 0;
@@ -452,7 +452,7 @@ function renderColony(c) {
       tokens: null, ceiling: a.max_tokens_run, live: false, agent: a,
     }));
   }
-  if (!box.children.length) box.append(el("div", "empty", "nobody hired yet — open a persona in Standby to hire"));
+  if (!box.children.length) box.append(el("div", "empty", "nobody hired yet. Open a persona in Standby to hire"));
   tickElapsed();   // paint now; the ticker only refreshes from the next second
 }
 
@@ -475,7 +475,7 @@ function agentRow(o) {
     stat.dataset.tokens = o.tokens || 0;
     right.append(stat);
   }
-  // The bar is tokens against this agent's ceiling — Lloyd measures context, we
+  // The bar is tokens against this agent's ceiling. Lloyd measures context, we
   // measure the thing we actually budget.
   if (o.ceiling) {
     const bar = el("div", "ceiling");
@@ -503,7 +503,7 @@ function agentRow(o) {
 
 // Relative times are the only thing on this page that goes stale while the
 // ledger sits perfectly still. Everything else redraws when SSE pushes a new
-// snapshot — but between two beats nothing is pushed for an hour, so "last beat
+// snapshot. But between two beats nothing is pushed for an hour, so "last beat
 // 0m ago · next in 60m" was frozen at the moment of the beat and stayed there,
 // which reads exactly like a heartbeat that has stopped. That is how the pulse
 // outage was found, and a clock that lies in the direction of "everything is
@@ -568,7 +568,7 @@ function renderBoard(b) {
     if (s.project) {
       // An inference is not a permission. Show the guess, mark it as a guess.
       const p = el("span", s.project_source === "confirmed" ? "" : "guess", s.project);
-      p.title = s.project_source === "confirmed" ? "confirmed by you" : "inferred — cannot authorise a write";
+      p.title = s.project_source === "confirmed" ? "confirmed by you" : "inferred. Cannot authorise a write";
       sub.append(p);
     } else {
       sub.append(el("span", "dim", "no project"));
@@ -603,7 +603,7 @@ function renderBoard(b) {
 // ── the filed ───────────────────────────────────────────────────────────────
 //
 // Done, Shipped, Shelved, New and Not started all mean the same thing to the
-// loop — the PO is not asking for anything — so they share one hidden shelf
+// loop, the PO is not asking for anything, so they share one hidden shelf
 // under the board rather than five columns across it. A column is somewhere
 // work passes through; these are where it stops.
 //
@@ -620,7 +620,7 @@ function renderFiled(rows) {
   if (!shows("filed") || !rows.length) return;
 
   const list = el("div", "dropped-list");
-  list.append(el("div", "lb", "filed — nothing is being asked about these"));
+  list.append(el("div", "lb", "filed. Nothing is being asked about these"));
   for (const s of rows) {
     const line = el("div", "dropped-line is-filed");
     const t = el("button", "t filed", s.title);
@@ -641,8 +641,8 @@ function renderFiled(rows) {
 // ── the dropped ─────────────────────────────────────────────────────────────
 //
 // Dropped stories live under the board rather than in a separate view, because
-// the question they answer — "did we decide not to do that, or did I imagine
-// deciding?" — comes up while you are looking at the board. Hidden by default;
+// the question they answer. "did we decide not to do that, or did I imagine
+// deciding?" comes up while you are looking at the board. Hidden by default;
 // the count in the header is what tells you there is anything to open.
 function renderDropped(rows) {
   const box = $("stories");
@@ -669,12 +669,12 @@ function renderDropped(rows) {
 }
 
 // Three orders, because the list answers three different questions. **changes**
-// is the pulse's own order — commits first, then sheer volume — and is what you
+// is the pulse's own order, commits first, then sheer volume, and is what you
 // want when asking "what is outstanding". **recent** sorts by the newest mtime
 // under the folder, which is nearly the opposite: colony-dash can be eighth by
 // volume and still be the thing you were editing a minute ago. **name** is for
 // when you already know what you are looking for and just want it to hold still.
-// The choice is localStorage like the view menu — how you read the panel is not
+// The choice is localStorage like the view menu. How you read the panel is not
 // something the server needs to know.
 const SORT_KEY = "colony-proj-sort";
 let PROJ_SORT = store.get(SORT_KEY) || "changes";
@@ -704,7 +704,7 @@ function renderProjects(rows) {
   PROJ_ROWS = rows;
   box.replaceChildren();
   // "10 with changes" left the reader to guess what the change was measured
-  // against, and the honest answer is one specific commit — every project folder
+  // against, and the honest answer is one specific commit. Every project folder
   // lives inside a single git repo, so one baseline covers all sixty. Naming it
   // in the header is the difference between a number and a fact.
   const base = rows.length ? rows[0].head_sha : "";
@@ -721,7 +721,7 @@ function renderProjects(rows) {
     const b = el("button", "proj");
     // The time goes on the row rather than only in the tooltip. "Why is this
     // folder dirty when I never opened it" is usually answered by *when* it was
-    // written — an hour ago, while the machine was doing something else — and a
+    // written, an hour ago, while the machine was doing something else, and a
     // fact that only exists on hover is a fact nobody has.
     b.append(el("span", "p", r.project), el("span", "s", r.summary));
     if (r.touched_at) b.append(el("span", "s", ago(r.touched_at)));
@@ -730,7 +730,7 @@ function renderProjects(rows) {
     seg(r.added, "a"); seg(r.modified, "m"); seg(r.deleted, "d"); seg(r.untracked, "u");
     b.append(bar);
     b.title = `${r.project}
-${r.summary} — measured against ${r.head_sha || "?"} on ${r.branch || "?"}` +
+${r.summary}. Measured against ${r.head_sha || "?"} on ${r.branch || "?"}` +
               (r.touched_at ? `
 last written ${r.touched_at} (${ago(r.touched_at)})` : "");
     b.onclick = () => openProject(r.project);
@@ -746,7 +746,7 @@ last written ${r.touched_at} (${ago(r.touched_at)})` : "");
 // per request, with change state hung off it as a dot.
 //
 // Open folders are remembered in a Set of paths rather than in the DOM, so a
-// refresh — a snapshot arriving, a rescan — re-renders the same shape instead
+// refresh, a snapshot arriving, a rescan, re-renders the same shape instead
 // of collapsing everything the user opened.
 
 const TREE_OPEN = new Set();
@@ -767,7 +767,7 @@ async function renderTree() {
 async function treeLevel(data, path) {
   const frag = document.createDocumentFragment();
   const q = TREE_FILTER.toLowerCase();
-  // The filter applies to the top level only — it is there to find a project in
+  // The filter applies to the top level only. It is there to find a project in
   // a list of sixty, not to search the disk. Filtering every level would make
   // an open folder disappear out from under the cursor.
   for (const d of data.dirs) {
@@ -832,7 +832,7 @@ async function openFile(f) {
   const body = openDrawer(f.state ? f.state : "file", f.name);
   const blocks = [];
   blocks.push(el("div", "meta mono dim", f.path));
-  // A changed file leads with its diff — that is why it is interesting — and
+  // A changed file leads with its diff, that is why it is interesting, and
   // still offers the whole text underneath.
   if (f.state && f.state !== "untracked") {
     try {
@@ -880,7 +880,7 @@ function flightRow(f) {
     : (f.run_id ? "running" : f.status);
 
   if (f.kind === "push") {
-    // A push says what it would do to the board, in the words of the board —
+    // A push says what it would do to the board, in the words of the board.
     // "→ Done" is the thing the PO clicked, and the row is here precisely so
     // that click has somewhere to be visible until it lands.
     const what = f.verb === "status" ? "→ " + f.what
@@ -894,8 +894,8 @@ function flightRow(f) {
     row.append(m);
     if (f.last_error) row.append(el("div", "err", f.last_error.slice(0, 120)));
     row.title = f.stuck
-      ? "tried " + f.attempts + " times and stopped — the pulse will not retry this on its own"
-      : "queued " + ago(f.queued_at) + " — the next pulse sends it. Nothing has changed on the board yet.";
+      ? "tried " + f.attempts + " times and stopped, the pulse will not retry this on its own"
+      : "queued " + ago(f.queued_at) + ", the next pulse sends it. Nothing has changed on the board yet.";
   } else {
     row.append(el("div", "t", f.title));
     const m = el("div", "m");
@@ -933,8 +933,8 @@ function flightRow(f) {
 //
 // Two things end and both are here: a dispatch, which is an implement ticket
 // that delivered a patch, and a story, which is one the PO filed. They share a
-// list because the question is chronological — what has this colony produced,
-// in what order — and they keep separate badges because the answer to "did we
+// list because the question is chronological, what has this colony produced,
+// in what order, and they keep separate badges because the answer to "did we
 // already build this" is different from "did I already close this".
 //
 // Nothing on this panel writes. It is the only panel that is purely a record.
@@ -950,7 +950,7 @@ function renderCompleted(items) {
   const shown = DONE_FILTER === "all" ? items : items.filter((i) => i.kind === DONE_FILTER);
 
   // The count says how much work is behind you, not how much of it is on
-  // screen — a filter that changes the headline number makes the number
+  // screen. A filter that changes the headline number makes the number
   // useless for the thing it is for.
   const dispatches = items.filter((i) => i.kind === "dispatch").length;
   const stories = items.length - dispatches;
@@ -960,7 +960,7 @@ function renderCompleted(items) {
   if (!shown.length) {
     box.append(el("div", "empty", items.length
       ? "nothing under this filter"
-      : "nothing has finished yet — a dispatch lands here when its ticket closes"));
+      : "nothing has finished yet. A dispatch lands here when its ticket closes"));
     return;
   }
   for (const it of shown) box.append(completedTile(it));
@@ -1030,7 +1030,7 @@ function completedTile(it) {
   const open = () => openCompleted(it.kind + ":" + it.id);
   card.onclick = open;
   card.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); } };
-  card.title = "open the whole record — the work order, what it produced, and every "
+  card.title = "open the whole record. The work order, what it produced, and every "
              + "message, question and decision since the last delivery";
   return card;
 }
@@ -1068,8 +1068,8 @@ function renderInbox(items) {
 
   // A stale question is one the story has moved past: it was written against a
   // version of the brief that no longer exists, and answering it now answers
-  // the wrong question. It is not deleted — the colony really was confused, and
-  // that is worth being able to look at — but it is out of the way by default.
+  // the wrong question. It is not deleted, the colony really was confused, and
+  // that is worth being able to look at, but it is out of the way by default.
   const stale = items.filter((e) => e.stale);
   const live = shows("stale") ? items : items.filter((e) => !e.stale);
 
@@ -1081,7 +1081,7 @@ function renderInbox(items) {
   $("inbox-count").textContent = waiting ? waiting + " waiting on you" : "";
   strip.classList.toggle("quiet", waiting === 0);
   if (!live.length) {
-    // Nothing to run out to a full row, and the observer has to be told so —
+    // Nothing to run out to a full row, and the observer has to be told so.
     // `replaceChildren` clears the tiles but not the count written beside them.
     box.dataset.live = 0;
     // An empty Inbox means the system is working, and it still gets a row. The
@@ -1089,9 +1089,9 @@ function renderInbox(items) {
     // that changes shape between "clear" and "one question" makes the whole page
     // jump for the least important reason it has.
     box.dataset.note = stale.length
-      ? "nothing current — " + stale.length + " stale question" +
+      ? "nothing current. " + stale.length + " stale question" +
         (stale.length === 1 ? "" : "s") + " behind the toggle"
-      : "empty — nothing needs you";
+      : "empty. Nothing needs you";
     padSlots(box, 0);
     return;
   }
@@ -1101,14 +1101,14 @@ function renderInbox(items) {
 }
 
 // How many tiles fit across, asked of the grid rather than worked out from the
-// track width — `auto-fill` already did that arithmetic, and doing it twice is
+// track width. `auto-fill` already did that arithmetic, and doing it twice is
 // how the two answers drift apart the first time the text size moves.
 //
 // The catch is *when* you ask. The answer is only true of the width the grid had
 // at that instant, and the render that pads the row is not always standing on a
 // laid-out grid: a fold still opening, a window not yet sized, the first paint
 // of a restored layout. Measured then, the row is padded to a width that no
-// longer exists and the slots stop short of the Ticket Queue — which is exactly
+// longer exists and the slots stop short of the Ticket Queue, which is exactly
 // the "sometimes they come back, sometimes they don't" of it. So the live count
 // is remembered on the element and the padding is redone whenever the width
 // changes, which turns a one-shot guess into something that keeps being right.
@@ -1119,7 +1119,7 @@ function padSlots(box, count) {
   const cols = gridCols(box);
   if (!live) {
     // An empty Inbox is a full row of slots rather than no row at all. The grid
-    // cannot always say how wide it is — a fold still opening, a first paint —
+    // cannot always say how wide it is, a fold still opening, a first paint,
     // and the message has to appear either way, so an unknown column count falls
     // back to the single slot that carries it and the observer widens the row
     // the moment there is a width to widen it to.
@@ -1136,7 +1136,7 @@ function padSlots(box, count) {
 
 // The computed value is a list of resolved track sizes once the grid has been
 // laid out, and the unresolved `repeat(auto-fill, minmax(...))` while it has
-// not — a folded panel, a display:none ancestor. Counting words in that second
+// not. A folded panel, a display:none ancestor. Counting words in that second
 // case returns a confident 2, which is a wrong answer wearing a right one's
 // clothes; it is reported as "don't know" instead, and the observer asks again
 // once the box has a width to answer with.
@@ -1148,7 +1148,7 @@ function gridCols(box) {
 
 // The Inbox is the full width of the page, so it changes size for reasons the
 // render never hears about: the window, the sidebar, a neighbouring tile being
-// folded away. Width only — padding changes the height, and reacting to that
+// folded away. Width only. Padding changes the height, and reacting to that
 // would be a loop.
 if (window.ResizeObserver) {
   let inboxWidth = 0;
@@ -1169,7 +1169,7 @@ function inboxTile(e) {
   k.append(el("span", null, e.kind.replace("-", " ")), relNode("age", e.raised_at));
   if (e.stale) {
     const flag = el("span", "flag", "stale");
-    flag.title = "the story changed after this was asked — the question is about a version that no longer exists";
+    flag.title = "the story changed after this was asked. The question is about a version that no longer exists";
     k.append(flag);
   }
   const keys = flightKeys(e);
@@ -1178,7 +1178,7 @@ function inboxTile(e) {
     // every tile would be furniture; a badge on three of them is information.
     card.dataset.flight = keys.join(" ");
     const pin = el("button", "pin", "queued · " + keys.length);
-    pin.title = "this question has work in the ticket queue — hover to find it, click to open the story";
+    pin.title = "this question has work in the ticket queue. Hover to find it, click to open the story";
     pin.onmouseenter = () => keys.forEach((key) => lightFlight(key, true));
     pin.onmouseleave = () => keys.forEach((key) => lightFlight(key, false));
     pin.onclick = () => {
@@ -1189,18 +1189,18 @@ function inboxTile(e) {
     k.append(pin);
   }
   // The x. Every other control on this tile is an answer to the question, and
-  // the only one that could clear a tile without answering it was "drop story"
-  // — which takes the whole story off the board, cancels its tickets and
+  // the only one that could clear a tile without answering it was "drop story",
+  // which takes the whole story off the board, cancels its tickets and
   // closes its other questions. So the cheapest way to tidy the Inbox was also
   // the most destructive thing in it, and a stale question about a problem
   // already solved elsewhere had no exit that did not cost something.
   //
   // Not on a write approval: there is a patch on disk and a worktree behind it,
   // and closing that question without answering it strands both. The server
-  // refuses it too — this only hides a button that would fail.
+  // refuses it too. This only hides a button that would fail.
   if (e.id && e.kind !== "write-approval") {
     const x = el("button", "dismiss", "×");
-    x.title = "this question stopped mattering — close the card and change nothing else. "
+    x.title = "this question stopped mattering. Close the card and change nothing else. "
             + "The story keeps its status; edit the brief and Ordis may ask again.";
     x.setAttribute("aria-label", "dismiss this question");
     x.onclick = () => act("decide", { escalation_id: e.id, decision: "dismiss" });
@@ -1230,11 +1230,11 @@ function inboxTile(e) {
   // button carries the count, and the whole exchange is one press away.
   //
   // What is still queued does belong here, because it changes what the buttons
-  // mean — deciding now decides ahead of an answer you asked for.
+  // mean. Deciding now decides ahead of an answer you asked for.
   if (e.awaiting_ordis) {
     card.append(el("div", "waiting",
       e.awaiting_ordis + " repl" + (e.awaiting_ordis === 1 ? "y" : "ies") +
-      " queued — Ordis answers on the next pulse"));
+      " queued. Ordis answers on the next pulse"));
   }
 
   for (const b of (e.blockers || [])) card.append(el("div", "blocker", b));
@@ -1251,14 +1251,14 @@ function inboxTile(e) {
   // is on the tile rather than two clicks into a drawer.
   //
   // The kind decides what else belongs here. A `needs-info` escalation *is* the
-  // question "which folder?" — approving it would approve nothing — so it gets
+  // question "which folder?", approving it would approve nothing, so it gets
   // the picker alone. A `decision` is a real yes/no that may also happen to sit
   // on an unconfirmed story, so it gets both.
   const unconfirmed = e.story_id && e.project_source !== "confirmed";
   const asksForProject = e.kind === "needs-info";
   if (unconfirmed) {
     // The picker sits on its own full-width row. Two answers are possible and
-    // the second one — "none of these, it's new" — used to have nowhere to go:
+    // the second one, "none of these, it's new", used to have nowhere to go:
     // choosing it swaps the <select> for a text field and confirms against a
     // folder that gets created on the spot.
     const row = el("div", "picker");
@@ -1296,7 +1296,7 @@ function inboxTile(e) {
   }
 
   if (e.kind === "ready") {
-    // Not an escalation — there is no `e.id` here and nothing to approve or
+    // Not an escalation. There is no `e.id` here and nothing to approve or
     // snooze. It is a state the story is in, rendered for exactly as long as
     // it is true (see `_ready` in server.py), so the only two useful controls
     // are "start it" and "here is what is still in the way".
@@ -1304,11 +1304,11 @@ function inboxTile(e) {
     const stuck = (e.blockers || []).length;
     go.disabled = !!stuck;
     go.title = stuck ? e.blockers[0]
-      : "cuts the implement ticket — the next wake opens a git worktree and writes in it";
+      : "cuts the implement ticket. The next wake opens a git worktree and writes in it";
     go.onclick = () => confirmThen(
       "Dispatch \u201c" + (e.story_title || "this story") + "\u201d to build?\n\n" +
       "This cuts a ticket. The next wake opens a git worktree, works in there, and " +
-      "brings back a patch — nothing touches your working tree until you approve it.",
+      "brings back a patch. Nothing touches your working tree until you approve it.",
       () => act("dispatch", { story_id: e.story_id }));
     acts.append(go);
   } else if (e.kind === "write-approval") {
@@ -1316,7 +1316,7 @@ function inboxTile(e) {
     view.onclick = () => openPatch(e);
     const yes = el("button", "act go", "apply");
     yes.onclick = () => confirmThen(
-      "Apply this patch to the live tree? It lands uncommitted — you still review and commit it yourself.",
+      "Apply this patch to the live tree? It lands uncommitted. You still review and commit it yourself.",
       () => act("decide", { escalation_id: e.id, decision: "approve" }));
     const no = el("button", "act no", "reject");
     no.onclick = () => act("decide", { escalation_id: e.id, decision: "reject" });
@@ -1340,7 +1340,7 @@ function inboxTile(e) {
     acts.append(yes, no);
   } else if (e.kind === "brief-changed" && e.id) {
     const yes = el("button", "act go", "reopen for grooming");
-    yes.title = "clears the criteria and puts it back in the groom queue — the next wake re-reads the brief";
+    yes.title = "clears the criteria and puts it back in the groom queue. The next wake re-reads the brief";
     yes.onclick = () => confirmThen(
       "Reopen “" + (e.story_title || "this story") + "”?\n\n" +
       "Its acceptance criteria are cleared and the next wake re-reads the whole " +
@@ -1403,12 +1403,12 @@ function inboxTile(e) {
   // control here can only say one of two things.
   const say = el("button", "act warn",
                  e.messages ? "reply · " + e.messages : "reply to Ordis");
-  say.title = "write to Ordis about this item — queued for the next pulse";
+  say.title = "write to Ordis about this item. Queued for the next pulse";
   say.onclick = () => openCompose(e);
   acts.append(say);
 
-  // Later is a snooze with an end on it. It stays in the Inbox — an Inbox you
-  // can empty without deciding anything stops meaning what it says — but it
+  // Later is a snooze with an end on it. It stays in the Inbox, an Inbox you
+  // can empty without deciding anything stops meaning what it says, but it
   // grays out and sorts to the back until the snooze expires.
   if (e.snoozed) {
     const wake = el("button", "act", "un-snooze");
@@ -1417,12 +1417,12 @@ function inboxTile(e) {
     acts.append(wake);
   } else if (e.id) {
     const later = el("button", "act", "later");
-    later.title = "snooze 8h — it stays in the Inbox, dimmed, because nothing was decided";
+    later.title = "snooze 8h. It stays in the Inbox, dimmed, because nothing was decided";
     later.onclick = () => act("decide", { escalation_id: e.id, decision: "defer", snooze_hours: 8 });
     acts.append(later);
   }
 
-  // Re-ask. The answer to a stale question is not yes and not no — it is "you
+  // Re-ask. The answer to a stale question is not yes and not no. It is "you
   // asked me about last week's version, go and read it again". This is the
   // button that says that: it resolves the escalation as amended, puts the
   // story back in the grooming queue, and voids the attempts the old grooming
@@ -1446,7 +1446,7 @@ function inboxTile(e) {
     // where you find out a story is not worth doing: the question that arrives
     // about a story is often the moment you decide it was never the work.
     const drop = el("button", "act no", "drop story");
-    drop.title = "take the whole story off the board — closes its questions, cancels its tickets";
+    drop.title = "take the whole story off the board. Closes its questions, cancels its tickets";
     drop.onclick = () => dropStory(e.story_id, e.story_title || "this story");
     acts.append(drop);
   }
@@ -1458,8 +1458,8 @@ function inboxTile(e) {
 //
 // The upload happens on paste, not on send. A screenshot that appears in the
 // composer as a picture you can look at and remove is a fact; one that is
-// merely promised until you press send is a hope, and the failure mode — a
-// silent 8MB refusal discovered an hour later — is the exact one this dashboard
+// merely promised until you press send is a hope, and the failure mode, a
+// silent 8MB refusal discovered an hour later, is the exact one this dashboard
 // keeps trying to design out.
 const ATTACH_MAX = 6;
 
@@ -1481,7 +1481,7 @@ async function upload(file) {
     if (!res.ok) { toast(out.detail || "that file was refused", "bad"); return null; }
     return out.file;
   } catch (err) {
-    toast("the upload did not land — is the server still up?", "bad");
+    toast("the upload did not land. Is the server still up?", "bad");
     return null;
   }
 }
@@ -1570,7 +1570,7 @@ async function openCompose(e, opts) {
     "Write to Ordis the way you would in a terminal.\n\n" +
     "They read this on the next pulse, answers in the same thread, and revises " +
     "their recommendation if you have changed it. They cannot approve, reject or " +
-    "confirm a project from your reply — those stay yours.";
+    "confirm a project from your reply. Those stay yours.";
   wrap.append(ta);
 
   // Paste, drop or pick. All three end in the same place, and the shelf below
@@ -1614,10 +1614,10 @@ async function openCompose(e, opts) {
   picker.style.display = "none";
   picker.onchange = () => { take(Array.from(picker.files)); picker.value = ""; };
   const clip = el("button", "act", "attach a file");
-  clip.title = "or just paste a screenshot into the box — Ctrl+V";
+  clip.title = "or just paste a screenshot into the box. Ctrl+V";
   clip.onclick = () => picker.click();
   const hint = el("span", "hint",
-    "queued, not sent — nothing here spends a token until the next pulse. Ctrl+Enter sends.");
+    "queued, not sent. Nothing here spends a token until the next pulse. Ctrl+Enter sends.");
   foot.append(send, clip, picker, hint);
   wrap.append(foot);
   box.append(wrap);
@@ -1669,7 +1669,7 @@ async function openCompose(e, opts) {
         l.append(el("div", "who", "learned · " + ago(m.at)));
         l.append(el("div", "bubble", m.body));
         // The learning as stored is a gist; the whole thought is the detail.
-        // It used to be a `title` attribute — a tooltip you had to already know
+        // It used to be a `title` attribute. A tooltip you had to already know
         // was there, on the one part of the exchange still worth reading later.
         if (m.detail) l.append(longText(m.detail));
         thread.append(l);
@@ -1718,7 +1718,7 @@ async function openCompose(e, opts) {
       files.length = 0;
       paint();
       load();
-      toast("queued — Ordis reads it on the next pulse", "good");
+      toast("queued. Ordis reads it on the next pulse", "good");
     }
   };
   send.onclick = submit;
@@ -1734,15 +1734,15 @@ const NEW_PROJECT = "\n<new>";
 
 function projectSelect(current, opts) {
   const sel = el("select", "pick");
-  sel.append(el("option", null, "— name the folder —"));
+  sel.append(el("option", null, "name the folder…"));
   sel.firstChild.value = "";
-  // `STATE` may not have arrived yet — a deep-linked drawer opens before the
-  // first snapshot does — and a picker with no options is a far better failure
+  // `STATE` may not have arrived yet, a deep-linked drawer opens before the
+  // first snapshot does, and a picker with no options is a far better failure
   // than a drawer that renders nothing because one list was undefined.
   //
   // Sorted here rather than trusted from either source. /api/projects arrives
   // alphabetical, but the fallback is the working-tree scan, which is ordered
-  // by *change recency* — a sensible order for "what did I touch today" and a
+  // by *change recency*. A sensible order for "what did I touch today" and a
   // useless one for "find job-search in this list". Sorting at the point of
   // render means the picker reads the same way no matter which list filled it.
   // localeCompare, not <, so the folder starting with ＋ and any accented name
@@ -1769,8 +1769,8 @@ function projectSelect(current, opts) {
 //
 // The board could show work and move work but never *start* work: a story only
 // existed because a Notion page did. This is the other door, and it is
-// deliberately the same shape as the Inbox's project picker — including the
-// "＋ new project folder…" branch — because "which folder is this?" is the same
+// deliberately the same shape as the Inbox's project picker, including the
+// "＋ new project folder…" branch, because "which folder is this?" is the same
 // question whether you are answering it after the fact or up front.
 
 function openNewStory() {
@@ -1784,7 +1784,7 @@ function openNewStory() {
   title.maxLength = 200;
 
   const brief = el("textarea", "field");
-  brief.placeholder = "the brief — why it matters, what done looks like, anything the colony cannot see from the code";
+  brief.placeholder = "the brief. Why it matters, what done looks like, anything the colony cannot see from the code";
   brief.rows = 7;
 
   const sel = projectSelect(null, { allowNew: true });
@@ -1849,7 +1849,7 @@ function openNewStory() {
   };
   wrap.append(go);
   wrap.append(el("div", "dim",
-    "Filed straight into the ledger — no Notion page behind it, and the sync "
+    "Filed straight into the ledger. No Notion page behind it, and the sync "
     + "will not touch it. Leave the folder blank and the Inbox will ask."));
 
   body.replaceChildren(wrap);
@@ -1865,13 +1865,13 @@ function renderMacros(c) {
   const btn = el("button", "big" + (c.halted ? " resume" : ""), c.halted ? "resume" : "halt");
   btn.onclick = () => {
     if (c.halted) { act("halt", { on: false }); return; }
-    confirmThen("Halt all production? The pulse keeps beating and logging — it just stops spending.",
+    confirmThen("Halt all production? The pulse keeps beating and logging. It just stops spending.",
                 () => act("halt", { on: true, reason: "halted from the dashboard" }));
   };
   halt.append(btn);
   halt.append(el("div", "why", c.halted
     ? "No new work will be dispatched. The heartbeat is still running, still logging, still syncing Notion."
-    : "Stops every dispatch colony-wide. It cannot claw back a run already in flight — the honest promise is “no new work”."));
+    : "Stops every dispatch colony-wide. It cannot claw back a run already in flight. The honest promise is “no new work”."));
   box.append(halt);
   box.append(el("hr", "macro-rule"));
 
@@ -1887,21 +1887,21 @@ function renderMacros(c) {
   nowb.title = "one full beat: sync, look, and wake if there is a reason";
   nowb.onclick = async () => {
     const out = await act("pulse", { wake: true });
-    if (out) { toast("beat started — its row lands in the pulse log when it ends", "good");
+    if (out) { toast("beat started. Its row lands in the pulse log when it ends", "good");
                setTimeout(refresh, 1500); }
   };
   const tickb = el("button", "act", "tick only");
   tickb.disabled = beating;
-  tickb.title = "the free half — sync, reap and look, but never wake";
+  tickb.title = "the free half. Sync, reap and look, but never wake";
   tickb.onclick = async () => {
     const out = await act("pulse", { wake: false });
-    if (out) { toast("tick started — free, no wake", "good"); setTimeout(refresh, 1500); }
+    if (out) { toast("tick started. Free, no wake", "good"); setTimeout(refresh, 1500); }
   };
   r0.append(nowb, tickb);
   hb.append(r0);
   hb.append(el("div", "why", beating
     ? "A beat is running. Nothing else may beat until it finishes."
-    : "The scheduled task beats once an hour at :07. This runs one extra now and leaves that alone — the next automatic beat still comes at its own time."));
+    : "The scheduled task beats once an hour at :07. This runs one extra now and leaves that alone. The next automatic beat still comes at its own time."));
   box.append(hb);
   box.append(el("hr", "macro-rule"));
 
@@ -1910,7 +1910,7 @@ function renderMacros(c) {
   const al = el("div", "macro");
   al.append(el("div", "lb", "token allowance"));
   // The bar measures the whole week now, not the distance travelled inside a
-  // boost cap that no longer exists — so the empty part of it is the share of
+  // boost cap that no longer exists. So the empty part of it is the share of
   // the quota left for the PO's own sessions, which is the number the dial is
   // actually trading against.
   const lo = c.allowance_min === undefined ? 0 : c.allowance_min;
@@ -1921,14 +1921,14 @@ function renderMacros(c) {
   const fill = el("i"); fill.style.width = ((at - lo) / (hi - lo)) * 100 + "%";
   bar.append(fill); al.append(bar);
   al.append(el("div", "why", band.boost
-    ? `${at}% of the week — ${band.base}% baseline, moved ${band.boost > 0 ? "+" : ""}${band.boost}.`
+    ? `${at}% of the week. ${band.base}% baseline, moved ${band.boost > 0 ? "+" : ""}${band.boost}.`
     : `${band.base}% of the week, as designed.`));
 
   // A dial, not a ratchet. This was three sizes of "up" (+5, +10, +25) against a
   // hard +25 ceiling, so the allowance could only climb, and an overshoot could
   // only be cleared to zero and rebuilt. It walks both ways now over the whole
-  // range: 0% is a real setting — the colony stops spending without the
-  // finality of HALT — and 100% is the PO deciding the week is the colony's.
+  // range: 0% is a real setting, the colony stops spending without the
+  // finality of HALT, and 100% is the PO deciding the week is the colony's.
   // -5 and +5 are the same size on purpose, so a mispress costs one press.
   const row = el("div", "row");
   const down = el("button", "act", "\u22125");
@@ -1983,18 +1983,18 @@ function renderMacros(c) {
   const r3 = el("div", "row");
   const sw = el("button", "act " + (on ? "no" : "go"), on ? "hold writes" : "resume writes");
   sw.title = on
-    ? "stop sending upward — queued changes wait rather than disappear"
+    ? "stop sending upward. Queued changes wait rather than disappear"
     : "send the queue upward again, oldest first";
   sw.onclick = () => act("notion-write", { on: !on });
   r3.append(sw);
   nw.append(r3);
   nw.append(el("div", "why", on
     ? (ob.waiting
-        ? `${ob.waiting} change${ob.waiting === 1 ? "" : "s"} queued — the next pulse sends them.`
+        ? `${ob.waiting} change${ob.waiting === 1 ? "" : "s"} queued. The next pulse sends them.`
         : "Status changes, ticks and comments go up on the pulse that follows them.")
     : `Held. ${ob.waiting} change${ob.waiting === 1 ? "" : "s"} waiting, and nothing goes up until you resume.`));
   if (ob.stuck) {
-    nw.append(el("div", "why", `${ob.stuck} gave up after repeated failures — check the pulse log for what Notion said.`));
+    nw.append(el("div", "why", `${ob.stuck} gave up after repeated failures. Check the pulse log for what Notion said.`));
   }
   box.append(nw);
   box.append(el("hr", "macro-rule"));
@@ -2021,7 +2021,7 @@ function renderMacros(c) {
     log.append(el("div", "lb", "your last decisions"));
     for (const a of c.recent.slice(0, 5)) {
       const d = el("div", "why");
-      d.textContent = `${hhmm(a.at)}  ${a.action}${a.target_id ? " #" + a.target_id : ""} — ${a.detail || ""}`;
+      d.textContent = `${hhmm(a.at)}  ${a.action}${a.target_id ? " #" + a.target_id : ""}: ${a.detail || ""}`;
       log.append(d);
     }
     box.append(log);
@@ -2030,7 +2030,7 @@ function renderMacros(c) {
 
 // The tier column records what the tick DECIDED; `acted` records what the wake
 // actually did. An hour stamped "wake" that cost nothing is a tick that
-// escalated and then found its job list empty — and calling that a wake, in
+// escalated and then found its job list empty. And calling that a wake, in
 // mint, next to a token count of zero, is the log arguing with itself.
 function tierOf(p) {
   if (p.tier !== "wake") return p.tier;
@@ -2124,7 +2124,7 @@ function renderForge(f) {
 
   if (!items.length) {
     box.append(el("div", "empty",
-      "nothing yet — the forge proposes a skill once a procedure repeats"));
+      "nothing yet. The forge proposes a skill once a procedure repeats"));
     return;
   }
 
@@ -2158,14 +2158,14 @@ function renderForge(f) {
         // made it, rather than leaving the PO to infer it from the Spend panel.
         const held = standdown();
         const w = el("span", held ? "waiting bad" : "waiting",
-                     held ? "requested — held: " + held
+                     held ? "requested. Held: " + held
                           : "Ordis drafts it on the next wake");
         w.title = held ? "raise the allowance in Macros, or wait for the week to reset"
                        : "queued; it costs nothing until the wake runs";
         bar.append(w);
       } else {
         const b = el("button", "act go", "ask for a draft");
-        b.title = "costs nothing now — the next wake writes it";
+        b.title = "costs nothing now. The next wake writes it";
         b.onclick = () => act("draft-skill", { skill_id: s.id });
         bar.append(b);
       }
@@ -2189,7 +2189,7 @@ function renderForge(f) {
 }
 
 // The promotion gate. It is the only PO action in the dashboard that writes a
-// file outside the ledger, so the draft is shown in full first — approving a
+// file outside the ledger, so the draft is shown in full first. Approving a
 // procedure you have not read is the failure mode the gate exists to prevent.
 async function openSkill(id) {
   const body = openDrawer("skill #" + id, "", { wide: true });
@@ -2217,7 +2217,7 @@ async function openSkill(id) {
 
   if (s.status === "drafted") {
     const wrap = el("div", "blk");
-    wrap.append(el("div", "lb", "promote — this writes the file"));
+    wrap.append(el("div", "lb", "promote. This writes the file"));
     const who = el("input", "search");
     who.value = "ordis, investigator";
     who.placeholder = "roles to attach it to, comma separated";
@@ -2251,7 +2251,7 @@ async function openSkill(id) {
 // The series comes from /api/spend rather than the snapshot, because the
 // snapshot is one payload for eleven panels and there is no reason for the
 // other ten to carry 48 hourly buckets. Which grain and which shape is
-// localStorage, like the Files sort order — how you read a panel is not a
+// localStorage, like the Files sort order. How you read a panel is not a
 // decision about the colony, so it does not belong in the ledger.
 
 const SVGNS = "http://www.w3.org/2000/svg";
@@ -2274,7 +2274,7 @@ function svgEl(name, attrs) {
 }
 
 // A round number at or above the top of the data, so the gridlines land on
-// figures a person can hold in their head — 40k, not 38.7k.
+// figures a person can hold in their head. 40k, not 38.7k.
 function niceMax(v) {
   if (!(v > 0)) return 1;
   const mag = Math.pow(10, Math.floor(Math.log10(v)));
@@ -2282,7 +2282,7 @@ function niceMax(v) {
   return (n <= 1 ? 1 : n <= 2 ? 2 : n <= 2.5 ? 2.5 : n <= 5 ? 5 : 10) * mag;
 }
 
-// One bucket forward or back, `n` of them. Date does the calendar arithmetic —
+// One bucket forward or back, `n` of them. Date does the calendar arithmetic.
 // setMonth and setFullYear normalise overflow the same way the server's
 // `_back` does, so 31 March minus a month is the same day on both sides.
 function stepDate(d, grain, n) {
@@ -2313,7 +2313,7 @@ function windowEnd() {
 }
 
 // A whole window at a time. The new window ends where the old one began, so the
-// two overlap by exactly one bucket — the bucket you were looking at when you
+// two overlap by exactly one bucket. The bucket you were looking at when you
 // pressed the arrow stays on screen, which is what stops paging feeling like a
 // jump cut.
 function pageSpend(dir) {
@@ -2355,8 +2355,8 @@ function spendReadout(p) {
     out.append(el("span", "rr", p.runs ? p.runs + (p.runs === 1 ? " run" : " runs")
                                        : "nothing ran"));
   } else {
-    // Off the live view the span alone is not enough — "this 30d" is a lie
-    // about a window ending in July — so it names its two ends instead.
+    // Off the live view the span alone is not enough, "this 30d" is a lie
+    // about a window ending in July, so it names its two ends instead.
     const pts = s.points || [];
     const span = s.live ? "this " + s.span + GRAIN_UNIT[s.grain]
                         : pts.length ? pts[0].label + " \u2192 " + pts[pts.length - 1].label
@@ -2414,7 +2414,7 @@ function drawSpend() {
 
   // Horizontal rules first, under everything, with the value they stand for.
   // `toks` renders 0 as an em dash, which is right in a table cell and wrong on
-  // an axis — an axis tick has a value even when the value is nothing.
+  // an axis. An axis tick has a value even when the value is nothing.
   const axisTok = (v) => (v >= 1 ? toks(Math.round(v)) : "0");
   for (let k = 0; k <= 4; k++) {
     const v = (top / 4) * k, yy = Math.round(y(v)) + 0.5;
@@ -2492,7 +2492,7 @@ function drawSpend() {
   svg.onpointermove = (ev) => {
     const r = svg.getBoundingClientRect();
     // The svg is laid out at its own pixel width, so client x maps straight
-    // through — but a zoomed page scales it, hence the ratio.
+    // through. But a zoomed page scales it, hence the ratio.
     const px = (ev.clientX - r.left) * (W / (r.width || W));
     hover(Math.max(0, Math.min(pts.length - 1, Math.floor((px - PL) / band))));
   };
@@ -2522,7 +2522,7 @@ function drawSpend() {
 
   spendReadout(null);
   // A window that was just paged into sits on the bucket that was on screen
-  // before the arrow was pressed — the one the two windows share.
+  // before the arrow was pressed. The one the two windows share.
   if (SPEND_LAND && pts.length) {
     hover(SPEND_LAND === "end" ? pts.length - 1 : 0);
     SPEND_LAND = null;
@@ -2536,7 +2536,7 @@ function drawSpend() {
     if (s.outside) side.push(`${s.outside} run${s.outside === 1 ? "" : "s"} before it`);
     if (s.ahead) side.push(`${s.ahead} run${s.ahead === 1 ? "" : "s"} after it`);
     box.append(el("div", "empty-note", side.length
-      ? `nothing in ${where} — ${side.join(", ")}`
+      ? `nothing in ${where}: ${side.join(", ")}`
       : s.live ? "nothing spent yet" : `nothing in ${where}`));
   }
 }
@@ -2577,7 +2577,7 @@ $("spend-date").addEventListener("change", (ev) => {
 });
 
 // A column resize changes the pixel width the chart was measured at. Only the
-// width matters — redrawing on a height change would be a loop, since drawing
+// width matters. Redrawing on a height change would be a loop, since drawing
 // is what sets the height.
 if (window.ResizeObserver) {
   new ResizeObserver(() => {
@@ -2659,8 +2659,8 @@ function personaButton(p) {
 // redistributing their work.
 //
 // Two ways in, one form. Dropping a `.md` file fills the fields in from its
-// frontmatter; typing fills them in directly. They converge deliberately —
-// a drop that skipped the form would be a write with nothing to check first,
+// frontmatter; typing fills them in directly. They converge deliberately.
+// A drop that skipped the form would be a write with nothing to check first,
 // and the field most worth checking is the division, which is the one thing a
 // dropped file has an opinion about that the person dropping it may not share.
 
@@ -2693,7 +2693,7 @@ async function openPersonaNew() {
 
   body.append(el("div", "note",
     "Written to " + (dirs.local_dir || "your personas folder") + ", not into the "
-    + "agency-agents clone — so a git pull there can never clobber it, and "
+    + "agency-agents clone. So a git pull there can never clobber it, and "
     + "nothing you add here becomes part of the Colony Dash repo."));
 
   const form = el("div", "form");
@@ -2768,7 +2768,7 @@ async function openPersonaNew() {
   fields.color = color;
   short.append(emoji, color, colors);
   form.append(blk("emoji and colour", short,
-    el("div", "note", "both optional — they are the face on the Standby card.")));
+    el("div", "note", "both optional. They are the face on the Standby card.")));
 
   const bodyBox = el("textarea", "field tall");
   bodyBox.placeholder = "# Who they are\n\nYou are …\n\n## How they work\n\n…";
@@ -2797,7 +2797,7 @@ async function openPersonaNew() {
       if (!fields.name.value) fields.name.value = stem;
     }
     drop.textContent = (filename ? "loaded " + filename : "loaded")
-      + " — check the division, then add";
+      + ", check the division, then add";
     if (!division.value) division.focus();
   };
   const take = (f) => {
@@ -2830,7 +2830,7 @@ async function openPersonaNew() {
     });
     save.disabled = false;
     if (!out) return;                       // `act` has already said why
-    toast("added — " + out.total + " personas on file");
+    toast("added. " + out.total + " personas on file");
     closeDrawer();
   };
   form.append(save);
@@ -2851,15 +2851,15 @@ $("roster-rescan").onclick = async () => {
 
 let ALL_PROJECTS = [];   // every folder with a PROJECT.md, for the confirm pickers
 
-// A drawer can open another drawer — a beat lists the projects that moved, a
-// story lists its tickets — and until now that was a one-way trip: the second
+// A drawer can open another drawer, a beat lists the projects that moved, a
+// story lists its tickets, and until now that was a one-way trip: the second
 // view replaced the first, and the only way back was to close everything and
 // find the beat again. So the drawer keeps a trail.
 //
 // Nothing at the call sites had to change. `openDrawer` is called synchronously
 // at the top of every open* function, before the fetch, so "was a drawer already
 // on screen when this one opened?" is exactly the question of whether the user
-// stepped *down* into something or started fresh — and it can be asked here,
+// stepped *down* into something or started fresh. And it can be asked here,
 // once, instead of at each of the dozen places that open a drawer.
 let TRAIL = [];        // where we came from, innermost last
 let HERE = null;       // the view on screen, if it is one we know how to re-open
@@ -2893,9 +2893,9 @@ function openDrawer(eyebrow, title, opts) {
   const nav = opts && opts.nav;
   if (!d.classList.contains("on")) TRAIL = [];          // opened from the page: a fresh trail
   else if (HERE && !GOING_BACK) TRAIL.push(HERE);       // opened from a drawer: a step down
-  // Note the two halves of that: a view without a `nav` cannot be *returned to*
-  // — re-opening a half-written reply from a back button would be a lie about
-  // what was preserved — but it can still have somewhere to go back *to*. That
+  // Note the two halves of that: a view without a `nav` cannot be *returned to*,
+  // re-opening a half-written reply from a back button would be a lie about
+  // what was preserved, but it can still have somewhere to go back *to*. That
   // used to be conflated, and the cost was the reply drawer: you opened a story,
   // clicked "reply to Ordis" to answer the thing you were reading, and the way
   // back to the story was to close everything and find it again.
@@ -2922,7 +2922,7 @@ $("scrim").onclick = closeDrawer;
 addEventListener("keydown", (e) => {
   if (e.key !== "Escape") return;
   // Snap is a mode, and a mode has to be leavable by the key that leaves every
-  // other mode — otherwise the only way out is a button you have to aim at.
+  // other mode. Otherwise the only way out is a button you have to aim at.
   if (SNAP) { setSnap(false); return; }
   closeDrawer();
 });
@@ -2943,7 +2943,7 @@ function sectionBlock(label, text) { return blk(label, el("pre", "detail", text)
 
 // The ledger stores the two halves of a Notion checklist as JSON arrays. A
 // story synced before migration 008 has neither, and a story whose page has no
-// to-dos has empty ones — both read as "no checklist" here, and neither is an
+// to-dos has empty ones. Both read as "no checklist" here, and neither is an
 // error worth showing.
 function jsonList(raw) {
   if (!raw) return [];
@@ -3129,7 +3129,7 @@ async function openConsole() {
         if (!out) { btn.disabled = false; return; }
         remote = false;
         writable = false;
-        toast("console restricted to the desktop — including this page");
+        toast("console restricted to the desktop. Including this page");
         drawAccess();
         paint(await getJSON("/api/console").catch(() => ({ turns: [] })));
       };
@@ -3141,7 +3141,7 @@ async function openConsole() {
     }
     access.append(el("span", "note",
       "The console is a real shell on the machine running the colony, so it "
-      + "only takes commands from that machine — an access token that "
+      + "only takes commands from that machine. An access token that "
       + "leaked off your network should not be worth a command prompt. You can "
       + "still read everything it did. To open it up, use the console on the "
       + "desktop."));
@@ -3304,13 +3304,13 @@ async function openStory(id) {
   //
   // Replying used to require an Inbox item to reply *to*, which quietly made
   // every conversation the colony's to open. Most of what a PO wants to say
-  // about a story — this is the wrong folder, that criterion is stale, look at
-  // this screenshot — arrives while they are reading the story, not while they are
+  // about a story, this is the wrong folder, that criterion is stale, look at
+  // this screenshot, arrives while they are reading the story, not while they are
   // reading a question about it. It becomes a ticket the moment it is sent,
   // same as any other reply.
   const talk = el("button", "act go", "reply to ordis about this story");
   talk.style.width = "100%";
-  talk.title = "queued for the next wake — it shows up in the Ticket Queue straight away";
+  talk.title = "queued for the next wake. It shows up in the Ticket Queue straight away";
   talk.onclick = () => openCompose({
     story_id: s.id, story_title: s.title, project: s.project,
     project_source: s.project_source, reason: s.description || s.title,
@@ -3335,7 +3335,7 @@ async function openStory(id) {
   disp.title = "queues one ticket. Nothing is spent until the next wake.";
   disp.onclick = async () => {
     const out = await act("dispatch", { story_id: s.id });
-    if (out) { toast("queued — the next wake will build it", "good"); openStory(s.id); }
+    if (out) { toast("queued. The next wake will build it", "good"); openStory(s.id); }
   };
   gate.append(disp);
 
@@ -3353,7 +3353,7 @@ async function openStory(id) {
     gate.append(note);
   } else {
     const kill = el("button", "act no", "drop this story");
-    kill.title = "off the board, questions closed, tickets cancelled — reversible";
+    kill.title = "off the board, questions closed, tickets cancelled. reversible";
     kill.onclick = () => dropStory(s.id, "“" + s.title + "”");
     gate.append(kill);
   }
@@ -3363,7 +3363,7 @@ async function openStory(id) {
   //
   // This is the block that stops the loop from asking about finished work. The
   // ledger keeps the ticked and unticked to-dos apart now, so the drawer can
-  // show you what the colony believes is done — which is also the thing to
+  // show you what the colony believes is done, which is also the thing to
   // check first when a question looks like it is about last month.
   const done = jsonList(s.done_items), open = jsonList(s.open_items);
   if (done.length || open.length) {
@@ -3377,7 +3377,7 @@ async function openStory(id) {
   //
   // Everything here queues; nothing here sends. The button writes a row to the
   // outbox and the next pulse performs the HTTP, which is the same rule that
-  // keeps every other control on this page free of network I/O — and it means
+  // keeps every other control on this page free of network I/O. And it means
   // a Notion outage costs you a delay rather than a lost decision.
   if (s.notion_page_id) {
     const push = el("div", "form");
@@ -3386,7 +3386,7 @@ async function openStory(id) {
     push.append(el("label", null, "status"));
     const row = el("div"); row.style.display = "flex"; row.style.gap = "6px";
     const pick = el("select", "pick");
-    pick.append(el("option", null, "— set status —"));
+    pick.append(el("option", null, "set status…"));
     pick.firstChild.value = "";
     for (const st of statuses) {
       const o = el("option", null, st);
@@ -3420,7 +3420,7 @@ async function openStory(id) {
     push.append(el("label", null, "comment"));
     const say = el("textarea", "field wide");
     say.rows = 2;
-    say.placeholder = "leave a note on the Notion page — posted as Ordis";
+    say.placeholder = "leave a note on the Notion page. Posted as Ordis";
     const send = el("button", "act go", "queue comment");
     send.onclick = async () => {
       const text = say.value.trim();
@@ -3456,7 +3456,7 @@ async function openStory(id) {
       // put it there, and the drawer should not pretend otherwise.
       if (!a.story_id) {
         dd.append(el("div", "stamp",
-          "cut for the project, not for this story — it takes the ticket only "
+          "cut for the project, not for this story. It takes the ticket only "
           + "while this story has no crew of its own"));
       }
       r.append(dt, dd);
@@ -3486,8 +3486,8 @@ async function openStory(id) {
       const dd = el("dd", null, decision ? (t.findings || "decided")
                                          : `${t.status} · ${t.role}`);
       // When it was opened, and when it stopped. Without dates this list cannot
-      // answer the first question anyone asks of it — is #19 from this morning
-      // or from last week — and the ids only say what order things happened in.
+      // answer the first question anyone asks of it, is #19 from this morning
+      // or from last week, and the ids only say what order things happened in.
       const life = stamp(t.created_at) +
                    (t.closed_at && t.closed_at !== t.created_at
                       ? "  ·  closed " + stamp(t.closed_at) : "");
@@ -3619,7 +3619,7 @@ async function openCompleted(arg) {
   };
   const skipped = (Array.isArray(f.skipped) ? f.skipped : []).map((sk) =>
     sk && typeof sk === "object"
-      ? [sk.criterion, sk.why].filter(Boolean).join("  —  ")
+      ? [sk.criterion, sk.why].filter(Boolean).join(": ")
       : String(sk));
   list("criteria met", f.done, "✓");
   list("skipped", skipped, "✗");
@@ -3628,7 +3628,7 @@ async function openCompleted(arg) {
   // time anyone opens this panel.
   list("handed over to be run", (Array.isArray(f.needs_run) ? f.needs_run : [])
     .map((n) => n && typeof n === "object"
-      ? [n.command, n.why].filter(Boolean).join("  —  ") : String(n)), "$");
+      ? [n.command, n.why].filter(Boolean).join(": ") : String(n)), "$");
   list("files touched", f.files, "·");
   if (f.risks) body.append(sectionBlock("look closely at", String(f.risks)));
   if (f.learned) body.append(sectionBlock("learned", String(f.learned)));
@@ -3706,7 +3706,7 @@ async function openCompleted(arg) {
 }
 
 // One label per entry, in the voice it was said in. The event kinds keep their
-// own word — "groomed", "staffed", "decided" — because those are the colony's
+// own word, "groomed", "staffed", "decided", because those are the colony's
 // own vocabulary and renaming them here would make the timeline and the ledger
 // disagree about what happened.
 function doneVoice(e) {
@@ -3724,8 +3724,8 @@ function doneRole(e) {
   return null;
 }
 
-// Which voice an event is in, if it is in one. Everything else — a Notion sync,
-// a status filing, a groom that failed — is bookkeeping and stays grey, which
+// Which voice an event is in, if it is in one. Everything else, a Notion sync,
+// a status filing, a groom that failed, is bookkeeping and stays grey, which
 // is what makes the four coloured ones findable in a list of thirty.
 const EV_VOICE = { po: "you", ordis: "ordis", learning: "learned", ask: "ordis asked" };
 
@@ -3740,7 +3740,7 @@ function evRole(e) {
 
 // ── persona drawer ──────────────────────────────────────────────────────────
 // The whole persona file, not a summary of it. What a persona refuses, what it
-// insists on, what "done" means to it — those live in the markdown body, and
+// insists on, what "done" means to it. Those live in the markdown body, and
 // they are exactly what you need to read *before* hiring someone rather than
 // discover afterwards in a diff.
 
@@ -3764,8 +3764,8 @@ async function openPersona(slug) {
   if (p.vibe) add("vibe", p.vibe);
   add("file", p.path);
   add("source", p.source === "local"
-    ? "yours — written on this machine, safe from a git pull"
-    : "the agency-agents clone — read only, and a pull upstream can rewrite it");
+    ? "yours, written on this machine, safe from a git pull"
+    : "the agency-agents clone, read only, and a pull upstream can rewrite it");
   if (p.hired) add("status", `hired as “${p.hired.role}”${p.hired.project ? " on " + p.hired.project : ""}`);
   body.append(facts);
 
@@ -3775,7 +3775,7 @@ async function openPersona(slug) {
   body.append(hireForm(p));
 
   // Every heading in the file becomes a block. Anything that fails to split
-  // comes back as one section, which renders as the whole file — degrading to
+  // comes back as one section, which renders as the whole file. Degrading to
   // "show me the text" is the right failure for a document viewer.
   for (const sec of p.sections) {
     if (!sec.body) { body.append(el("div", "lb mono dim", sec.title)); continue; }
@@ -3794,7 +3794,7 @@ async function openPersona(slug) {
       `Delete ${p.name}?
 
 The file at ${p.path} is removed. Any agent already `
-      + `hired from it keeps running — a contract is not the résumé it came from.`,
+      + `hired from it keeps running. A contract is not the résumé it came from.`,
       async () => {
         const out = await act("persona-delete", { slug: p.slug });
         if (out) { toast(`${p.name} removed`); closeDrawer(); }
@@ -3857,7 +3857,7 @@ async function openAgent(id) {
   add("persona", a.roster_slug || "—");
   add("project", a.project || "structural (no project)");
   add("model", a.model);
-  add("writes", a.write_capable ? "yes — inside a worktree, after your approval" : "no");
+  add("writes", a.write_capable ? "yes. Inside a worktree, after your approval" : "no");
   add("ceiling", toks(a.max_tokens_run) + " tok/run");
   add("hired", a.hired_at || "—");
   if (a.notes) add("notes", a.notes);
@@ -3895,8 +3895,8 @@ async function openAgent(id) {
 // writing outside its contract. The scope is the PO's decision, so it belongs
 // on the contract where they can see it and change it.
 //
-// The picker offers the folders the colony already knows about — every project
-// with a PROJECT.md, plus the top-level folders that contain them — so picking
+// The picker offers the folders the colony already knows about, every project
+// with a PROJECT.md, plus the top-level folders that contain them, so picking
 // the parent of a sub-project is one click. The server checks the folder exists
 // under the projects root before it stores anything, because a typed path is
 // still possible and a scope pointing nowhere is worse than a narrow one.
@@ -3911,7 +3911,7 @@ function scopeEditor(a) {
   const save = el("button", "act go", "save scope");
   const draw = () => {
     list.replaceChildren();
-    if (!folders.length) list.append(el("span", "dim", "no folder — this agent cannot build"));
+    if (!folders.length) list.append(el("span", "dim", "no folder. This agent cannot build"));
     for (const f of folders) {
       const chip = el("span", "chip live");
       chip.style.textTransform = "none";
@@ -3930,7 +3930,7 @@ function scopeEditor(a) {
   const pick = el("select", "pick");
   const fill = () => {
     pick.replaceChildren();
-    const head = el("option", null, "— add a folder —");
+    const head = el("option", null, "add a folder…");
     head.value = "";
     pick.append(head);
     for (const p of (a.all_projects || []).slice().sort(
@@ -3972,7 +3972,7 @@ function scopeEditor(a) {
   row.append(pick, save);
 
   draw();
-  return blk("write scope — the folders this agent may edit, inside its worktree",
+  return blk("write scope. The folders this agent may edit, inside its worktree",
              list, row, typed);
 }
 
@@ -3988,8 +3988,8 @@ function secretsEditor(a) {
   const draw = () => {
     state.textContent = on
       ? "Its checkout gets a copy of every .env found in the projects it works "
-        + "in. Values never reach a patch — the files are removed before the "
-        + "diff is taken — but the agent can read them, so its report could "
+        + "in. Values never reach a patch, the files are removed before the "
+        + "diff is taken, but the agent can read them, so its report could "
         + "repeat one."
       : "Its checkout has no .env in it. The agent can tell you that a key is "
         + "not visible; it cannot tell you whether the key is set.";
@@ -4005,7 +4005,7 @@ function secretsEditor(a) {
     draw();
   };
   draw();
-  return blk("credentials — whether .env is copied into its checkout", state, btn);
+  return blk("credentials. Whether .env is copied into its checkout", state, btn);
 }
 
 async function openPulse(id) {
@@ -4015,7 +4015,7 @@ async function openPulse(id) {
   catch { body.replaceChildren(el("div", "empty", "could not load that beat")); return; }
   // "escalated" rather than "wake": the tick found a reason, a wake was
   // considered, and nothing was spent. The header used to say WAKE directly
-  // above a body that said "spent nothing — the heartbeat is free".
+  // above a body that said "spent nothing. The heartbeat is free".
   const escalated = p.tier === "wake" && !p.acted;
   $("d-eyebrow").textContent =
     `${tierOf(p)}${escalated ? " · escalated" : ""} · ${p.pulse_at}`;
@@ -4026,7 +4026,7 @@ async function openPulse(id) {
   const add = (k, v) => { facts.append(el("dt", null, k), el("dd", null, v)); };
   add("window", `${p.window_start} → ${p.window_end}`);
   add("took", (p.duration_ms / 1000).toFixed(1) + "s");
-  add("spent", p.tokens ? toks(p.tokens) + " tok" : "nothing — the heartbeat is free");
+  add("spent", p.tokens ? toks(p.tokens) + " tok" : "nothing. The heartbeat is free");
   add("next", p.next_pulse_at || "—");
   if (p.anomalies) add("anomalies", String(p.anomalies));
   body.append(facts);
@@ -4053,7 +4053,7 @@ async function openProject(name) {
 
   // Every count here is a count of files that differ from one commit, and the
   // panel used to print the counts without ever naming it. The labels say what
-  // each bucket is in words rather than in git's vocabulary — "untracked" is a
+  // each bucket is in words rather than in git's vocabulary. "untracked" is a
   // statement about git's index; "never committed" is a statement about the
   // file, and it is the one that explains folders full of changes nobody made.
   const kinds = p.kinds || {};
@@ -4064,7 +4064,7 @@ async function openProject(name) {
     facts.append(el("dt", null, k), dd);
   };
   add("compared with", repo.sha
-    ? `${repo.sha} on ${repo.branch}` + (repo.subject ? ` — "${repo.subject}"` : "")
+    ? `${repo.sha} on ${repo.branch}` + (repo.subject ? `: "${repo.subject}"` : "")
     : "the last commit");
   if (repo.at) add("that commit landed", `${repo.at} (${ago(repo.at)})`);
   if (st) {
@@ -4076,7 +4076,7 @@ async function openProject(name) {
     if (st.touched_at) add("last written", `${st.touched_at} (${ago(st.touched_at)})`);
     if (st.commits_since) add("commits in window", String(st.commits_since));
   } else {
-    add("in total", "clean — every file here matches that commit");
+    add("in total", "clean. Every file here matches that commit");
   }
   body.append(facts);
 
@@ -4105,7 +4105,7 @@ async function openProject(name) {
 }
 
 // "Projects that moved" was a list of names. It answered which folder and
-// nothing else — not what changed in it, not where, not when, and above all not
+// nothing else. Not what changed in it, not where, not when, and above all not
 // who, which is the question a PO asks first about a folder they never opened.
 // Everything below was already being measured; none of it was being shown.
 const KIND_WORD = { A: "added", M: "edited", D: "deleted", "??": "new", R: "renamed" };
@@ -4135,7 +4135,7 @@ function movedDelta(c) {
   // and the two are told apart by whether the file list was stored at all.
   if (c.files == null) return "this beat predates the movement log";
   if (c.d_modified == null && c.d_untracked == null) return "first time this folder was sampled";
-  if (c.commits_since) return "the same files — what moved was the commit";
+  if (c.commits_since) return "the same files. What moved was the commit";
   return "counts unchanged since the previous beat";
 }
 
@@ -4147,13 +4147,13 @@ function movedList(changes) {
     const name = el("button", "name", c.project);
     name.onclick = () => openProject(c.project);
     item.append(name);
-    // The colony writes to a folder through exactly one door — a patch the PO
-    // approved — so it can say with certainty when a change was not its doing,
+    // The colony writes to a folder through exactly one door, a patch the PO
+    // approved, so it can say with certainty when a change was not its doing,
     // and that is the sentence worth putting on the row.
     const by = el("span", "who", c.moved_by === "colony" ? "the colony" : "not the colony");
     by.title = c.moved_by === "colony"
       ? "a patch you approved was applied into this folder during this beat"
-      : "the colony did not write here — something else on the machine did";
+      : "the colony did not write here. Something else on the machine did";
     item.append(by);
 
     item.append(el("div", "delta", movedDelta(c)));
@@ -4167,7 +4167,7 @@ function movedList(changes) {
     if (ctx.length) item.append(el("div", "ctx", ctx.join("  ·  ")));
 
     // Where it happened. The paths are the answer to "I can't find the
-    // modification" — the counts never pointed at anything.
+    // modification". The counts never pointed at anything.
     const files = jsonList(c.files);
     if (files.length) {
       const list = el("div", "files");
@@ -4190,7 +4190,7 @@ function movedList(changes) {
 }
 
 // A diff is the one place on this page where colour is not rationed: it is the
-// whole point of the view. Line-prefix colouring only — no parser, no library.
+// whole point of the view. Line-prefix colouring only. No parser, no library.
 function paintDiff(pre, text) {
   pre.replaceChildren();
   const lines = text.split("\n").slice(0, 3000);
@@ -4252,7 +4252,7 @@ async function openPatch(e) {
   if ((r.skipped || []).length) {
     const ul = el("ul", "crit");
     for (const sk of r.skipped) {
-      ul.append(el("li", "missed", (sk.criterion || "") + " — " + (sk.why || "")));
+      ul.append(el("li", "missed", (sk.criterion || "") + ": " + (sk.why || "")));
     }
     body.append(blk("skipped, and why", ul));
   }
@@ -4272,7 +4272,7 @@ async function openPatch(e) {
   acts.style.display = "flex"; acts.style.gap = "7px"; acts.style.margin = "10px 0";
   const yes = el("button", "act go", "apply to the live tree");
   yes.onclick = () => confirmThen(
-    "Apply this patch? It lands uncommitted in your working tree — the colony never commits.",
+    "Apply this patch? It lands uncommitted in your working tree. The colony never commits.",
     async () => { if (await act("decide", { escalation_id: e.id, decision: "approve" })) closeDrawer(); });
   const no = el("button", "act no", "reject");
   no.title = "throws the worktree away and puts the story back to ready. The patch file survives.";
@@ -4332,7 +4332,7 @@ function confirmThen(question, fn) { if (window.confirm(question)) fn(); }
 // Two prompts, and both of them earn their interruption. The first asks for a
 // reason, because "why did we not do this" is the single most useful thing to
 // have written down six months later and the only moment anyone knows the
-// answer is now. Cancelling the reason cancels the drop — there is no way to
+// answer is now. Cancelling the reason cancels the drop. There is no way to
 // drop a story silently, which is deliberate.
 //
 // The second asks whether to say so in Notion, and it is separate because it
@@ -4348,12 +4348,12 @@ function dropStory(id, title) {
   if (reason === null) return;
   // Shelved, not Archived. "Archived" is not an option on the Status select and
   // Notion answers an unknown option by *creating* it, so this dialog was one
-  // OK away from inventing an eighth status on the board — and once the colony
+  // OK away from inventing an eighth status on the board. And once the colony
   // stopped being allowed to send it, from refusing the drop outright with a
   // sentence about starting work, which is not what dropping a story is.
   const shelve = window.confirm(
     "Also set it to Shelved in Notion?\n\n" +
-    "OK queues the change — it goes up on the next pulse. Cancel drops it here only.");
+    "OK queues the change. It goes up on the next pulse. Cancel drops it here only.");
   act("drop", { story_id: id, reason: reason.trim(),
                 notion_status: shelve ? "Shelved" : null });
 }
@@ -4378,7 +4378,7 @@ $("roster-q").addEventListener("input", (e) => {
 
 // ── theme ───────────────────────────────────────────────────────────────────
 
-// `?theme=ember` overrides the stored choice for this load only — it never
+// `?theme=ember` overrides the stored choice for this load only. It never
 // writes localStorage. It exists so a theme can be inspected without clicking
 // through the picker, which is also the only way to screenshot one headlessly.
 const forced = new URLSearchParams(location.search).get("theme");
@@ -4411,8 +4411,8 @@ $("theme").onchange = (e) => {
   else { delete document.documentElement.dataset.theme; store.remove("colony-theme"); }
   paintThemeColor();
   // Picking a theme drops any hand-mixed colours. They were sampled from the
-  // palette you just left — an ember ground held over phosphor is not a third
-  // theme, it is two halves of two — and a picker that appeared to do nothing
+  // palette you just left, an ember ground held over phosphor is not a third
+  // theme, it is two halves of two, and a picker that appeared to do nothing
   // is worse than one that asks you to mix again. Named presets are untouched:
   // that is what saving one is for.
   if (Object.keys(VARS).length) { VARS = {}; applyVars(); saveAppearance();
@@ -4424,7 +4424,7 @@ $("halt-banner-resume").onclick = () => act("halt", { on: false });
 // ── appearance ──────────────────────────────────────────────────────────────
 //
 // Three dials, one drawer, and not a byte of it leaves the machine. Text size,
-// the fifteen palette tokens, and where each tile sits — all localStorage, for
+// the fifteen palette tokens, and where each tile sits. All localStorage, for
 // the same reason the view menu is: how you read the page is not something the
 // colony needs to know, and a page that phoned home about its font size would
 // be a page you could not trust to be only a page.
@@ -4433,7 +4433,7 @@ $("halt-banner-resume").onclick = () => act("halt", { on: false });
 // fifteen colour pickers is handing over the ability to make the page
 // unreadable in four clicks, so every relationship that has to hold shows its
 // contrast ratio next to the swatch and goes coral when it breaks. Randomize
-// obeys the same audit rather than rolling dice — see below.
+// obeys the same audit rather than rolling dice. See below.
 
 const SCALE_KEY = "colony-scale", VARS_KEY = "colony-vars",
       PRESET_KEY = "colony-presets", LAYOUT_KEY = "colony-layout";
@@ -4452,13 +4452,13 @@ let VARS = readJSON(VARS_KEY, {});
 let LAYOUT = readJSON(LAYOUT_KEY, {});
 
 // Name, label, what it paints, and what it has to stay legible against. A row
-// with no audit is a surface colour — it has no single relationship worth one
+// with no audit is a surface colour. It has no single relationship worth one
 // number.
 //
 // The targets are the ones this design actually holds, measured off the
 // twenty-four shipped palettes rather than copied off a checklist: ink 4.5 on
 // panel, everything else 3. An accent on its own chip bed is a 10px uppercase
-// label, which argues for 4.5 — but eight of the shipped themes sit between
+// label, which argues for 4.5. But eight of the shipped themes sit between
 // 3.55 and 4.4 there and none of them is hard to read, and an audit that opens
 // by calling a third of the existing design broken is noise, not signal.
 //
@@ -4466,12 +4466,12 @@ let LAYOUT = readJSON(LAYOUT_KEY, {});
 // palette named after its hues is unusable as a control panel: `violet` is
 // simultaneously Ordis, the Standby and Board titles, the focus ring and the
 // modified-files bar, and a picker that reads "violet" tells you the one thing
-// you already knew — the colour — and none of the four things that will move.
+// you already knew, the colour, and none of the four things that will move.
 // So the four accents keep their meanings and stay the *source*, and everything
 // downstream of them is now a token of its own that can be pinned separately.
 const TOKEN_GROUPS = [
   { label: "surfaces",
-    note: "The page and the cards on it. No contrast target of their own — they are what everything else is measured against.",
+    note: "The page and the cards on it. No contrast target of their own. They are what everything else is measured against.",
     rows: [
       ["--ground",     "ground",     "behind the whole page",            null],
       ["--panel",      "panel",      "the face of every card and panel", null],
@@ -4487,7 +4487,7 @@ const TOKEN_GROUPS = [
       ["--ink-dim",  "ink dim",  "timestamps, hints, empty states", ["--panel", 3]],
     ] },
   { label: "the four meanings",
-    note: "The accents, and the source of everything below. Each one says one thing everywhere it appears, which is why there are four and not fourteen. Change one here and every title and bar that borrows it follows — pin those separately below if you would rather they did not.",
+    note: "The accents, and the source of everything below. Each one says one thing everywhere it appears, which is why there are four and not fourteen. Change one here and every title and bar that borrows it follows. Pin those separately below if you would rather they did not.",
     rows: [
       ["--amber",        "amber",     "yours: Inbox tiles, anything waiting on you", ["--panel", 3]],
       ["--amber-ground", "amber bed", "the bed an Inbox tile sits on",               ["--amber", 3]],
@@ -4562,7 +4562,7 @@ function contrast(a, b) {
 }
 // Walk lightness *away* from the background until the ratio clears. This is the
 // one function that makes a random palette usable: a hue gets chosen for
-// character, and its lightness is then whatever legibility demands — rather
+// character, and its lightness is then whatever legibility demands. Rather
 // than choosing a colour and hoping it lands somewhere readable.
 function toward(h, s, l, bg, target) {
   const dir = lum(hsl2hex(h, s, l)) > lum(bg) ? 1 : -1;
@@ -4573,7 +4573,7 @@ function toward(h, s, l, bg, target) {
 // ── applying ────────────────────────────────────────────────────────────────
 
 // Reading a custom property off the root gives its *text*, and half of these
-// are written as `color-mix(in oklab, var(--mint) 55%, var(--violet))` — a
+// are written as `color-mix(in oklab, var(--mint) 55%, var(--violet))`. A
 // recipe, not a colour. So the browser is asked to cook it: a zero-sized probe
 // takes `color: var(--token)`, and its computed colour is the answer. Chromium
 // hands back `rgb(…)` for a plain colour and `color(srgb …)` for a mix, one in
@@ -4669,8 +4669,8 @@ function applyLayout() {
     // the column and the cap, so a tile you put away is still away tomorrow.
     node.classList.toggle("min", !!(LAYOUT[key] || {}).min);
     const max = (LAYOUT[key] || {}).max || 0;
-    // Two panels already scroll inside their own body — the Inbox grid and the
-    // pulse log — so capping the *section* would nest one scroller in another
+    // Two panels already scroll inside their own body, the Inbox grid and the
+    // pulse log, so capping the *section* would nest one scroller in another
     // and give the same list two bars. Their cap moves the inner ceiling.
     if (SELF_SCROLL[key]) {
       if (max) node.style.setProperty(SELF_SCROLL[key], max + "px");
@@ -4684,7 +4684,7 @@ function applyLayout() {
 }
 
 // Read the order back out of the DOM and store *that*, so the indices stay
-// dense however they were arrived at — whether they were arrived at by the
+// dense however they were arrived at. Whether they were arrived at by the
 // arrows, by a column change, or by dragging a tile across the page. A move is
 // then always "swap with the neighbour", never "insert at 2.5 and hope".
 function captureLayout() {
@@ -4746,7 +4746,7 @@ function moveTile(key, delta) {
 // Dragging is the fastest way to say where a tile goes and the easiest thing to
 // do by accident, so it is a mode with a door at both ends: you enter it from
 // the drawer, and a bar at the bottom of the screen is the only thing on the
-// page while it is on. The tiles wiggle for the same reason — it is the only
+// page while it is on. The tiles wiggle for the same reason. It is the only
 // signal that an ordinary click will now rearrange the page.
 //
 // A drop *inserts* rather than swaps. Swapping moves a second tile you never
@@ -4825,8 +4825,8 @@ $("snap-done").onclick = () => { setSnap(false); openAppearance(); };
 
 // ── randomize ───────────────────────────────────────────────────────────────
 //
-// Not dice. A palette rolled uniformly is unreadable roughly always, and — more
-// quietly wrong — it breaks the four accents loose from their meanings: a
+// Not dice. A palette rolled uniformly is unreadable roughly always, and, more
+// quietly wrong, it breaks the four accents loose from their meanings: a
 // "coral" that came out green stops saying *anomaly*. So the neutrals get a
 // random hue, a random cast and a coin-flip between a dark and a light ground,
 // while the four accents keep their hue *bands* and vary inside them. Every
@@ -4848,11 +4848,11 @@ function randomPalette() {
   // The chip bed is a tint of its own accent, sitting a hair off the panel, and
   // it is chosen *first*. Solving it the other way round cannot work on a light
   // theme: if the accent is only just clear of a near-white panel, no bed light
-  // enough to belong on that panel can also be clear of the accent — the bed
+  // enough to belong on that panel can also be clear of the accent. The bed
   // walks to #ffffff and the pair still fails. Four thousand sampled palettes
   // said so before this was written that way.
   const bed = (h, sat) => hsl2hex(h, sat, dark ? 15 : 95);
-  // An accent has two jobs — a label on its own bed, a heading on the panel —
+  // An accent has two jobs, a label on its own bed, a heading on the panel,
   // and its lightness is solved for the harder of the two.
   const accent = (h, sat, on) => {
     const dir = dark ? 1 : -1;
@@ -4898,7 +4898,7 @@ function savePreset(name) {
   if (!name) { toast("a preset needs a name", "bad"); return; }
   const all = presets();
   // The base is stored resolved, so the look is exact. The derived tokens are
-  // stored only if they were pinned by hand — baking all of them in would make
+  // stored only if they were pinned by hand. Baking all of them in would make
   // every preset a palette where moving `--violet` no longer moves Ordis, which
   // is the behaviour the panel-title rows exist to make optional, not default.
   const full = {};
@@ -4974,7 +4974,7 @@ function openAppearance() {
       r.node.textContent = got.toFixed(1) + ":1";
       r.node.classList.toggle("fail", got < r.target);
       r.node.title = got.toFixed(2) + ":1 against " + r.against.slice(2)
-                   + (got < r.target ? " — wants " + r.target + ":1" : "");
+                   + (got < r.target ? ", wants " + r.target + ":1" : "");
     }
   };
 
@@ -4985,7 +4985,7 @@ function openAppearance() {
       const row = el("div", "sw");
       const input = document.createElement("input");
       input.type = "color"; input.value = tokenValue(name);
-      input.title = name + " — " + does;
+      input.title = name + ": " + does;
       input.oninput = () => {
         VARS[name] = input.value;
         document.documentElement.style.setProperty(name, input.value);
@@ -5046,7 +5046,7 @@ function openAppearance() {
   const names = Object.keys(all).sort((a, b) => a.localeCompare(b));
   const box = el("div", "presets");
   if (!names.length) {
-    box.append(el("div", "empty", "nothing saved yet — mix a palette above and name it"));
+    box.append(el("div", "empty", "nothing saved yet. Mix a palette above and name it"));
   }
   for (const name of names) {
     const row = el("div", "preset");
@@ -5093,7 +5093,7 @@ function openAppearance() {
       const o = document.createElement("option");
       o.textContent = "top strip"; where.append(o);
       where.disabled = true;
-      where.title = "the strip across the top is fixed — it is the first thing you read";
+      where.title = "the strip across the top is fixed. It is the first thing you read";
     }
     lay.append(where);
 
@@ -5158,7 +5158,7 @@ applyLayout();
 // So this is deliberately a **frozen document**, not a live view. It reads
 // nothing from the ledger and it will drift as the code changes. The date below
 // is the promise it makes: everything here was true on that day, and nothing
-// checks it afterwards. When it is wrong, delete it and write it again — do not
+// checks it afterwards. When it is wrong, delete it and write it again. Do not
 // patch it a line at a time.
 //
 // Data rather than markup because the page has no innerHTML anywhere in it and
@@ -5301,7 +5301,7 @@ function openManual() {
   body.replaceChildren();
   body.append(el("p", "man-asof",
     "Written " + MANUAL_AS_OF + ". This is a snapshot, not a live view. Nothing here "
-    + "reads the ledger, so it will drift as the code changes — when it is wrong, "
+    + "reads the ledger, so it will drift as the code changes. When it is wrong, "
     + "delete it and write it again."));
   const toc = el("nav", "man-toc");
   MANUAL.forEach((sec, i) => {
@@ -5321,7 +5321,7 @@ function openManual() {
 // The whole setup used to be five steps at the desk: mint a token, open `.env`
 // in an editor, paste it, save, run `py -m colony autostart`. All five happen
 // on the machine you are about to walk away from, which is the argument for
-// doing them here — you are already looking at the page.
+// doing them here. You are already looking at the page.
 //
 // One `POST /api/act/phone` does all of it and `GET /api/phone` answers the
 // panel. Neither is in `/api/state`: answering costs a PowerShell call and a
@@ -5329,8 +5329,8 @@ function openManual() {
 
 // The difference between "works on the sofa" and "works in the car park", said
 // out loud. A LAN address and a tailnet address look equally healthy in every
-// other line of this panel, and only one of them survives leaving the building —
-// so the state of Tailscale is drawn right under the address it decides.
+// other line of this panel, and only one of them survives leaving the building.
+// So the state of Tailscale is drawn right under the address it decides.
 //
 // Both buttons are desk-only, matching the server (see `act_tailscale`). One
 // runs an installer with a UAC prompt behind it; the other is only useful to
@@ -5362,7 +5362,7 @@ function tailscaleBlock(where, info, reload) {
   if (ts.connected) {
     // Connected, but the server is not on it. Almost always a server that came
     // up before Tailscale did, and the fix is a restart rather than anything in
-    // this panel — so say the fix rather than describing the state.
+    // this panel. So say the fix rather than describing the state.
     note("Tailscale is connected on " + (ts.address || "this machine")
          + ", but the dashboard bound a local address instead, which means it "
          + "started before Tailscale did. Restart the dashboard and it will "
@@ -5388,7 +5388,7 @@ function tailscaleBlock(where, info, reload) {
         go.disabled = true;
         go.textContent = "starting…";
         const out = await act("tailscale", { do: "install" });
-        if (out) toast("the installer is opening — press refresh when it is done");
+        if (out) toast("the installer is opening. Press refresh when it is done");
         reload();
       };
       where.append(go);
@@ -5461,7 +5461,7 @@ function openPhone() {
     // rule is added in a terminal -- needs a way to be asked again that is not
     // "close the drawer and open it".
     const again = el("button", "link", "refresh");
-    again.title = "ask the machine again — address, firewall, and whether it is serving";
+    again.title = "ask the machine again. Address, firewall, and whether it is serving";
     again.onclick = () => { again.textContent = "checking…"; load(); };
 
     row.append(button, el("span", "val", on ? "on" : "off"), again);
@@ -5493,7 +5493,7 @@ function openPhone() {
     }
     if (on && !info.serving) {
       where.append(el("div", "note",
-        "nothing is answering on that address yet — the logon task waits 45 "
+        "nothing is answering on that address yet. The logon task waits 45 "
         + "seconds for the network before it binds."));
     }
     set.append(where);
@@ -5509,7 +5509,7 @@ function openPhone() {
         ? "there is no rule for this port, so the phone's request will be "
           + "dropped rather than refused: the browser loads forever and "
           + "nothing is logged at either end. Run the command below in a "
-          + "terminal — it asks for administrator once."
+          + "terminal. It asks for administrator once."
         : "the firewall rules could not be read, which usually means this "
           + "process is not allowed to. If the phone loads forever, check "
           + "this first."));
@@ -5519,7 +5519,7 @@ function openPhone() {
       cmd.title = "click to copy";
       cmd.onclick = () => navigator.clipboard.writeText(cmd.textContent)
         .then(() => toast("copied", ""))
-        .catch(() => toast("this browser would not copy it — select it instead", "bad"));
+        .catch(() => toast("this browser would not copy it. Select it instead", "bad"));
       warn.append(cmd);
       set.append(warn);
     }
@@ -5557,7 +5557,7 @@ function openPhone() {
           "The phone is on a different network. It has to be on the same one "
             + "as this machine"
             + (info.neighbourhood
-                ? " — on most home routers that means its Wi-Fi address also "
+                ? ", and on most home routers that means its Wi-Fi address also "
                   + "starts " + info.neighbourhood : "")
             + ". Cellular data instead of Wi-Fi is the usual version of this.",
           "A VPN or private-relay setting on the phone. Those send every "
@@ -5611,7 +5611,7 @@ function openPhone() {
       link.style.cursor = "pointer";
       link.onclick = () => navigator.clipboard.writeText(info.url)
         .then(() => toast("copied", ""))
-        .catch(() => toast("this browser would not copy it — select it instead", "bad"));
+        .catch(() => toast("this browser would not copy it. Select it instead", "bad"));
       set.append(blk("open this on the phone", link));
 
       if (info.svg) {
@@ -5649,7 +5649,7 @@ function openPhone() {
       roll.append(el("div", "lb", "token"));
       roll.append(el("div", "note", here
         ? "rotating writes a new token to .env and logs out every phone that "
-          + "has the old one. This window stays signed in — it is on this "
+          + "has the old one. This window stays signed in. It is on this "
           + "machine, and the dashboard trusts that by address rather than by "
           + "token. Scan the new code above afterwards to pair again."
         : "rotating is only offered on the machine itself: doing it from here "
@@ -5664,7 +5664,7 @@ function openPhone() {
           spin.disabled = true;
           spin.textContent = "rotating…";
           const out = await act("phone-token", { port: info.port });
-          if (out) toast("new token written to .env — scan the code again");
+          if (out) toast("new token written to .env. Scan the code again");
           // Redrawn from the server on both paths, so a write that failed
           // halfway cannot leave a QR code on screen for a token that is not
           // in the file.
@@ -5684,7 +5684,7 @@ function openPhone() {
   const load = () => getJSON("/api/phone")
     .then(draw)
     .catch(() => body.replaceChildren(
-      el("div", "empty", "could not read phone access — is the server still up?")));
+      el("div", "empty", "could not read phone access. Is the server still up?")));
   load();
 }
 
@@ -5700,7 +5700,7 @@ $("open-phone").onclick = () => { $("filemenu").open = false; openPhone(); };
 // state to reason about:
 //
 //   1. It is local. Nothing here is sent to the server, and hiding a panel
-//      does not stop the colony from filling it — you are choosing what to
+//      does not stop the colony from filling it. You are choosing what to
 //      look at, not what runs. Come back with the panel shown and the work
 //      that happened while it was hidden is all there.
 //   2. Panels default to *on* and detail defaults to *off*. A key that has
@@ -5782,7 +5782,7 @@ function connect() {
   es.onerror = () => {
     // Numbers on screen are now of unknown age. Say so rather than let a frozen
     // page look like a quiet one.
-    setConn(false, "disconnected — retrying");
+    setConn(false, "disconnected, retrying");
     es.close();
     setTimeout(connect, 3000);
   };
@@ -5819,7 +5819,7 @@ paintThemeColor();
 // home screen; it caches nothing but an offline notice (see sw.js). Registered
 // last and failing silently, because a dashboard that will not load because a
 // worker did not register would be a far worse bug than no install prompt. It
-// registers inside the pywebview window too, where it is simply inert — the
+// registers inside the pywebview window too, where it is simply inert. The
 // only thing it ever serves is a page you reach by losing the network, and the
 // desktop shell is running on the machine the server is on.
 if ("serviceWorker" in navigator && location.protocol !== "file:") {
@@ -5834,7 +5834,7 @@ if ("serviceWorker" in navigator && location.protocol !== "file:") {
 if (location.search.includes("nostream")) setConn(false, "static snapshot");
 else connect();
 
-// ?open=persona:engineering/python-pro — every drawer is addressable. A
+// ?open=persona:engineering/python-pro. Every drawer is addressable. A
 // persona's criteria or a patch waiting on you is the kind of thing you want to
 // leave a link to, and the drawers were already one function call each.
 const deep = new URLSearchParams(location.search).get("open");

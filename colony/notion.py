@@ -1,4 +1,4 @@
-"""Read the Notion intake board, and — since M5 — write back to it.
+"""Read the Notion intake board, and, since M5, write back to it.
 
 The MCP server Ordis uses interactively is not available to a scheduled Python
 process, so the tick talks to the Notion REST API directly with an integration
@@ -11,7 +11,7 @@ The write half is deliberately small. The colony may set a row's Status, tick a
 checkbox it has verified as done, and leave a comment. It may not create rows,
 delete rows, or edit the brief: the board is where the PO states intent, and a
 loop that can rewrite its own instructions has no human gate in it. Nothing here
-is called from control.py — writes are queued into `notion_outbox` and flushed
+is called from control.py. Writes are queued into `notion_outbox` and flushed
 by the tick, the same separation 007 drew for skill drafts.
 """
 
@@ -37,7 +37,7 @@ RESEARCH_STATUS = "Exploring"
 # The other five options on the Notion select, and what they mean here.
 #
 # Only two of the seven statuses are an instruction to the colony. The rest are
-# the PO filing something — finished, parked, or not begun — and a row being
+# the PO filing something, finished, parked, or not begun, and a row being
 # filed is the *absence* of a request. Treating them as work was the loop's
 # loudest mistake: an idea the PO wrote down and left alone came back an hour
 # later as a question in their Inbox asking which folder it belonged to, which is
@@ -54,8 +54,8 @@ SETTLED_STATUS = {
 def ledger_status(notion_status: str | None) -> str:
     """Where in the colony's own workflow a Notion row lands.
 
-    This is orthogonal to whether the row is filed — `stories.settled_as` holds
-    that — so a story parked as Done and later reopened comes back to the
+    This is orthogonal to whether the row is filed, `stories.settled_as` holds
+    that, so a story parked as Done and later reopened comes back to the
     workflow status it actually had rather than to a guess.
     """
     return "backlog" if notion_status == WORKABLE_STATUS else "needs-criteria"
@@ -63,8 +63,8 @@ def ledger_status(notion_status: str | None) -> str:
 # What may be set from this dashboard, in board order.
 #
 # "In Progress" is on the list now, at the PO's request. The rule it used to be
-# kept off the list to enforce — the colony must never move a row into its own
-# intake filter, or it can feed itself work it invented — is still the right
+# kept off the list to enforce, the colony must never move a row into its own
+# intake filter, or it can feed itself work it invented, is still the right
 # rule and is still enforced, just somewhere better: the only two callers of
 # `queue_notion` are a button in the story drawer and the drop dialog, and both
 # of them are the PO's hand on a control. No agent, wake or tick queues a
@@ -87,7 +87,7 @@ RATE_LIMIT_MAX_WAIT_S = 10.0
 
 
 class NotionUnconfigured(RuntimeError):
-    """No token. The tick reports this and carries on — it is not a failure."""
+    """No token. The tick reports this and carries on. It is not a failure."""
 
 
 class NotionRefused(RuntimeError):
@@ -102,7 +102,7 @@ def _why(exc: urllib.error.HTTPError) -> str:
     """Notion's `code` and `message` for a failed call, or the bare status.
 
     Every field here is Notion's own prose about its own API. Nothing from the
-    request — and so nothing from the Authorization header — can reach it.
+    request, and so nothing from the Authorization header, can reach it.
     """
     try:
         body = json.loads(exc.read())
@@ -187,7 +187,7 @@ def _prop(props: dict, name: str) -> object:
 
 
 def fetch_page_content(page_id: str) -> dict:
-    """The page body is the brief — but a brief has two halves.
+    """The page body is the brief. But a brief has two halves.
 
     Returns the flattened text *and* the checklist split into what is already
     done and what is not. Flattening `- [x]` and `- [ ]` to the same kind of
@@ -245,7 +245,7 @@ def fetch_board(database_id: str | None = None, *, with_bodies: bool = True) -> 
 
     This used to filter the query to `In Progress OR Exploring`, which was the
     right answer to "what may the colony work on" and the wrong answer to "what
-    is on the board" — and the sync needs the second. A row moved to Done simply
+    is on the board". And the sync needs the second. A row moved to Done simply
     vanished from the result set, so the sync never learned it had moved and the
     story sat in the ledger frozen at its last workable status forever. **A
     status change you filter out is a status change you cannot observe**, and
@@ -257,7 +257,7 @@ def fetch_board(database_id: str | None = None, *, with_bodies: bool = True) -> 
     number of body fetches the filtered version made.
 
     Returns dicts shaped for the `stories` table. `hash` covers everything the
-    colony reads, so an unchanged row costs the wake tier nothing — and since
+    colony reads, so an unchanged row costs the wake tier nothing. And since
     M5 that includes the checklist, because a box getting ticked in Notion is
     exactly the kind of change the colony must notice. `body_fetched` says
     whether the body fields in the dict are real or placeholders, because
@@ -316,7 +316,7 @@ def fetch_board(database_id: str | None = None, *, with_bodies: bool = True) -> 
 #
 # Everything below is only ever reached from the tick, flushing `notion_outbox`.
 # Each function does one API call and raises on anything unexpected, because the
-# outbox row is what handles the retry — swallowing the error here would mark a
+# outbox row is what handles the retry. Swallowing the error here would mark a
 # message sent that nobody ever received.
 
 
@@ -341,7 +341,7 @@ def set_status(page_id: str, status: str, *, kind: str = "select") -> dict:
     if status not in WRITABLE_STATUS:
         raise NotionRefused(
             f"{status!r} is not a status the colony may set "
-            f"({', '.join(WRITABLE_STATUS)}) — nothing else is an option on the board."
+            f"({', '.join(WRITABLE_STATUS)}). Nothing else is an option on the board."
         )
     return _request(
         f"/pages/{page_id}",
@@ -354,7 +354,7 @@ def add_comment(page_id: str, text: str) -> dict:
     """Say something on the page. How a question reaches the PO when they are out.
 
     Prefixed so a comment from the loop is never mistaken for one the PO left
-    themselves — the board is shared with their own thinking, and an unattributed
+    themselves. The board is shared with their own thinking, and an unattributed
     machine voice in the middle of it is worse than no comment at all.
     """
     body = f"Ordis · {text.strip()}"[:1900]
@@ -376,7 +376,7 @@ def check_item(block_id: str, checked: bool = True) -> dict:
 def find_block(page_id: str, item_text: str) -> str | None:
     """The block id for one to-do, matched by its text.
 
-    Text is a weak key and this knows it — the fallback is `None` and a skipped
+    Text is a weak key and this knows it. The fallback is `None` and a skipped
     tick, never a guess at a neighbouring checkbox.
     """
     return fetch_page_content(page_id)["blocks"].get(item_text.strip())

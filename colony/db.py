@@ -1,7 +1,7 @@
 """The ledger: connection, pragmas, migrations.
 
 Everything the colony knows lives in one SQLite file. There is no server to be
-down when the pulse fires at 3am — see ARCHITECTURE.md §3.3.
+down when the pulse fires at 3am. See ARCHITECTURE.md §3.3.
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ def _env_value(key: str) -> str | None:
 
     Deliberately not `mirror.load_env`, which loads the *whole* file into
     `os.environ`. This module is imported by everything, and everything includes
-    the console, which hands its environment to a `claude` subprocess — loading
+    the console, which hands its environment to a `claude` subprocess. Loading
     `NOTION_TOKEN` here would put the token in front of an agent that is not
     allowed to read `.env`. So: read one key, mutate nothing.
     """
@@ -224,7 +224,7 @@ def migrate(conn: sqlite3.Connection, *, verbose: bool = True) -> list[str]:
                 if applied[sql_file.name] not in SUPERSEDED.get(sql_file.name, ()):
                     raise RuntimeError(
                         f"{sql_file.name} changed after it was applied. Migrations are "
-                        f"append-only — add a new file instead of editing this one."
+                        f"append-only. Add a new file instead of editing this one."
                     )
                 # A comment-only rewrite this file vouches for. Record the new
                 # hash so the check is exact again from the next start onwards.

@@ -8,9 +8,9 @@ whole feature cancelling itself out.
 
 So this registers a second scheduled task, beside the hourly pulse, that starts
 the server at logon and leaves it up. It is deliberately the same shape as
-`schedule.py` — pythonw so there is no console, hidden so it does not flicker in
+`schedule.py`. Pythonw so there is no console, hidden so it does not flicker in
 the task list, `--log` because a background process with nowhere to print is a
-process you debug by guessing — and it differs in exactly three ways, each of
+process you debug by guessing. And it differs in exactly three ways, each of
 which is a bug if you get it wrong:
 
   * **No execution time limit.** The default is three days, after which Task

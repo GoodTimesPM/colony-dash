@@ -2,7 +2,7 @@
 
 For its whole life this server bound `127.0.0.1` and that was the entire access
 control story: the write door needed an `X-Colony` header, and the reason a
-header was enough is written down in `server.py` — a form on another web page
+header was enough is written down in `server.py`. A form on another web page
 can POST across origins but cannot set a custom header, and nothing off this
 machine could open a socket to it in the first place.
 
@@ -15,7 +15,7 @@ So there is exactly one new rule, and it fails closed:
 
     binding a non-loopback address requires COLONY_ACCESS_TOKEN to be set.
 
-Not a warning, not a default that can be left in place — the server refuses to
+Not a warning, not a default that can be left in place. The server refuses to
 start. A dashboard that quietly served the ledger, the project tree, every run
 transcript and a HALT button to whoever else was on the coffee shop's wifi is
 the one failure here that cannot be walked back.
@@ -23,7 +23,7 @@ the one failure here that cannot be walked back.
 The token is a bearer secret and is treated as one: compared in constant time,
 carried in an HttpOnly cookie so no script on the page can read it back out, and
 never logged. It is deliberately not a password and there are deliberately no
-accounts — one operator, one secret, and a rotation is a new line in `.env`.
+accounts. One operator, one secret, and a rotation is a new line in `.env`.
 
 **What this is not.** This is not multi-tenancy. Every session that gets past
 this file is the same PO looking at the same ledger on the same machine; the
@@ -31,8 +31,8 @@ token says "you are the PO on their phone", not "you are some user". Real accoun
 mean a per-user ledger, per-user projects on disk and a per-user `claude` login,
 which is a different program (see PROJECT.md).
 
-The intended transport is a tailnet — Tailscale, WireGuard, whatever puts the
-phone and the desktop on one private network — not a port forwarded from a
+The intended transport is a tailnet, Tailscale, WireGuard, whatever puts the
+phone and the desktop on one private network, not a port forwarded from a
 router. On a tailnet the network is already doing the hard half of the work and
 this token is the second lock; on the open internet it would be the only one,
 in front of a page that can spend money.
@@ -74,8 +74,8 @@ def is_loopback(host: str) -> bool:
     """True for the addresses that mean 'this machine and nowhere else'.
 
     `localhost` is included by name because that is how people type it, and
-    anything that will not parse as an address is treated as *not* loopback —
-    the unknown case has to fail towards asking for a token.
+    anything that will not parse as an address is treated as *not* loopback.
+    The unknown case has to fail towards asking for a token.
     """
     host = (host or "").strip().strip("[]")
     if host.lower() in {"localhost", ""}:
@@ -207,7 +207,7 @@ def check(host: str) -> bool:
             f"    {TOKEN_ENV}={mint()}\n\n"
             "Then open the dashboard once from the phone and paste the same "
             "value in. Serve on a tailnet address rather than 0.0.0.0 if you "
-            "can — this token is a second lock, not the only one."
+            "can. This token is a second lock, not the only one."
         )
     return True
 
