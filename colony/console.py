@@ -340,14 +340,17 @@ def clear(conn: sqlite3.Connection) -> dict:
     going to write, and a "cleared" chat that grows an answer thirty seconds
     later is worse than a button that says no.
     """
-    row = conn.execute("SELECT * FROM console_state WHERE id = 1").fetchone()
-    epoch = int(row["epoch"])
-    if _running or conn.execute(
-            "SELECT 1 FROM console_turns WHERE epoch = ? AND status = 'pending'",
-            (epoch,)).fetchone():
-        raise Busy("cannot clear while Ordis is still answering")
-    conn.execute(
-        "UPDATE console_state SET epoch = epoch + 1, session_id = NULL WHERE id = 1")
+    # Held through the update, so a turn cannot start between the check and
+    # the new epoch.
+    with _lock:
+        row = conn.execute("SELECT * FROM console_state WHERE id = 1").fetchone()
+        epoch = int(row["epoch"])
+        if _running or conn.execute(
+                "SELECT 1 FROM console_turns WHERE epoch = ? AND status = 'pending'",
+                (epoch,)).fetchone():
+            raise Busy("cannot clear while Ordis is still answering")
+        conn.execute(
+            "UPDATE console_state SET epoch = epoch + 1, session_id = NULL WHERE id = 1")
     return {"epoch": epoch + 1}
 
 

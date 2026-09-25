@@ -98,19 +98,12 @@ def _event(conn: sqlite3.Connection, story_id: int, kind: str, summary: str,
 
 def _decision_ticket(conn: sqlite3.Connection, *, story_id: int | None, title: str,
                      question: str, answer: str, esc_id: int | None = None) -> int:
-    """Write down a call the PO made, as a ticket, closed the second it is made.
+    """Record a call the PO made as a ticket that is closed when it is made.
 
-    "Basically any call/choice can be made a ticket to ensure that it has been
-    understood." Until now a decision produced an `escalations` row that went
-    quiet and a line in `audit` that nothing renders. The Ticket Queue is where
-    The PO watches work exist, and the most consequential thing they do all week
-    — accepting a set of acceptance criteria — put nothing there.
-
-    So the call gets a row of its own, holding the question on one side and their
-    answer on the other. It is born `done`: this is not work to do, it is work
-    that was done, by them. Nothing reads these to decide anything, and that is
-    the point — a ticket that changed the loop's behaviour would make pressing
-    Approve mean two things, and the second one would be invisible.
+    The ticket holds the question and the answer, so the decision shows in the
+    Ticket Queue next to the work it shaped. It is born `done` with
+    `decided_esc_id` set, and no work query picks it up: dispatch, staffing and
+    the completed feed all select `intent = 'implement'` or an open status.
     """
     cur = conn.execute(
         """INSERT INTO tickets (story_id, title, intent, status, work_order,
@@ -529,9 +522,9 @@ def decide(conn: sqlite3.Connection, esc_id: int, decision: str,
         conn.execute(
             "UPDATE escalations SET raised_at = datetime('now','localtime'), "
             "snoozed_until = datetime('now','localtime', ?) WHERE id = ?",
-            (f"+{int(snooze_hours)} hours", esc_id),
+            (f"+{float(snooze_hours):g} hours", esc_id),
         )
-        deferred = f"snoozed {int(snooze_hours)}h" if snooze_hours else "back in the Inbox"
+        deferred = f"snoozed {float(snooze_hours):g}h" if snooze_hours else "back in the Inbox"
         _decision_ticket(
             conn, story_id=esc["story_id"], title=f"Deferred: {esc['reason'][:140]}",
             question=_asked(esc), answer=f"PO deferred — {deferred}."
