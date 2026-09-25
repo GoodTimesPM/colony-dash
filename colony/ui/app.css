@@ -1,12 +1,9 @@
-/* Colony Dash. The whole stylesheet.
-   Lived inside index.html until 2026-08-27. Split out so the markup is
-   readable and so an editor can syntax-check it. Served by `/app.css`. */
+/* Colony Dash. The whole stylesheet, served by `/app.css`. */
 
 /* ── palettes ───────────────────────────────────────────────────────────────
    Bare :root is the complete light set. The system-dark block is guarded so an
    explicit light choice beats a dark OS, and [data-theme="dark"] repeats it so
-   the picker wins in the other direction. The named themes after that are
-   opt-in only. A viewer who never touches the picker sees the first three.   */
+   the picker wins the other way. Named themes after that are opt-in. */
 :root {
   color-scheme: light dark;
 
@@ -32,11 +29,9 @@
   --mono: "Cascadia Code", "Cascadia Mono", Consolas, ui-monospace, "SFMono-Regular", monospace;
   --sans: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif;
 
-  /* One dial moves all of it. Every size on the page is a step and every step
-     is the same multiplier, so "make the text bigger" keeps the *ratios*. A
-     flat +2px would take the 9px label to 11 and the 26px figure to 28, and a
-     type scale whose ends have met is no longer a scale. --ui-scale is set on
-     the root element from the appearance drawer; 1 is the design size. */
+  /* One dial scales every size by the same multiplier, so larger text keeps
+     the type scale's ratios. Set on the root from the appearance drawer; 1 is
+     the design size. */
   --ui-scale: 1;
   --step--3: calc( 9px * var(--ui-scale));
   --step--2: calc(10px * var(--ui-scale));
@@ -47,13 +42,9 @@
   --step-3:  calc(26px * var(--ui-scale));
 }
 
-/* The guard is `:not([data-theme])`, no attribute at all, and not a list of
-   the light themes to exclude. The list version was a specificity trap: it
-   scored higher than `:root[data-theme="ember"]`, so on a dark OS every named
-   theme lost to it and the picker appeared to do nothing except for the two
-   light palettes that happened to be named in the exclusions. A theme that is
-   chosen is never "system", so the absence of the attribute is the whole
-   condition. */
+/* The guard is `:not([data-theme])`, not a list of light themes to exclude: a
+   list outscored `:root[data-theme="ember"]` and made named themes lose on a
+   dark OS. A chosen theme is never "system". */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme]) {
     --ground:      #0B0F14;
@@ -85,11 +76,8 @@
   --shadow: 0 1px 0 rgba(255,255,255,.02), 0 12px 32px -18px #000;
 }
 
-/* Ember. The forge at night, and a fire is not one colour. The ground is the
-   banked coal bed, the rules are iron scale, coral is the ingot still too hot
-   to touch, mint is the green a copper offcut throws when it catches. And
-   violet is the blue at the base of the flame, which is the hottest part of
-   the picture and the one nobody paints. */
+/* Ember. A forge at night: coal-bed ground, iron-scale rules, coral for hot
+   metal, mint for copper flame, violet for the flame's blue base. */
 :root[data-theme="ember"] {
   --ground:      #150E09;  --panel:      #1F1610;  --panel-sunk: #170F0A;
   --rule:        #3A281C;  --rule-soft:  #2A1D14;
@@ -101,9 +89,8 @@
   --shadow: 0 1px 0 rgba(255,180,90,.05), 0 16px 40px -20px #000;
 }
 
-/* Moss. A longhouse in the woods, in the hour before the light goes. Deep wet
-   green, and the accents are the four things in a forest that are not green:
-   lichen on the north face, a rowan berry, moving water, and bluebell haze. */
+/* Moss. Deep green woods; the accents are lichen, rowan berry, water and
+   bluebell. */
 :root[data-theme="moss"] {
   --ground:      #08120D;  --panel:      #0F1B15;  --panel-sunk: #0B1610;
   --rule:        #1D3226;  --rule-soft:  #16271D;
@@ -115,10 +102,8 @@
   --shadow: 0 1px 0 rgba(255,255,255,.02), 0 12px 32px -18px #000;
 }
 
-/* Slate. Roofing slate in the rain, which is blue-purple; the grey is what it
-   looks like dry and in a photograph. Chalk yellow, the green a copper nail
-   weathers to, and the rust it bleeds down the tile. Still the theme for when
-   colour is a distraction, without being colourless about it. */
+/* Slate. Wet roofing slate, blue-purple, with chalk yellow, verdigris and
+   rust. The low-distraction theme. */
 :root[data-theme="slate"] {
   --ground:      #15161C;  --panel:      #1E2029;  --panel-sunk: #181A22;
   --rule:        #2E3140;  --rule-soft:  #232532;
@@ -130,12 +115,8 @@
   --shadow: 0 1px 0 rgba(255,255,255,.02), 0 12px 32px -18px #000;
 }
 
-/* Parchment. A ledger on a table. Warm paper, iron-gall ink, red rubrication.
-   Pushed further into the sepia than the first pass: the panels are tinted
-   rather than white-with-a-hint, the rules carry the same hue as the ground,
-   and the accents are pigments (ochre, verdigris, vermilion) instead of the
-   default palette desaturated. A sepia theme whose panel is #FBF6EB is a white
-   theme standing near a candle. */
+/* Parchment. Warm tinted paper, iron-gall ink, and pigment accents (ochre,
+   verdigris, vermilion). */
 :root[data-theme="parchment"] {
   --ground:      #E4D5B7;  --panel:      #F2E4C6;  --panel-sunk: #D8C6A2;
   --rule:        #C2A97C;  --rule-soft:  #D2BC95;
@@ -149,29 +130,19 @@
 
 
 /* ── the named themes ────────────────────────────────────────────────────────
-   Eighteen more, in three families: eras, worlds, terminals. They are
-   palettes and nothing else. No theme changes a layout, a font or a radius,
-   because a theme that moves things is a theme you have to re-learn.
+   Eighteen more, in three families: eras, worlds, terminals. Palettes only; no
+   theme changes layout, fonts or radii.
 
-   Every one keeps the same four jobs for the same four accents: amber is the
-   PO Inbox and only the Inbox, mint is live work, coral is an anomaly, violet
-   is Ordis. That rationing is why a glance at the page tells you something
-   before you've read a word, and a theme that traded it for a prettier swatch
-   would be trading away the signal itself. What changes between them is the
-   hue each accent is made of, a forge-red coral under Ember, a hazard orange
-   under Vault, never the meaning.
-
-   The *-ground pairs matter as much as the accents. An accent with no tinted
-   ground behind it makes a chip that shouts, and a page of shouting chips is a
-   page with no hierarchy left.                                                */
+   Every theme keeps the four accents' jobs: amber is the PO Inbox and only the
+   Inbox, mint is live work, coral is an anomaly, violet is Ordis. Only the hue
+   changes. The *-ground pairs matter as much: an accent with no tinted ground
+   makes a chip that shouts. */
 
 /* ── eras ───────────────────────────────────────────────────────────────── */
 
 
-/* Diner. 1955, but at 1am from the parking lot. The sign is the theme: neon
-   red tubing, blue gas, chrome, and black glass behind it. The one palette
-   here where the ground is lit rather than printed, and the only shadow with
-   a colour in it. */
+/* Diner. A 1955 neon sign at night: red tubing, blue gas, chrome, black glass.
+   The one lit ground and coloured shadow. */
 :root[data-theme="diner"] {
   --ground:      #0A0D18;  --panel:      #121727;  --panel-sunk: #0D1120;
   --rule:        #263050;  --rule-soft:  #1A2138;
@@ -184,10 +155,7 @@
 }
 
 
-/* Miami. 1986, an hour after the sun went down. Not navy-with-pink: the
-   ground is the purple the sky actually goes, the pink is the hotel sign, the
-   cyan is the pool lit from underneath. The only theme allowed to be gaudy,
-   and the only one whose shadow is pink. */
+/* Miami. 1986 after sundown: purple sky, pink sign, cyan pool. Pink shadow. */
 :root[data-theme="miami"] {
   --ground:      #1A0B2E;  --panel:      #26124A;  --panel-sunk: #1D0D37;
   --rule:        #3E1D6E;  --rule-soft:  #2E1552;
@@ -200,10 +168,7 @@
 }
 
 
-/* Y2K. 1999 going on 2001, the *good* half of it: a rave flyer, a translucent
-   console, a menu screen with nothing subtle on it. The first pass was frosted
-   chrome on white, which is the era's packaging rather than the era. Black
-   ground, and the four accents are the flyer's four inks. */
+/* Y2K. A rave flyer on black; the four accents are its four inks. */
 :root[data-theme="y2k"] {
   --ground:      #08060E;  --panel:      #150F24;  --panel-sunk: #0E0A18;
   --rule:        #2E2250;  --rule-soft:  #201839;
@@ -219,9 +184,7 @@
 
 /* ── worlds ─────────────────────────────────────────────────────────────── */
 
-/* Cyberpunk. The acid yellow is the whole identity, and the first pass buried
-   it under teal and magenta, which is how you end up with a theme that is only
-   "dark and neon". Yellow leads here, on a ground with no blue left in it. */
+/* Cyberpunk. Acid yellow leads, on a ground with no blue in it. */
 :root[data-theme="cyberpunk"] {
   --ground:      #05050A;  --panel:      #0E0E18;  --panel-sunk: #090911;
   --rule:        #232338;  --rule-soft:  #18182A;
@@ -233,10 +196,8 @@
   --shadow: 0 1px 0 rgba(252,238,10,.06), 0 18px 44px -22px #000;
 }
 
-/* Neon noir. The difference between this and cyberpunk is water. Everything
-   here is seen through rain: a teal-black street, sodium lamps doing most of
-   the lighting, and colours that arrive diluted rather than lit. The one dark
-   theme that is deliberately *less* saturated than its neighbours. */
+/* Neon noir. Cyberpunk seen through rain: teal-black street, sodium lamps,
+   diluted colour. Deliberately less saturated. */
 :root[data-theme="neon-noir"] {
   --ground:      #070D0E;  --panel:      #0F1719;  --panel-sunk: #0A1213;
   --rule:        #1E2E31;  --rule-soft:  #162224;
@@ -249,11 +210,8 @@
 }
 
 
-/* Grid. Inside the machine, where nothing is lit from outside. Two colours
-   exist: the cyan every line is drawn in, and the orange belonging to whatever
-   is running the place. The ground is as close to absolute black as the page
-   allows, because a light-line only reads as light with nothing behind it, and
-   the rules here glow rather than divide. */
+/* Grid. Cyan lines and one orange on near-absolute black; rules glow rather
+   than divide. */
 :root[data-theme="grid"] {
   --ground:      #010305;  --panel:      #06121A;  --panel-sunk: #030B10;
   --rule:        #10394E;  --rule-soft:  #0A2635;
@@ -265,10 +223,7 @@
   --shadow: 0 1px 0 rgba(111,233,255,.08), 0 18px 44px -22px #000;
 }
 
-/* Vault. A shelter terminal thirty years in, which is a green screen bolted
-   into a machine that has been rusting the whole time. That is what separates
-   it from phosphor: phosphor is only the tube, this has a door, a warning lamp
-   and corrosion around the bolts. */
+/* Vault. An old shelter terminal: green screen, warning lamp, rust. */
 :root[data-theme="vault"] {
   --ground:      #0A0F0A;  --panel:      #121A13;  --panel-sunk: #0D140E;
   --rule:        #23331F;  --rule-soft:  #1A2618;
@@ -281,10 +236,8 @@
 }
 
 
-/* Imperial. Black, white and red, and nothing else. Not gunmetal-with-a-red:
-   the greys carry no hue at all, so the one saturated thing on the page is the
-   anomaly. The Inbox is stark white rather than gold, which is the only way an
-   accent stays an accent when the palette has no colour left to spend. */
+/* Imperial. Black, white and red only. Hueless greys leave the anomaly as the
+   one saturated thing; the Inbox is white rather than gold. */
 :root[data-theme="imperial"] {
   --ground:      #050505;  --panel:      #101010;  --panel-sunk: #0A0A0A;
   --rule:        #232323;  --rule-soft:  #181818;
@@ -296,10 +249,8 @@
   --shadow: 0 1px 0 rgba(255,255,255,.03), 0 16px 40px -20px #000;
 }
 
-/* Nostromo. A commercial towing vehicle, and a crew that is not being told
-   everything. Plastic gone yellow under work light, a green screen that only
-   answers some questions, and hazard paint: the yellow and the red here are
-   the two colours off the stripes on the doors. */
+/* Nostromo. Yellowed plastic under work light, a green screen, and
+   hazard-stripe yellow and red. */
 :root[data-theme="nostromo"] {
   --ground:      #0C0D09;  --panel:      #16170F;  --panel-sunk: #101109;
   --rule:        #2A2C1B;  --rule-soft:  #1F2014;
@@ -311,11 +262,8 @@
   --shadow: 0 1px 0 rgba(255,255,255,.02), 0 12px 32px -18px #000;
 }
 
-/* Bridge. The console designed by somebody who liked rounded rectangles, and
-   its palette is famous enough to quote rather than approximate: orange,
-   apricot, lilac-blue and mauve on black. The accents read as panel colours
-   rather than warnings, which is the point. On that bridge nothing is red
-   until it genuinely is. */
+/* Bridge. The famous console palette: orange, apricot, lilac-blue and mauve on
+   black. Accents read as panel colours; nothing is red until it is. */
 :root[data-theme="bridge"] {
   --ground:      #04040A;  --panel:      #0E0E16;  --panel-sunk: #08080F;
   --rule:        #24243A;  --rule-soft:  #191926;
@@ -329,10 +277,7 @@
 
 
 
-/* Meadow. A hand-painted background, mid-afternoon. Sage, but the pigment
-   rather than the wash: the ground is a full step down from white and the
-   accents are mixed at strength, because the first pass desaturated everything
-   until the page read as one pale rectangle. */
+/* Meadow. Painted sage, a step down from white, with accents at full strength. */
 :root[data-theme="meadow"] {
   --ground:      #D9E5CB;  --panel:      #EAF2DE;  --panel-sunk: #CBDABA;
   --rule:        #A5BC90;  --rule-soft:  #BCCEA8;
@@ -346,11 +291,8 @@
 
 /* ── terminals ──────────────────────────────────────────────────────────── */
 
-/* Phosphor. A P1 tube, and on a P1 tube there is one colour and a brightness
-   knob. Everything here is that green at a different intensity, the ink
-   included, which is what makes the accents work at all. Coral is the single
-   lie in the theme: no monochrome CRT ever showed an orange, but an anomaly
-   that reads as "slightly brighter green" is an anomaly nobody sees. */
+/* Phosphor. A P1 tube: one green at different intensities, ink included. Coral
+   is the exception, so an anomaly is visible. */
 :root[data-theme="phosphor"] {
   --ground:      #010A04;  --panel:      #04120A;  --panel-sunk: #020D06;
   --rule:        #0E2E18;  --rule-soft:  #0A2012;
@@ -362,10 +304,8 @@
   --shadow: 0 1px 0 rgba(51,255,102,.07), 0 14px 36px -20px #000;
 }
 
-/* Ochre CRT. The same tube in P3 amber, which is #FFB000 and nothing else.
-   Half the terminals of that era were sold this way because it is easier on
-   the eyes at 3am than green is. Same monochrome discipline as phosphor, same
-   single lie for the anomaly, warmer everywhere. */
+/* Ochre CRT. The same tube in P3 amber (#FFB000), with the same monochrome
+   rule and the same coral exception. */
 :root[data-theme="ochre-crt"] {
   --ground:      #0A0500;  --panel:      #150C01;  --panel-sunk: #0E0800;
   --rule:        #2E1D03;  --rule-soft:  #201402;
@@ -377,10 +317,7 @@
   --shadow: 0 1px 0 rgba(255,176,0,.07), 0 14px 36px -20px #000;
 }
 
-/* Dusk. The sky twenty minutes after sunset, which is two colours at once:
-   indigo directly overhead and a rose still sitting on the horizon. The first
-   pass kept the indigo and threw the rose away, which left a grey-violet page
-   with nothing happening in it. Coral is the horizon. */
+/* Dusk. Indigo overhead and rose on the horizon; coral is the horizon. */
 :root[data-theme="dusk"] {
   --ground:      #171432;  --panel:      #201C42;  --panel-sunk: #1A1636;
   --rule:        #332C63;  --rule-soft:  #272250;
@@ -392,13 +329,9 @@
   --shadow: 0 1px 0 rgba(255,255,255,.03), 0 14px 36px -20px #000;
 }
 
-/* Fjord. Arctic, and arctic light is *pale*, not dim. The palette that gets
-   this right already exists and there is no point pretending otherwise: polar
-   night for the grounds, snow for the ink, four muted accents. One deviation
-   from it: the aurora red is lifted two steps, because at its published value
-   it scored 2.46 against the panel and an anomaly you have to look for is not
-   an anomaly. The one theme here whose panels sit lighter than its ground,
-   which is what makes it the readable one in a room with bad light. */
+/* Fjord. The polar palette: night grounds, snow ink, four muted accents. The
+   aurora red is lifted two steps, since at its published value it scored 2.46
+   against the panel. Panels sit lighter than the ground. */
 :root[data-theme="fjord"] {
   --ground:      #2E3440;  --panel:      #3B4252;  --panel-sunk: #343B49;
   --rule:        #4C566A;  --rule-soft:  #434C5E;
@@ -410,10 +343,7 @@
   --shadow: 0 1px 0 rgba(255,255,255,.04), 0 14px 34px -20px #10141C;
 }
 
-/* Kiln. Warm dark for people who find blue-grey clinical, and the accents are
-   glazes rather than colours: tenmoku brown in the ground, celadon, iron red,
-   and the mauve an ash glaze goes where the flame touched it. Everything here
-   came out of the same firing, which is why it holds together. */
+/* Kiln. Warm dark with glaze accents: tenmoku, celadon, iron red, ash mauve. */
 :root[data-theme="kiln"] {
   --ground:      #1C1714;  --panel:      #26201B;  --panel-sunk: #1F1A16;
   --rule:        #3E332A;  --rule-soft:  #2E271F;
@@ -426,10 +356,8 @@
 }
 
 
-/* Blueprint. A drawing, not a document. White lines on process blue, panels
-   lighter than the ground because that is how a print reads, and the accents
-   are what somebody added *after* it came off the machine: a red pencil
-   revision, a highlighter, an approval stamp. */
+/* Blueprint. White lines on process blue, panels lighter than the ground, and
+   accents added by hand: red pencil, highlighter, approval stamp. */
 :root[data-theme="blueprint"] {
   --ground:      #08284E;  --panel:      #103862;  --panel-sunk: #0B2E55;
   --rule:        #2A5A8E;  --rule-soft:  #1B4677;
@@ -441,11 +369,8 @@
   --shadow: 0 1px 0 rgba(255,255,255,.05), 0 14px 36px -20px #001127;
 }
 
-/* Ink wash. sumi-e, where the whole page is one grey and the only colour in
-   the frame is the seal in the corner. Taken literally: amber, mint and violet
-   are barely tinted greys, and coral is the vermilion. Which means the anomaly
-   colour is the single saturated thing on screen. Either the most restrained
-   theme on the list or the loudest, depending on the day the colony has had. */
+/* Ink wash. One grey page with a vermilion seal: amber, mint and violet are
+   barely tinted greys, so coral is the only saturated colour. */
 :root[data-theme="inkwash"] {
   --ground:      #101112;  --panel:      #191A1C;  --panel-sunk: #141516;
   --rule:        #292A2D;  --rule-soft:  #1F2022;
@@ -458,11 +383,8 @@
 }
 
 /* ── section hues ────────────────────────────────────────────────────────────
-   Every panel title used to be --ink-dim, which made the page one uniform grey
-   mumble: you had to read "STANDBY" to find standby. These give each section a
-   hue of its own, and they are derived from the four accents rather than
-   written per theme, so all twenty-four palettes get them for free and none of
-   them can drift out of key with its own ground.                              */
+   Each section gets its own title hue, derived from the four accents, so every
+   palette gets them and none drift from its ground. */
 :root {
   --h-inbox:   var(--amber);
   --h-ordis:   var(--violet);
@@ -478,12 +400,9 @@
   --h-flight:  color-mix(in oklab, var(--mint) 68%, var(--amber));
   --h-sprint:  var(--ink-soft);
 
-  /* What a file's git state is painted in, everywhere it shows: the stacked bar
-     on a project row and the dot beside a file in the tree. They start as the
-     accents because the meanings line up, added is live work, deleted is an
-     anomaly, but they are tokens of their own so that repainting them does not
-     also repaint Ordis and the Colony panel, which is the confusion that comes
-     from editing `--violet` when what you meant was "the modified bar". */
+  /* File git state colours for the project bar and the tree dot. They start as
+     the accents but are separate tokens, so repainting them leaves Ordis and
+     the Colony panel alone. */
   --git-added:     var(--mint);
   --git-modified:  var(--violet);
   --git-deleted:   var(--coral);
@@ -523,12 +442,9 @@ header.bar .goal {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 /* ── the view menu ────────────────────────────────────────────────────────────
-   A <details> and not a modal: it opens in place, it closes when you click
-   away, and it survives a re-render because nothing inside it is redrawn by
-   the poll. Every box here writes localStorage and nothing else. The server
-   has no idea what you have chosen to look at, which is the point. Hiding a
-   panel is a display decision, not a colony decision, and a page that phoned
-   home about it would be a page you could not trust to be only a page. */
+   A <details>, not a modal: it opens in place, closes on click-away, and
+   survives re-renders. Every box writes localStorage only; the server never
+   knows what you chose to look at. */
 
 .viewmenu { position: relative; align-self: center; }
 .viewmenu > summary {
@@ -571,10 +487,8 @@ body.dense .story, body.dense .pulse { padding-top: 3px; padding-bottom: 3px; }
 .link[aria-pressed="true"] { color: var(--ink); background: var(--panel-sunk); }
 .link:focus-visible { outline: 2px solid var(--violet); outline-offset: 1px; }
 
-/* The one control on the board that makes something new. Every other `.link` is
-   a toggle or a filter, and drawn as one this button read as a seventh toggle
-   nobody pressed. Mint on mint-ground rather than a fixed green, so it stays
-   legible in all nine palettes instead of looking right in the default one. */
+/* The only board control that creates something, so it is drawn in mint rather
+   than as another toggle, legible in every palette. */
 .link.go {
   color: var(--mint); background: var(--mint-ground);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--mint) 45%, transparent);
@@ -588,11 +502,8 @@ select.pick, input.field, textarea.field {
   background: var(--panel-sunk); color: var(--ink);
   border: 1px solid var(--rule); border-radius: 5px; padding: 4px 7px;
   font-family: var(--mono); font-size: var(--step--1);
-  /* A <select> sizes itself to its widest option unless told otherwise, and the
-     widest project folder here is `personal-desktop-projects/domain-expansion-news`.
-     Inside a tile that is a control wider than the card it sits in, hanging off
-     the right edge at every window size. `min-width:0` is the half people forget:
-     without it a flex or grid child refuses to shrink below its content. */
+  /* A <select> sizes to its widest option, which overflows the card here.
+     `min-width:0` lets a flex or grid child shrink below its content. */
   max-width: 100%; min-width: 0;
 }
 select.pick:focus-visible, input.field:focus-visible { outline: 2px solid var(--violet); outline-offset: -1px; }
@@ -631,9 +542,7 @@ select.pick:focus-visible, input.field:focus-visible { outline: 2px solid var(--
 body.halted .halt-banner { display: flex; }
 
 /* ── the inbox strip ──────────────────────────────────────────────────────────
-   Full width, above everything else. The Inbox is the only panel on this page
-   that is *about* the PO, so it is not a column of leftovers in the corner.
-   It is the first thing the eye lands on, and it disappears when it is empty. */
+   Full width, above everything else: the Inbox is the panel about the PO. */
 
 /* The Inbox and what it set in motion share one row: the padding lives on the
    row so the two panels meet at a gap rather than at doubled gutters. */
@@ -652,32 +561,24 @@ body.halted .halt-banner { display: flex; }
 .strip h2 .count { color: var(--ink-soft); letter-spacing: 0; }
 .strip.quiet h2 { color: var(--ink-dim); }
 
-/* The Inbox scrolls rather than growing. Left to itself it wrapped downwards,
-   and a fifth question pushed the whole board off the screen. The panel that
-   exists to say "this needs you" was the one that made everything else
-   unreadable. Capping it costs a scrollbar and buys a page whose shape does not
-   depend on how behind you are. The appearance drawer can override the height. */
+/* The Inbox scrolls rather than growing, so its size never pushes the board
+   off the screen. The appearance drawer can override the height. */
 .tiles {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(310px, 1fr));
   gap: 10px; align-content: start;
   max-height: var(--inbox-max, 46vh); overflow-y: auto; padding-right: 3px;
 }
 
-/* Empty slots run the grid out to the Ticket Queue so the row always reads as a
-   row. Without them one question sat alone in a third of the width with two
-   thirds of nothing beside it, which looks like a layout that broke rather than
-   an inbox that is nearly clear. A slot is hollow and unlabelled on purpose: it
-   is the shape of a question that has not been asked, not a thing to click. */
+/* Empty slots run the grid out to the Ticket Queue so the row always reads as
+   a row. Hollow and unlabelled: the shape of an unasked question, not a
+   control. */
 .tile.slot {
   border: 1px dashed var(--rule); background: none; box-shadow: none;
   min-height: 74px; pointer-events: none;
 }
 
-/* The one slot that speaks. An Inbox with nothing in it used to collapse to a
-   line of grey text under a heading, which reads as a panel that failed to load
-   rather than as the best state this panel has. It keeps its row now, the same
-   hollow shapes that would be holding questions, and the good news sits in the
-   first of them, at the size and place a real tile would have been. */
+/* The one slot that speaks: an empty Inbox keeps its row, with the good news
+   in the first slot where a tile would be. */
 .tile.slot.note {
   display: flex; align-items: center; justify-content: center; text-align: center;
   padding: 0 14px; color: var(--ink-dim); font-size: var(--step--1);
@@ -693,11 +594,8 @@ body.halted .halt-banner { display: flex; }
 .tile[data-kind="run-request"] { border-width: 2px; }
 .tile[data-kind="run-request"] .rec .detail { font-family: var(--mono); }
 
-/* Ready to start. Amber across the rest of this panel means "this needs you",
-   and it does need them. But it needs a go, not an answer, and a tile that
-   looks like every unanswered question is one more thing to feel behind on.
-   Mint is live work everywhere else on the page; this is work that is one
-   press from being live. */
+/* Ready to start: needs a go, not an answer, so it is mint (one press from
+   live work) rather than amber. */
 .tile[data-kind="ready"] { background: var(--mint-ground); border-color: var(--mint); }
 .tile[data-kind="ready"] .k { color: var(--mint); }
 /* Why the button is grey. `dispatch` enforces three preconditions and the only
@@ -707,10 +605,8 @@ body.halted .halt-banner { display: flex; }
   border-left: 2px solid var(--coral); padding: 3px 0 3px 8px;
 }
 
-/* The second opinion. Indented and outlined rather than styled like the tile's
-   own text, because it is a quotation: somebody other than Ordis wrote it, it
-   is advisory, and nothing on the card acts on it. The label says who, every
-   time, so it can never be mistaken for the colony's own recommendation. */
+/* The second opinion is a quotation: indented, outlined, and always labelled
+   with its author, so it cannot pass for Ordis's recommendation. */
 .tile .second {
   border: 1px dashed var(--rule); border-radius: 4px;
   padding: 6px 8px; margin-top: 2px; background: var(--panel-sunk);
@@ -721,9 +617,8 @@ body.halted .halt-banner { display: flex; }
 }
 .tile .second .long .detail { color: var(--ink-soft); }
 
-/* A stale tile is drained of the amber that means "this needs you", because it
-   does not: it needs re-asking. It keeps the border so it still reads as a
-   card and not as a note, and the flag says which of the two it is. */
+/* A stale tile loses its amber (it needs re-asking, not an answer) but keeps
+   its border, and the flag says which. */
 .tile.stale { background: var(--panel-sunk); border-color: var(--rule); }
 .tile.stale .k, .tile.stale .r { color: var(--ink-dim); }
 .tile .k .flag {
@@ -732,9 +627,7 @@ body.halted .halt-banner { display: flex; }
 }
 .tile .k { font-family: var(--mono); font-size: var(--step--2); letter-spacing: .1em; text-transform: uppercase; color: var(--amber); display: flex; gap: 8px; }
 .tile .k .age { margin-left: auto; color: var(--ink-dim); letter-spacing: 0; }
-/* Quiet until you go looking for it. A dismiss that advertises itself as
-   loudly as the approve button is a dismiss people press by reflex, and the
-   Inbox stops being a record of what was decided. */
+/* Quiet until looked for, so the dismiss is not pressed by reflex. */
 .tile .k .dismiss {
   background: none; border: 0; padding: 0 0 0 4px; margin: -2px 0 0;
   font: inherit; font-size: 15px; line-height: 1; cursor: pointer;
@@ -753,10 +646,8 @@ body.halted .halt-banner { display: flex; }
 .tile .meta { font-family: var(--mono); font-size: var(--step--2); color: var(--ink-dim); }
 
 /* ── completed work ─────────────────────────────────────────────────────────
-   The one panel that is a record rather than a queue. It stacks instead of
-   tiling because it lives in a column, and it scrolls on its own so a colony
-   with two hundred deliveries behind it does not push the Files panel off the
-   bottom of the page. */
+   A record rather than a queue. It stacks, living in a column, and scrolls on
+   its own so a long history does not push Files off the page. */
 .done-list {
   display: flex; flex-direction: column; gap: 8px;
   max-height: var(--done-max, 52vh); overflow-y: auto; padding-right: 3px;
@@ -771,9 +662,7 @@ body.halted .halt-banner { display: flex; }
 .tile.done .k { color: var(--h-completed); }
 .tile.done .r { font-size: var(--step-0); font-weight: 600; }
 .tile.done .sum { font-size: var(--step--1); color: var(--ink-soft); line-height: 1.35; }
-/* The counts. Grey by default; the one that is not grey is the blocker count,
-   because "this took four blockers to get through" is the fact you want off a
-   list you are skimming for a reason not to redo something. */
+/* Counts in grey, except blockers. */
 .tile.done .tally { display: flex; flex-wrap: wrap; gap: 4px 9px; }
 .tile.done .tally span { font-family: var(--mono); font-size: var(--step--2); color: var(--ink-dim); }
 .tile.done .tally span.hot { color: var(--coral); }
@@ -814,16 +703,9 @@ button.act.warn { border-color: var(--amber); color: var(--amber); }
 button.act.solid { background: var(--coral); border-color: var(--coral); color: var(--panel); }
 
 /* ── in flight ────────────────────────────────────────────────────────────────
-   Beside the Inbox rather than under it, because it answers the question the
-   Inbox creates: you queue something from a tile or a drawer, and then there is
-   nowhere on the page that says it is still queued. Tickets and Notion pushes
-   are different shapes but the same question, the PO pressed something and it
-   has not finished, so they share one rail, distinguished by the stripe down
-   their left edge rather than by being filed apart.
-
-   It is short and it scrolls. This panel is a status light, not a list to work
-   through; the moment it is tall enough to read top to bottom it has pushed the
-   board off the screen, which is a worse trade than scrolling six rows. */
+   Beside the Inbox: things the PO pressed that have not finished. Tickets and
+   Notion pushes share one rail, told apart by the left stripe. Short and
+   scrolling; it is a status light, not a list to work through. */
 
 .flight h2 { color: var(--h-flight); }
 .flight .rail {
@@ -837,17 +719,15 @@ button.act.solid { background: var(--coral); border-color: var(--coral); color: 
   border-left: 2px solid var(--rule); text-align: left;
   transition: background .12s ease, border-color .12s ease;
 }
-/* The stripe is the state. Mint is running, amber is staffed and waiting on the
-   next pulse, coral is blocked or given up on. The same rationing the rest of
-   the page uses, so no legend is needed. */
+/* The stripe is the state: mint running, amber staffed and waiting for the
+   next pulse, coral blocked or abandoned. */
 .fl[data-state="running"] { border-left-color: var(--mint); }
 .fl[data-state="staffed"] { border-left-color: var(--amber); }
 .fl[data-state="open"]    { border-left-color: var(--ink-dim); }
 .fl[data-state="blocked"] { border-left-color: var(--coral); }
 .fl[data-state="push"]    { border-left-color: var(--h-flight); }
-/* What the PO typed, on the ticket that is carrying it. Clamped to two lines:
-   enough to recognise which conversation this is, not enough to turn the rail
-   into a transcript. */
+/* What the PO typed, clamped to two lines: enough to recognise the
+   conversation. */
 .fl .said {
   margin-top: 4px; color: var(--ink-soft); font-size: .84em; line-height: 1.35;
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
@@ -864,10 +744,7 @@ button.act.solid { background: var(--coral); border-color: var(--coral); color: 
 .fl .m .who { margin-left: auto; letter-spacing: 0; text-transform: none; }
 .fl .err { font-family: var(--mono); font-size: var(--step--2); color: var(--coral); }
 
-/* Why a blocked ticket is blocked, on the ticket itself. "BLOCKED IMPLEMENT
-   weekly-funnel-report-builder" names the state, the intent and the person and
-   answers none of the question actually being asked, which is what happened to
-   it. */
+/* Why a blocked ticket is blocked, on the ticket itself. */
 .fl[data-state="blocked"] { background: var(--coral-ground); }
 .fl .note {
   margin-top: 4px; color: var(--ink-soft); font-size: .84em; line-height: 1.35;
@@ -875,9 +752,7 @@ button.act.solid { background: var(--coral); border-color: var(--coral); color: 
   overflow: hidden;
 }
 
-/* The one sentence saying why a story is not moving, at the top of the story,
-   before the facts. It was a row in the definition list underneath, which is
-   where you look once you already know something is wrong. */
+/* Why a story is not moving, at the top of the story before the facts. */
 .blocker {
   border: 1px solid var(--coral); border-left-width: 3px;
   background: var(--coral-ground); border-radius: 4px;
@@ -889,9 +764,7 @@ button.act.solid { background: var(--coral); border-color: var(--coral); color: 
 }
 .blocker .b { color: var(--ink); line-height: 1.45; white-space: pre-wrap; }
 
-/* A dispatch that closed without writing anything. Same tile, different word:
-   "delivered" on an empty build is the lie that let the same empty build be
-   ordered twice. */
+/* A dispatch that closed without writing anything: amber, not "delivered". */
 .tile.done[data-outcome="empty"] { border-left: 3px solid var(--amber); }
 
 /* The link between the two panels. One class, applied from either side, so the
@@ -934,12 +807,9 @@ section.panel {
 .panel > h2 .count + .link { margin-left: 8px; }
 
 /* ── section hues, applied ────────────────────────────────────────────────────
-   One rule per section rather than a colour written into each panel, because
-   the panels are markup and the hues are a scheme: this way the scheme is in
-   one place and every theme inherits it through the tokens above. The bar down
-   the left edge of the title is the part that actually does the work. The
-   text is uppercase mono at 11px and colour alone was never going to carry it
-   at that size. */
+   One rule per section, so the scheme lives in one place and every theme
+   inherits it. The bar on the title's left edge carries it; colour alone is
+   not enough on 11px uppercase text. */
 
 [data-panel="inbox"]   { --section-hue: var(--h-inbox); }
 [data-panel="ordis"]   { --section-hue: var(--h-ordis); }
@@ -957,10 +827,8 @@ section.panel {
 .empty { color: var(--ink-dim); font-size: var(--step--1); padding: 2px 0 4px; }
 
 /* ── Ordis ────────────────────────────────────────────────────────────────────
-   The Scrum Master is not a row in `agents`. It is the loop itself. But a
-   colony dashboard that shows every colonist and not the thing running them is
-   missing its own supervisor, so it gets a panel: when it last beat, when it
-   beats next, and what its judgment has cost. */
+   The Scrum Master is the loop, not a row in `agents`, so it gets its own
+   panel: last beat, next beat, and what its judgement has cost. */
 
 .panel.ordis { border-color: var(--violet); }
 .panel.ordis > h2 { color: var(--violet); }
@@ -994,9 +862,8 @@ body.beating .ordis-head .sigil { animation: breathe 3.6s ease-in-out infinite; 
 .agent .row-acts { display: flex; gap: 6px; margin-top: 5px; }
 
 /* ── the forge ────────────────────────────────────────────────────────────── */
-/* A skill card carries its status as colour on the left edge, because the three
-   states mean three different things to the reader: a draft is waiting on you,
-   a candidate is waiting on nothing, and an active one is only reporting. */
+/* A skill card's left edge is its status: a draft waits on you, a candidate
+   waits on nothing, an active skill only reports. */
 .skill {
   display: flex; flex-direction: column; gap: 5px;
   padding: 8px 10px; border-radius: 6px;
@@ -1093,10 +960,8 @@ button.persona.hired .nm { color: var(--mint); }
 .story .t { font-size: var(--step-1); }
 .story .sub { grid-column: 1 / -1; display: flex; text-align: left; gap: 9px; align-items: center; font-family: var(--mono); font-size: var(--step--1); color: var(--ink-dim); flex-wrap: wrap; }
 
-/* A board row is a <button>, so the drop control cannot live inside it. The
-   row and the control are siblings in a line instead. The control stays
-   invisible until the row is hovered or something in the line has focus:
-   destructive affordances should be reachable, not ambient. */
+/* A board row is a <button>, so the drop control is a sibling in a line,
+   invisible until hover or focus. */
 .story-line { display: flex; align-items: stretch; border-radius: 6px; }
 .story-line:hover { background: var(--panel-sunk); }
 .story-line .story { flex: 1; min-width: 0; }
@@ -1108,10 +973,7 @@ button.persona.hired .nm { color: var(--mint); }
 .story-line:hover .drop, .story-line:focus-within .drop { opacity: 1; }
 .story-line .drop:hover { color: var(--coral); background: var(--coral-ground); }
 
-/* The progress pair. Two numbers, one meaning: how much of this story Notion
-   says is already ticked. It is the fix for the whole class of "the colony is
-   asking me about something I finished last week". Now visible from the
-   board, before you open anything. */
+/* The progress pair: how much of the story Notion says is ticked. */
 .chip.prog { background: var(--mint-ground); color: var(--mint); }
 .chip.prog.none { background: var(--panel-sunk); color: var(--ink-dim); }
 
@@ -1124,18 +986,8 @@ button.persona.hired .nm { color: var(--mint); }
 .dropped-line { display: flex; align-items: center; gap: 8px; padding: 3px 9px; }
 .dropped-line .t { flex: 1; min-width: 0; color: var(--ink-dim); text-decoration: line-through; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dropped-line .why { font-family: var(--mono); font-size: var(--step--1); color: var(--ink-dim); }
-/* A filed story is finished, parked or not begun. It is not struck through the
-   way a dropped one is. Nothing was abandoned, it just is not the colony's
-   business today.
-
-   And its title is not truncated. The dropped line was built for a row whose
-   interesting half is the *reason*, one line, ellipsis, move on, and filing
-   inherited that shape by accident, so shelving a story took a full-size board
-   title and dropped it into a dim one-line stub with its end cut off. A title
-   you can no longer read is not filing, it is losing. The line wraps, sits at
-   the top of its row, and is a button back into the story: the shelf is where
-   you go to ask "did I finish that?", and an answer you cannot click is half
-   an answer. */
+/* A filed story is not struck through: nothing was abandoned. Its title wraps
+   instead of truncating, and the line is a button back into the story. */
 .dropped-line.is-filed { align-items: flex-start; padding: 6px 9px; }
 .dropped-line .t.filed {
   text-decoration: none; color: var(--ink-soft); white-space: normal;
@@ -1177,11 +1029,8 @@ button.persona.hired .nm { color: var(--mint); }
 .proj .bar i.d { background: var(--git-deleted); }
 .proj .bar i.u { background: var(--git-untracked); }
 
-/* One folder's movement, in the pulse drawer. Four rows in a fixed order,
-   because they answer four questions in a fixed order: what changed since the
-   last beat, what the folder looks like now, when it was last written, and
-   which files. The delta line is the loud one, it is the reason the entry
-   exists, and everything under it is context for it. */
+/* One folder's movement in the pulse drawer, in a fixed order: the delta since
+   the last beat (the loud line), the folder now, last write, and files. */
 .moved { display: flex; flex-direction: column; gap: 8px; }
 .moved .item {
   display: grid; grid-template-columns: 1fr auto; gap: 2px 12px;
@@ -1248,34 +1097,28 @@ button.pulse:focus-visible { outline: 2px solid var(--violet); outline-offset: -
 button.pulse[disabled] { cursor: default; }
 .pulse .tier { color: var(--ink-dim); }
 .pulse[data-tier="wake"] .tier { color: var(--mint); }
-/* An hour the tick escalated and the wake declined to spend. Worth picking out
-   of the log, something was found, but it is not a wake, and it must not wear
-   the colour that means tokens left the account. */
+/* The tick escalated and the wake spent nothing: picked out, but not in the
+   colour that means tokens were spent. */
 .pulse[data-tier="escalated"] .tier { color: var(--ink); }
 .pulse .find { color: var(--ink-soft); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pulse.gap, .pulse.gap .find { color: var(--coral); }
 .pulse.rolled .find { color: var(--ink-dim); }
-/* The log grows by one row an hour and never shrinks, so it is the one panel
-   guaranteed to eventually own the page. It scrolls in its own body rather than
-   capping the section, so the newest beat stays under the heading where you
-   look for it. */
+/* The log grows an hour at a time, so it scrolls in its own body and the
+   newest beat stays under the heading. */
 #pulses { max-height: var(--pulse-max, 40vh); overflow-y: auto; padding-right: 3px; }
 
 /* ── spend ────────────────────────────────────────────────────────────────── */
 
-/* The chart is drawn in real pixels rather than a stretched viewBox. A sparkline
-   can afford `preserveAspectRatio="none"` because it has no text in it; the
-   moment there are axis labels, non-uniform scaling smears them. So the width
-   comes from the element and a ResizeObserver redraws on a column resize. */
+/* Drawn in real pixels, not a stretched viewBox, which would smear axis
+   labels. A ResizeObserver redraws on width changes. */
 .chart { position: relative; }
 .chart svg { display: block; width: 100%; touch-action: none; }
 .chart .readout {
   display: flex; align-items: baseline; gap: 8px; min-height: 1.5em;
   font-family: var(--mono); font-size: var(--step--1);
 }
-/* The readout never empties. With nothing hovered it holds the window total.
-   A line that appears on hover and vanishes on leave makes the whole panel jump
-   every time the pointer crosses it. */
+/* The readout never empties; with nothing hovered it shows the window total,
+   so the panel does not jump. */
 .chart .readout .rl { color: var(--ink); }
 .chart .readout .rt { color: var(--violet); font-variant-numeric: tabular-nums; }
 .chart .readout .ru,
@@ -1302,12 +1145,9 @@ button.pulse[disabled] { cursor: default; }
 .seg button.on { background: var(--panel-sunk); color: var(--ink); }
 .chartbar .spacer { margin-left: auto; }
 
-/* Paging and the date jump. The arrows move a whole window at a time, the date
-   box lands on one bucket, and the arrow keys walk bucket by bucket. Three
-   sizes of step over the same axis, which is why they sit in one group. `now`
-   and the forward arrow grey out once the window already ends at the present,
-   because a control that does nothing is a control that teaches you not to
-   trust the rest of them. */
+/* Three step sizes on one axis: arrows move a window, the date box jumps to a
+   bucket, arrow keys walk a bucket. `now` and forward grey out on the live
+   window. */
 .spendnav { display: inline-flex; align-items: center; gap: 6px; }
 .spendnav button {
   appearance: none; cursor: pointer; padding: 3px 8px;
@@ -1341,24 +1181,13 @@ button.pulse[disabled] { cursor: default; }
   display: flex; flex-direction: column; z-index: 2;
 }
 .drawer.on { transform: none; }
-/* The composer is the one drawer that is not a side panel. Replying to Ordis
-   means reading the proposal and drafting against it, and 640px of column with
-   a textarea at the bottom makes you scroll between the two halves of the one
-   thought. Full width, proposal pinned above, editor below. */
+/* The composer is full width: the proposal pinned above, the editor below. */
 .drawer.wide { width: min(1100px, 100vw); }
 .compose { display: flex; flex-direction: column; gap: 12px; }
-/* Where the work stands, at the top of the conversation about it.
-
-   “Blockers need to be put within this chat window, obviously color coded,
-   hard to know when there is something that needs to be changed.” The thread
-   showed what had been said and nothing about whether any of it had moved, so
-   the one fact that decides whether a reply is urgent lived two panels away.
-
-   Four levels on the page's existing rationing: coral is stuck, amber is
-   waiting on you, mint is moving, grey is finished. The mint one is drawn as
-   loudly as the coral one on purpose. A banner that only appears when
-   something is wrong teaches you to read its absence, and an absent banner is
-   indistinguishable from a panel that failed to load. */
+/* Where the work stands, at the top of the conversation about it. Four levels
+   on the page's usual colours: coral stuck, amber waiting on you, mint moving,
+   grey finished. Mint is as loud as coral, so a missing banner never has to
+   mean "all clear". */
 .compose .state {
   border: 1px solid var(--rule); background: var(--panel-sunk);
   border-left-width: 4px; border-radius: 8px; padding: 10px 13px;
@@ -1396,11 +1225,9 @@ button.pulse[disabled] { cursor: default; }
   padding: 8px 11px; border-radius: 8px; white-space: pre-wrap;
   background: var(--panel-sunk); border: 1px solid var(--rule-soft); font-size: var(--step-0);
 }
-/* Four things happen in one of these conversations and each gets its own
-   colour, on the page's existing rationing: amber is the PO, violet is Ordis,
-   mint is the thing that outlives the exchange. A question the colony raised is
-   deliberately the quiet one. It is context for the reply under it, not
-   another voice. */
+/* Each kind of message has its own colour: amber the PO, violet Ordis, mint a
+   learning. A question the colony raised is the quiet one, context for the
+   reply under it. */
 .msg.po { align-self: flex-end; }
 .msg.po .who { text-align: right; }
 .msg.po .bubble { background: var(--amber-ground); border-color: var(--amber); }
@@ -1415,12 +1242,9 @@ button.pulse[disabled] { cursor: default; }
   font-size: var(--step--1);
 }
 .msg.ask.closed .bubble { color: var(--ink-dim); }
-/* One exception to the quiet. A question still open is not context for the
-   reply under it. It is the reason nothing below it exists yet, and reading
-   down a thread of grey rules gave no way to tell which of six asks was the
-   one still holding the story. An open `needs-info` is what parks a story, so
-   it gets the colour that means parked; anything else still open is the colour
-   that means waiting on you. Closed ones stay grey, whatever kind they were. */
+/* Except an open question, which is why nothing below it exists yet: an open
+   `needs-info` gets the parked colour, other open ones the waiting colour.
+   Closed ones stay grey. */
 .msg.ask:not(.closed)[data-kind] .bubble { color: var(--ink); }
 .msg.ask:not(.closed)[data-kind="needs-info"] .bubble { border-color: var(--coral); }
 .msg.ask:not(.closed)[data-kind="needs-info"] .who    { color: var(--coral); }
@@ -1434,19 +1258,12 @@ button.pulse[disabled] { cursor: default; }
 .msg.ask:not(.closed)[data-kind="write-approval"] .who,
 .msg.ask:not(.closed)[data-kind="brief-changed"] .who,
 .msg.ask:not(.closed)[data-kind="project"] .who { color: var(--amber); }
-/* What Ordis took away from it. The only part of the exchange that is still
-   worth anything a month later, and it used to live two clicks away in the
-   story timeline where nobody reading the conversation would find it. */
+/* What Ordis learned: the part worth keeping, shown in the conversation. */
 .msg.learned .bubble { background: var(--mint-ground); border-color: var(--mint); }
 .msg.learned .who { color: var(--mint); }
-/* The console. Every other conversation on this page is a card the pulse will
-   read in an hour; this one is a shell that answers now, so it is drawn like a
-   terminal and not like an Inbox item. Full-height transcript, prompt pinned to
-   the bottom, monospace throughout.
-
-   The violet rail down the left of the whole thing is the tell: violet is Ordis
-   everywhere on this page, and this is the only place they are talking rather than
-   being reported on. */
+/* The console is a shell that answers now, so it looks like a terminal:
+   full-height transcript, prompt pinned to the bottom, monospace. The violet
+   rail marks Ordis speaking directly. */
 .console { display: flex; flex-direction: column; gap: 10px; height: 100%; }
 .console .bar {
   display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
@@ -1461,11 +1278,8 @@ button.pulse[disabled] { cursor: default; }
   font-family: var(--mono); font-size: var(--step--2); color: var(--ink-dim);
   letter-spacing: .04em;
 }
-/* Model and effort sit on the bar rather than in a settings panel because the
-   right answer changes per message: "why is this panel empty" and "rewrite the
-   scheduler" are not the same purchase, and the price between them is most of
-   an order of magnitude. A control you have to go looking for is a control
-   nobody moves. */
+/* Model and effort sit on the bar because the right choice changes per message
+   and the price differs by nearly ten times. */
 .console .bar select.pick { padding: 3px 6px; font-size: var(--step--2); flex: 0 0 auto; }
 .console .bar .sep { flex: 1 1 12px; }
 .console .prompt .cmds { display: flex; align-items: center; gap: 7px; }
@@ -1503,10 +1317,9 @@ button.pulse[disabled] { cursor: default; }
 .console .prompt .hint {
   font-family: var(--mono); font-size: var(--step--2); color: var(--ink-dim); flex: 1;
 }
-/* The console's address boundary, stated above the box rather than only in
-   a refusal after you have typed. On the desktop it carries the switch; on
-   a phone it carries an explanation and, when the console is open to the
-   network, the one button that closes it again. */
+/* The console's address boundary, stated above the box. On the desktop it
+   carries the switch; on a phone, an explanation and, when open, the button
+   that closes it. */
 .console .prompt .access {
   display: flex; align-items: baseline; gap: 9px; flex-wrap: wrap;
   padding: 8px 10px; border: 1px dashed var(--rule); border-radius: 6px;
@@ -1532,10 +1345,7 @@ textarea.compose-box {
   font-family: var(--mono); font-size: var(--step-0); line-height: 1.55;
 }
 textarea.compose-box:focus-visible { outline: 2px solid var(--violet); outline-offset: -1px; }
-/* What they pasted, under the box they typed it into. And again under the message
-   once it is sent. Thumbnails rather than filenames, because a pasted
-   screenshot is always called `image.png` and the name tells you nothing while
-   fifty pixels of the picture tells you which one it is. */
+/* Pasted files as thumbnails, since pastes are all named `image.png`. */
 .shelf { display: flex; flex-wrap: wrap; gap: 8px; }
 .shelf .att {
   display: flex; align-items: center; gap: 7px; max-width: 280px;
@@ -1592,22 +1402,14 @@ textarea.compose-box:focus-visible { outline: 2px solid var(--violet); outline-o
 .ev .node { width: 7px; height: 7px; border-radius: 50%; background: var(--ink-dim); margin-top: 6px; }
 .ev .stem { flex: 1; width: 1px; background: var(--rule); margin-top: 3px; }
 .ev:last-child .stem { display: none; }
-/* One palette for one conversation. The timeline and the reply drawer are two
-   views of the same exchange and they were colour-coded on two different
-   schemes. Violet meant "a learning" here and "Ordis said it" there, amber
-   meant "blocked" here and "you said it" there. Reading them side by side meant
-   re-learning the colours halfway down the drawer. They agree now, on the
-   thread's scheme: amber is the PO, violet is Ordis, mint is the learning, and
-   the question that prompted a stretch is the quiet one.
+/* The timeline and the reply drawer share the thread's colours: amber the PO,
+   violet Ordis, mint a learning, and the prompting question quiet.
 
-   The two conversational events are `note` rows and the page tells them apart
-   by their summary, which is written at exactly one place each (`control.py`
-   for the PO, `wake.py` for Ordis). Their `kind` cannot say it: `story_events`
-   has a CHECK on the column, and adding a value to it means rebuilding the
-   table, which would still leave every row already in the ledger uncoloured. */
-/* The shared shape first, then the four voices on top of it. A `border`
-   shorthand written after a `border-color` would quietly reset it to
-   transparent, and every one of these colours is a border colour. */
+   The two conversational events are `note` rows told apart by their summary,
+   written in one place each (`control.py`, `wake.py`), because the CHECK on
+   `story_events.kind` cannot be widened without rebuilding the table. */
+/* The shared shape first: a `border` shorthand after `border-color` would
+   reset the colour. */
 .ev[data-role] .sum { border: 1px solid transparent; border-radius: 7px; padding: 5px 9px; }
 .ev[data-role="po"]    .node { background: var(--amber); }
 .ev[data-role="po"]    .sum  { background: var(--amber-ground); border-color: var(--amber); }
@@ -1627,10 +1429,8 @@ textarea.compose-box:focus-visible { outline: 2px solid var(--violet); outline-o
   overflow-x: auto; max-height: 420px; overflow-y: auto;
 }
 pre.detail.tall { max-height: 60vh; }
-/* Long text, folded to a few lines with the last one fading out, because a
-   timeline where every entry is a paragraph is not a timeline. The fade is the
-   affordance. A hard cut reads as the text having ended, which is exactly the
-   thing that made a truncated learning look like a complete sentence. */
+/* Long text folds to a few lines with the last one fading; the fade shows
+   there is more, where a hard cut looks like the end. */
 .long { display: flex; flex-direction: column; align-items: flex-start; }
 .long .detail.clip {
   max-height: 5.4em; overflow: hidden;
@@ -1646,9 +1446,8 @@ pre.diff .minus { color: var(--coral); }
 pre.diff .hunk  { color: var(--violet); }
 pre.diff .file  { color: var(--ink); font-weight: 600; }
 
-/* The patch drawer. A write approval is the only gate on this page where the
-   thing being approved is bigger than the screen, so it gets a summary layer:
-   what the build claims, then what the diff actually moves, then the diff. */
+/* The patch drawer, in layers: what the build claims, what the diff moves,
+   then the diff. */
 .crit { list-style: none; display: grid; gap: 4px; font-size: var(--step--1); }
 .crit li { padding-left: 16px; position: relative; color: var(--ink-dim); }
 .crit li::before { position: absolute; left: 0; }
@@ -1675,16 +1474,11 @@ pre.diff .file  { color: var(--ink); font-weight: 600; }
 .kv { display: grid; grid-template-columns: auto 1fr; gap: 3px 14px; font-family: var(--mono); font-size: var(--step--1); }
 .kv dt { color: var(--ink-dim); }
 .kv dd { margin: 0; word-break: break-word; }
-/* A date under the line it belongs to rather than on the end of it. On the end
-   it competes with the status for the same reading, and the status is what you
-   came for. */
+/* A date under its line, not at the end competing with the status. */
 .kv dd .stamp { color: var(--ink-dim); font-size: var(--step--2); margin-top: 1px;
                 font-variant-numeric: tabular-nums; }
 
-/* Recent commits are three columns rather than two, because the time earns its
-   own: the useful reading is *down* that column, when did this folder last
-   actually move, and a date tucked at the end of a wrapping subject line can
-   only be read across. */
+/* Commits in three columns, so the dates read down one column. */
 .commits { display: grid; grid-template-columns: auto minmax(0, 1fr) auto;
            gap: 3px 14px; font-family: var(--mono); font-size: var(--step--1);
            align-items: baseline; }
@@ -1701,11 +1495,8 @@ table.runs td.dim { color: var(--ink-dim); font-variant-numeric: tabular-nums; }
 .blk { display: flex; flex-direction: column; gap: 5px; }
 .blk > .lb { font-family: var(--mono); font-size: var(--step--2); letter-spacing: .1em; text-transform: uppercase; color: var(--ink-dim); }
 
-/* A block that scrolls inside itself, capped at the same 420px as `pre.detail`
-   above it -- the ticket list on a long-running story runs to thirty rows and
-   pushed the runs table and the whole timeline off the bottom of the drawer.
-   The label stays outside the scroll region so a scrolled list still says what
-   it is; that is why the cap lives on `.rows` and not on `.blk` itself. */
+/* Capped at the same 420px as `pre.detail`. The cap is on `.rows`, not `.blk`,
+   so the label stays outside the scroll. */
 .blk > .rows { max-height: 420px; overflow-y: auto; padding-right: 3px;
                display: flex; flex-direction: column; gap: 5px; }
 .form { display: grid; grid-template-columns: auto 1fr; gap: 7px 10px; align-items: center;
@@ -1725,36 +1516,23 @@ table.runs td.dim { color: var(--ink-dim); font-variant-numeric: tabular-nums; }
 .toast.bad { border-color: var(--coral); color: var(--coral); }
 .toast.good { border-color: var(--mint); color: var(--mint); }
 
-/* ââ appearance âââââââââââââââââââââââââââââââââââââââââââ
-   A capped tile scrolls inside itself and keeps its own title bar in view,
-   because a scrolled panel whose heading has left the top of it is a list you
-   cannot name. Capping is opt-in per tile: the point of a cap is that *one*
-   long panel stops pushing the rest of the page down, and a page where
-   everything is capped is a page of nine little windows. */
+/* ── appearance ──────────────────────────────────────────────────────────────
+   A capped tile scrolls inside itself and keeps its title bar in view. Capping
+   is opt-in per tile, so one long panel stops pushing the page down. */
 
 section.panel.capped, .strip.capped { max-height: var(--tile-max); overflow-y: auto; }
 section.panel.capped > h2, .strip.capped > h2 {
   position: sticky; top: 0; z-index: 2; background: var(--panel);
 }
 
-/* Folded. A capped tile is "this one is long, keep it in a box"; a folded one
-   is "not this week". The difference between rationing a panel's height and
-   getting it off the page entirely without losing where it lives. The title bar
-   stays because it is the handle: it is what you click to bring it back, and a
-   row of nine names is still a readable board. */
-/* There was a caret here, and it was printing the string "u25BE" on every
-   heading on the page: `\u25BE` is a JavaScript escape, not a CSS one. CSS
-   spells it `\25BE`, and `\u` in a CSS string is just the letter u. Rather than
-   fix the escape the caret is gone. Nine headings were each carrying a marker
-   for a control most of them will never be used for, and the fold announces
-   itself perfectly well by the tile closing; the pointer cursor on the heading
-   is affordance enough for the rest. */
+/* Folded: a capped tile is kept in a box; a folded one is off the page except
+   for its title bar, which is the handle to bring it back. */
+/* No caret: the pointer cursor on the heading is enough, and the fold shows
+   itself. */
 section.panel > h2, .strip > h2 { cursor: pointer; user-select: none; }
 section.panel.min > *:not(h2), .strip.min > *:not(h2) { display: none; }
 section.panel.min > h2 { border-bottom: 0; }
-/* The strip headings are bare text with no box of their own, so folding one has
-   to draw the outline the panels already have. Otherwise it reads as a stray
-   label rather than a closed tile. */
+/* Strip headings have no box of their own, so a folded one draws the outline. */
 .strip.min > h2 {
   margin: 0; padding: 10px 13px 9px; background: var(--panel);
   border: 1px solid var(--rule); border-radius: 8px;
@@ -1771,23 +1549,17 @@ body.snapping section.panel > h2, body.snapping .strip > h2 { cursor: grab; }
 .swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(216px, 1fr)); gap: 10px 16px; }
 .sw { display: flex; align-items: center; gap: 10px; min-width: 0;
       font-family: var(--mono); font-size: var(--step--1); }
-/* Square and large enough to judge. A 26×21 chip is a colour you can identify
-   but not compare, and comparing is the whole job here. The swatch *is* the
-   readout, and the ratio beside it is only the second opinion. */
+/* Large enough to compare colours, not just identify them. */
 .sw input[type=color] {
   flex: none; width: 38px; height: 38px; padding: 0; cursor: pointer;
   border: 1px solid var(--rule); border-radius: 5px; background: none;
 }
 .sw .lbl { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
 .sw .nm { color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* What the colour actually paints, under its name. Fifteen tokens named after
-   their hue told you which colour you were changing and nothing about what
-   would change with it. */
+/* What the colour paints, under its name. */
 .sw .does { color: var(--ink-dim); font-size: var(--step--3); line-height: 1.25;
             overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* The ratio is the whole reason the picker is safe to hand over. A theme is
-   fifteen colours holding four relationships, and the one that breaks first is
-   always an accent that looked fine against the wrong background. */
+/* The contrast ratio is what makes the picker safe to hand over. */
 .sw .ratio { margin-left: auto; flex: none; color: var(--ink-dim);
              font-variant-numeric: tabular-nums; font-size: var(--step--3); }
 .sw .ratio.fail { color: var(--coral); }
@@ -1814,15 +1586,9 @@ body.snapping section.panel > h2, body.snapping .strip > h2 { cursor: grab; }
 .preset .chips { display: flex; gap: 3px; flex: none; }
 .preset .chips i { width: 11px; height: 11px; border-radius: 2px; border: 1px solid var(--rule); }
 /* ── snap ─────────────────────────────────────────────────────────────────────
-   Dragging a tile is the fastest way to say where it goes and the easiest thing
-   to do by accident, so it is a mode you enter on purpose and leave on purpose.
-   Everything draggable wiggles while the mode is on: the animation is not
-   decoration, it is the only thing on screen that says an ordinary click will
-   now move the page around.
-
-   A drop *inserts* rather than swaps. Swapping means moving one tile silently
-   moves a second one you did not name; inserting pushes the rest down, which is
-   what a list does and what dragging something into a list looks like. */
+   Dragging is a mode entered and left on purpose. Tiles wiggle while it is on,
+   the only sign that a click will move the page. A drop inserts rather than
+   swaps, so no second tile moves unasked. */
 
 body.snapping main .col { outline: 1px dashed var(--rule); outline-offset: 5px; border-radius: 10px; }
 body.snapping main [data-panel] {
@@ -1854,10 +1620,8 @@ body.snapping main [data-panel].dragging { opacity: .4; animation: none; cursor:
 body.snapping .snapbar { display: flex; }
 
 /* -- the manual --------------------------------------------------------------
-   A long read inside the drawer rather than a panel on the page: it is opened
-   deliberately, read once, and closed, which is the drawer's whole job. Nothing
-   here is generated from the ledger, so none of these classes appear anywhere
-   else and none of them need a live variant. */
+   A long read in the drawer, opened deliberately. Nothing here comes from the
+   ledger, so these classes are used nowhere else. */
 .man-asof { color: var(--ink-dim); font-size: var(--step--1); line-height: 1.5;
             margin: 0 0 16px; }
 .man-toc { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 0 0 24px;
@@ -1878,40 +1642,23 @@ body.snapping .snapbar { display: flex; }
             color: var(--ink-dim); }
 
 /* ── the phone ────────────────────────────────────────────────────────────────
+   Below 1240px the page is one column; the rules below fix what goes wrong on
+   a 390px screen.
 
-   The page already collapsed to one column at 1240px, which is the whole of
-   what "responsive" meant here: three columns became one and everything else
-   kept desktop proportions. That is fine on a narrow window and wrong on a
-   390px screen, where the failures are not layout failures at all. They are a
-   header that wraps into four lines of chrome before any content, controls
-   sized for a mouse, and panels that scroll inside a page that also scrolls.
+   **No nested scrolling on touch.** The Inbox, Completed and Ticket Queue
+   scroll internally on desktop; on a phone a swipe inside them moves the box,
+   not the page. On narrow screens they grow to full height.
 
-   Three rules run through everything below.
+   **Tap targets, not hover targets.** Every `.link` grows, and the ones in
+   panel titles wrap.
 
-   **Nested scrolling is a trap on a touch screen.** The Inbox, the Completed
-   list and the Ticket Queue each cap their own height and scroll internally, so
-   the page's shape does not depend on how behind you are. On a phone that
-   produces a small box inside a tall page, and a swipe that starts inside the
-   box moves the box instead of the page. You cannot reach the board without
-   finding a gap between panels to push on. On narrow screens they stop
-   scrolling and simply get as tall as they are.
+   **The notch is not padding.** `viewport-fit=cover` puts the page under the
+   status bar and home indicator; `env(safe-area-inset-*)` moves content back
+   out from under them, and is 0 on a desktop. */
 
-   **A tap target is not a hover target.** Every `.link` on this page is 11px
-   type with 4px of padding, which is comfortable to click and roughly a
-   coin-flip to tap. They grow, and the ones packed into a panel title wrap
-   instead of overflowing.
-
-   **The notch is not padding.** `viewport-fit=cover` in the HTML puts the page
-   under the status bar and the home indicator, which is what makes a standalone
-   launch look like an app rather than a web page with grey bands. Putting the
-   content back out from under them is this stylesheet's job, via
-   `env(safe-area-inset-*)`, which is 0 everywhere else and so costs nothing on
-   a desktop. */
-
-/* Not scoped to a media query: `100vh` on a phone means the viewport with the
-   browser's address bar *hidden*, so a fixed full-height element is taller than
-   what you can see and its bottom edge sits under the chrome. `100dvh` follows
-   the bar as it collapses. The fallback line has to come first. */
+/* Not in a media query. On a phone `100vh` assumes the address bar is hidden,
+   so a full-height element runs under it; `100dvh` follows the bar. The
+   fallback line comes first. */
 .drawer { height: 100%; height: 100dvh; }
 
 /* The one form the phone was built for. `.picker` was only ever styled inside a
@@ -1932,10 +1679,8 @@ body.snapping .snapbar { display: flex; }
   }
   main { padding-bottom: calc(28px + env(safe-area-inset-bottom)); }
 
-  /* The header stops being one line. `order` puts the connection dot and the
-     title together and pushes the four menus onto a row of their own, so the
-     one thing worth glancing at, is this thing live, is never the item that
-     got wrapped off. */
+  /* The header wraps: `order` keeps the connection dot with the title and puts
+     the menus on their own row. */
   header.bar { flex-wrap: wrap; align-items: center; gap: 8px 10px;
                padding-top: calc(10px + env(safe-area-inset-top)); }
   header.bar h1 { order: 0; }
@@ -1943,9 +1688,7 @@ body.snapping .snapbar { display: flex; }
   header.bar .goal { order: 3; flex: 1 0 100%; white-space: normal;
                      font-size: var(--step--1); line-height: 1.4; }
   header.bar .pick, header.bar .viewmenu, header.bar #open-appearance { order: 2; }
-  /* Anchored to the right edge of the header rather than of the summary, which
-     on a 390px screen is the difference between a menu on screen and a menu
-     half off it. */
+  /* Anchored to the header's right edge so the menu stays on a 390px screen. */
   .viewmenu .menu { right: 0; min-width: min(230px, calc(100vw - 28px)); }
 
   /* Two figures side by side become two lines. The gauge spans both. */
@@ -1957,9 +1700,7 @@ body.snapping .snapbar { display: flex; }
   .tiles { grid-template-columns: minmax(0, 1fr); max-height: none; overflow: visible; }
   .done-list { max-height: none; overflow: visible; }
   .flight .rail { max-height: none; overflow: visible; }
-  /* Padding for a grid that no longer has columns. `.note` is the exception.
-     It is the empty-Inbox message wearing a slot's clothes, and hiding it would
-     leave a panel that says nothing when there is nothing to say. */
+  /* No columns, so no padding slots, except `.note`, the empty-Inbox message. */
   .tiles .tile.slot:not(.note) { display: none; }
 
   /* Titles carry up to four buttons. Wrapping is the only honest answer at this
@@ -1967,26 +1708,20 @@ body.snapping .snapbar { display: flex; }
   .panel > h2, .strip h2 { flex-wrap: wrap; row-gap: 2px; }
   .panel > h2 .count { margin-left: auto; }
 
-  /* Fingers. 40px is the short side of Apple's 44pt target once the type inside
-     it is counted, and these are inline controls in a dense page rather than
-     primary buttons on a form. */
+  /* Touch-sized inline controls. */
   .link { padding: 8px 10px; }
   button.act { padding: 9px 14px; }
   .form { grid-template-columns: minmax(0, 1fr); gap: 4px; }
   .form label { padding-top: 6px; }
   select.pick, input.field, textarea.field {
     padding: 8px 9px;
-    /* iOS zooms the whole page when a focused field's type is under 16px, and
-       it does not zoom back out. This is the fix, and it has to be an absolute
-       size rather than a step: the type scale is a user setting and this is a
-       platform floor. */
+    /* iOS zooms the page on focus below 16px and does not zoom back. An
+       absolute floor, not a step, because the type scale is a user setting. */
     font-size: max(16px, var(--step--1));
   }
 
-  /* Full width, and sliding from the bottom rather than the side. A right-edge
-     drawer on a phone is a full-screen panel that animates sideways for no
-     reason, and the swipe-from-left gesture it collides with is the browser's
-     back. */
+  /* Full width, sliding up from the bottom; a side drawer would collide with
+     the browser's swipe-back. */
   .drawer, .drawer.wide { width: 100%; height: 92dvh; top: auto; bottom: 0;
                           border-left: 0; border-top: 1px solid var(--rule);
                           border-radius: 12px 12px 0 0; transform: translateY(100%); }
@@ -1994,18 +1729,15 @@ body.snapping .snapbar { display: flex; }
   .drawer header { padding: 14px 15px 11px; }
   .drawer .scroll { padding: 13px 15px calc(30px + env(safe-area-inset-bottom)); }
 
-  /* Anything with a fixed inner width gets to scroll sideways inside its own
-     box rather than widening the page. A body that scrolls horizontally on a
-     phone is the single most common way a desktop layout announces itself. */
+  /* Fixed-width content scrolls sideways inside its own box, never the body. */
   .drawer pre, .tree, .chart, .man-sec pre { overflow-x: auto; }
   .drawer pre { -webkit-overflow-scrolling: touch; }
 
   #toasts { bottom: calc(18px + env(safe-area-inset-bottom)); }
   .toast { max-width: calc(100vw - 28px); }
 
-  /* Drag-to-arrange is a mouse gesture, and on a touch screen the drag it
-     collides with is the scroll. The layout it arranges is a desktop layout
-     anyway. At this width there is one column and nothing to arrange. */
+  /* Drag-to-arrange collides with scrolling on touch, and one column has
+     nothing to arrange. */
   .snapbar { display: none !important; }
 }
 
@@ -2026,10 +1758,8 @@ body.snapping .snapbar { display: flex; }
 }
 
 /* ── the persona drop zone ─────────────────────────────────────────────────
-   Dashed rather than solid so it reads as a target and not as a disabled
-   button, and tall enough to be a drop target rather than a link. A 20px
-   strip is aimable with a mouse and not with a thumb, and this panel is used
-   from a phone, where it is a file picker instead. */
+   Dashed so it reads as a target, and tall enough for a thumb. On a phone it
+   acts as a file picker. */
 .dropzone {
   border: 1px dashed var(--rule);
   border-radius: 6px;
