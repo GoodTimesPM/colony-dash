@@ -27,7 +27,7 @@ import sqlite3
 
 from . import (agent, attachments as attach, build as build_mod, control, db,
                forge as forge_mod, pulse as pulse_mod, roster as roster_mod,
-               voice)
+               usage as usage_mod, voice)
 
 # How many stories one wake may groom. A wake is coalescing — an hour with six
 # new stories is one wake — so this is the throttle that keeps a bulk Notion
@@ -1480,10 +1480,42 @@ def staff_stories(conn: sqlite3.Connection, terms: dict) -> list[dict]:
     return out
 
 
+# Tokens one wake may spend before it stops, whatever the weekly allowance
+# says. 0 turns the cap off and leaves only the weekly check.
+WAKE_TOKEN_CAP = int(os.environ.get("COLONY_WAKE_TOKEN_CAP", "0"))
+
+
+def _room(conn: sqlite3.Connection, usage: dict | None, report: dict, after: str) -> bool:
+    """Whether the wake may start its next step. Records why not, once.
+
+    Re-reads the usage cache each time, because the tray app refreshes it while
+    a wake runs, and a groom that burns the rest of the week has to stop the
+    build queued behind it.
+    """
+    if report.get("stopped"):
+        return False
+    fresh = usage_mod.read()
+    if not fresh or fresh.get("seven_day") is None:
+        fresh = usage
+    budget = budget_state(conn, fresh)
+    why = None if budget["ok"] else budget["why"]
+    if why is None and WAKE_TOKEN_CAP and report["tokens"] >= WAKE_TOKEN_CAP:
+        why = f"this wake spent {report['tokens']:,} of its {WAKE_TOKEN_CAP:,} token cap"
+    if why is None:
+        return True
+    report["stopped"] = f"budget reached after {after}: {why}"
+    report["skipped"] = report["stopped"]
+    return False
+
+
 def run(conn: sqlite3.Connection, usage: dict | None) -> dict:
-    """Do the wake. Returns what happened, for the pulse row and the printout."""
+    """Do the wake. Returns what happened, for the pulse row and the printout.
+
+    The budget is checked before every step that spends tokens, not only once
+    at the top.
+    """
     report = {"groomed": [], "built": [], "answered": [], "forged": [], "candidates": [],
-              "staffed": [], "tokens": 0, "skipped": None}
+              "staffed": [], "tokens": 0, "skipped": None, "stopped": None}
 
     if control.is_halted():
         # Belt-and-braces: the tick already refuses to escalate to a wake while
@@ -1514,6 +1546,8 @@ def run(conn: sqlite3.Connection, usage: dict | None) -> dict:
         # bounded — one draft per requested candidate, and the request had to be
         # made by hand — while the groom queue is however long Notion made it.
         for skill in forge_mod.pending_drafts(conn)[:FORGE_DRAFT_LIMIT]:
+            if not _room(conn, usage, report, "the PO replies"):
+                break
             outcome = forge_mod.draft(conn, skill["id"], terms)
             report["forged"].append(outcome)
             report["tokens"] += outcome["tokens"]
@@ -1526,6 +1560,9 @@ def run(conn: sqlite3.Connection, usage: dict | None) -> dict:
     if terms is not None and stories:
         projects = pulse_mod.candidate_projects()
         for story in stories:
+            if not _room(conn, usage, report,
+                         f"groom {len(report['groomed'])}" if report["groomed"] else "the replies"):
+                break
             outcome = groom_story(conn, story, terms, projects)
             report["groomed"].append(outcome)
             report["tokens"] += outcome["tokens"]
@@ -1534,7 +1571,7 @@ def run(conn: sqlite3.Connection, usage: dict | None) -> dict:
     # produces the stories that need staffing and the PO has to approve a name
     # before a build can use it. A hire proposed this hour is approvable the
     # moment the PO looks at the Inbox, and dispatchable the hour after.
-    if terms is not None:
+    if terms is not None and _room(conn, usage, report, "grooming"):
         for outcome in staff_stories(conn, terms):
             report["staffed"].append(outcome)
             report["tokens"] += outcome["tokens"]
@@ -1542,7 +1579,11 @@ def run(conn: sqlite3.Connection, usage: dict | None) -> dict:
     # Then whatever the PO dispatched. `build.pending` is already narrowed to
     # tickets on a *confirmed* project, so nothing reaches a worktree on the
     # strength of an inference.
-    for outcome in build_mod.run(conn):
+    for ticket in build_mod.pending(conn, build_mod.BUILD_LIMIT):
+        if not _room(conn, usage, report,
+                     f"build {len(report['built'])}" if report["built"] else "staffing"):
+            break
+        outcome = build_mod.run_one(conn, ticket)
         report["built"].append(outcome)
         report["tokens"] += outcome["tokens"]
 
