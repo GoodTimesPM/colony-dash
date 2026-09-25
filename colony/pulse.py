@@ -12,12 +12,10 @@ moved.
 from __future__ import annotations
 
 import json
-import os
 import re
 import sqlite3
 import time
 from datetime import datetime, timedelta
-from pathlib import Path
 
 from . import (control, db, forge as forge_mod, notion, outbox,
                projects as projects_mod, usage as usage_mod, wording)
