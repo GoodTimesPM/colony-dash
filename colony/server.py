@@ -1048,6 +1048,35 @@ def _guard(header: str | None) -> None:
         raise HTTPException(403, "PO actions require the dashboard's own page")
 
 
+_REQUIRED = object()
+
+
+def _need(body: dict, key: str) -> Any:
+    """A required field of an action body. Missing is the caller's mistake, a 400."""
+    if body.get(key) is None:
+        raise HTTPException(400, f"missing field: {key}")
+    return body[key]
+
+
+def _num(body: dict, key: str, kind: type = int, default: Any = _REQUIRED) -> Any:
+    """A numeric field of an action body, as `kind`. A 400 when it is not a number.
+
+    `default` stands in for a missing or empty field. A 0 is kept, since 0 is
+    what un-snooze sends.
+    """
+    value = body.get(key)
+    if value is None or value == "":
+        if default is _REQUIRED:
+            raise HTTPException(400, f"missing field: {key}")
+        return default
+    if isinstance(value, bool):
+        raise HTTPException(400, f"{key} must be a number")
+    try:
+        return kind(value)
+    except (TypeError, ValueError):
+        raise HTTPException(400, f"{key} must be a number") from None
+
+
 def _act(fn, *args, **kwargs) -> dict[str, Any]:
     """Run one control function in its own transaction.
 
@@ -1617,11 +1646,9 @@ def api_agent(agent_id: int) -> dict[str, Any]:
 @app.post("/api/act/decide")
 def act_decide(body: dict = Body(...), x_colony: str | None = Header(None)) -> dict[str, Any]:
     _guard(x_colony)
-    out = _act(control.decide, int(body["escalation_id"]), str(body["decision"]),
+    out = _act(control.decide, _num(body, "escalation_id", int), str(_need(body, "decision")),
                str(body.get("note") or ""),
-               # `or 8` would be wrong here: 0 hours is what "un-snooze" sends,
-               # and it is falsy.
-               float(8 if body.get("snooze_hours") is None else body["snooze_hours"]))
+               _num(body, "snooze_hours", float, 8))
     esc_id = out.pop("run_pending", None)
     if esc_id:
         # Run with no transaction open, then record in a short one, so a
@@ -1640,12 +1667,12 @@ def act_confirm(body: dict = Body(...), x_colony: str | None = Header(None)) -> 
     """Name the folder. Optionally create it first — see `control.create_project`."""
     _guard(x_colony)
     if body.get("create"):
-        made = _act(control.create_project, str(body["project"]),
+        made = _act(control.create_project, str(_need(body, "project")),
                     why=str(body.get("why") or ""))
         _project_cache["at"] = 0.0
         if not body.get("story_id"):
             return made
-    return _act(control.confirm_project, int(body["story_id"]), str(body["project"]))
+    return _act(control.confirm_project, _num(body, "story_id", int), str(_need(body, "project")))
 
 
 @app.post("/api/act/story")
@@ -1657,7 +1684,7 @@ def act_story(body: dict = Body(...), x_colony: str | None = Header(None)) -> di
         title=str(body.get("title") or ""),
         description=str(body.get("description") or ""),
         project=str(body.get("project") or ""),
-        priority=int(body.get("priority") or 3),
+        priority=_num(body, "priority", int, 3),
     )
 
 
@@ -1667,8 +1694,8 @@ def act_reply(body: dict = Body(...), x_colony: str | None = Header(None)) -> di
     _guard(x_colony)
     return _act(
         control.reply,
-        escalation_id=int(body["escalation_id"]) if body.get("escalation_id") else None,
-        story_id=int(body["story_id"]) if body.get("story_id") else None,
+        escalation_id=_num(body, "escalation_id", int) if body.get("escalation_id") else None,
+        story_id=_num(body, "story_id", int) if body.get("story_id") else None,
         body=str(body.get("body") or ""),
         attachments=list(body.get("attachments") or []),
     )
@@ -1945,7 +1972,7 @@ def act_phone(body: dict = Body(...), x_colony: str | None = Header(None)) -> di
     PowerShell and would block every writer in the process for the duration.
     """
     _guard(x_colony)
-    port = int(body.get("port") or 8787)
+    port = _num(body, "port", int, 8787)
     try:
         if body.get("on"):
             return {"ok": True, **phone_mod.turn_on(port)}
@@ -1989,7 +2016,7 @@ def act_phone_token(request: Request, body: dict = Body(...),
                                  "this device out mid-request. Use the dashboard "
                                  "on the desktop, or `py -m colony phone --rotate`.")
 
-    port = int(body.get("port") or 8787)
+    port = _num(body, "port", int, 8787)
     try:
         out = phone_mod.rotate(port, pairing=True)
     except OSError as exc:
@@ -2048,7 +2075,7 @@ def act_tailscale(request: Request, body: dict = Body(...),
 @app.post("/api/act/halt")
 def act_halt(body: dict = Body(...), x_colony: str | None = Header(None)) -> dict[str, Any]:
     _guard(x_colony)
-    return _act(control.halt, bool(body["on"]), str(body.get("reason") or ""))
+    return _act(control.halt, bool(_need(body, "on")), str(body.get("reason") or ""))
 
 
 @app.post("/api/act/allowance")
@@ -2058,8 +2085,8 @@ def act_allowance(body: dict = Body(...), x_colony: str | None = Header(None)) -
     # PO typed into the box. The box is the one that does not require them to
     # know what the baseline is.
     if "allowance" in body:
-        return _act(control.set_allowance_pct, float(body["allowance"]))
-    return _act(control.set_allowance, float(body["boost"]))
+        return _act(control.set_allowance_pct, _num(body, "allowance", float))
+    return _act(control.set_allowance, _num(body, "boost", float))
 
 
 @app.post("/api/act/pulse")
@@ -2086,11 +2113,11 @@ def act_hire(body: dict = Body(...), x_colony: str | None = Header(None)) -> dic
     return _act(
         control.hire,
         roster_slug=body.get("roster_slug") or None,
-        role=str(body["role"]).strip().lower().replace(" ", "-"),
+        role=str(_need(body, "role")).strip().lower().replace(" ", "-"),
         project=(body.get("project") or None),
         model=str(body.get("model") or "claude-sonnet-5"),
         write_capable=bool(body.get("write_capable")),
-        max_tokens_run=int(body.get("max_tokens_run") or 400000),
+        max_tokens_run=_num(body, "max_tokens_run", int, 400000),
         notes=body.get("notes") or None,
     )
 
@@ -2190,7 +2217,7 @@ def act_second_opinion(body: dict = Body(...),
         # ledger, including the pulse. Each statement commits on its own; the
         # worst interleaving leaves a finished research ticket whose paragraph
         # never landed, which reads as "ask again" rather than as damage.
-        return wake_mod.second_opinion(conn, int(body["escalation_id"]), terms)
+        return wake_mod.second_opinion(conn, _num(body, "escalation_id", int), terms)
     except control.Refused as exc:
         raise HTTPException(409, str(exc))
     finally:
@@ -2203,7 +2230,7 @@ def act_scope(body: dict = Body(...), x_colony: str | None = Header(None)) -> di
     _guard(x_colony)
     return _act(
         control.set_write_scope,
-        int(body["agent_id"]),
+        _num(body, "agent_id", int),
         [str(p) for p in (body.get("projects") or [])],
     )
 
@@ -2212,32 +2239,32 @@ def act_scope(body: dict = Body(...), x_colony: str | None = Header(None)) -> di
 def act_secrets(body: dict = Body(...), x_colony: str | None = Header(None)) -> dict[str, Any]:
     """Decide whether this agent's checkout is given the credential files."""
     _guard(x_colony)
-    return _act(control.set_secrets, int(body["agent_id"]), bool(body.get("on")))
+    return _act(control.set_secrets, _num(body, "agent_id", int), bool(body.get("on")))
 
 
 @app.post("/api/act/retire")
 def act_retire(body: dict = Body(...), x_colony: str | None = Header(None)) -> dict[str, Any]:
     _guard(x_colony)
-    return _act(control.retire, int(body["agent_id"]))
+    return _act(control.retire, _num(body, "agent_id", int))
 
 
 @app.post("/api/act/dispatch")
 def act_dispatch(body: dict = Body(...), x_colony: str | None = Header(None)) -> dict[str, Any]:
     _guard(x_colony)
-    return _act(control.dispatch, int(body["story_id"]))
+    return _act(control.dispatch, _num(body, "story_id", int))
 
 
 @app.post("/api/act/cancel")
 def act_cancel(body: dict = Body(...), x_colony: str | None = Header(None)) -> dict[str, Any]:
     _guard(x_colony)
-    return _act(control.cancel_ticket, int(body["ticket_id"]))
+    return _act(control.cancel_ticket, _num(body, "ticket_id", int))
 
 
 @app.post("/api/act/draft-skill")
 def act_draft_skill(body: dict = Body(...), x_colony: str | None = Header(None)) -> dict[str, Any]:
     """Ask for a candidate to be written up. Costs nothing now; the wake pays."""
     _guard(x_colony)
-    return _act(control.request_draft, int(body["skill_id"]))
+    return _act(control.request_draft, _num(body, "skill_id", int))
 
 
 @app.post("/api/act/promote-skill")
@@ -2248,14 +2275,14 @@ def act_promote_skill(body: dict = Body(...),
     roles = body.get("roles")
     if isinstance(roles, str):
         roles = [r for r in (part.strip() for part in roles.split(",")) if r]
-    return _act(control.promote_skill, int(body["skill_id"]), roles or ["ordis"])
+    return _act(control.promote_skill, _num(body, "skill_id", int), roles or ["ordis"])
 
 
 @app.post("/api/act/retire-skill")
 def act_retire_skill(body: dict = Body(...),
                      x_colony: str | None = Header(None)) -> dict[str, Any]:
     _guard(x_colony)
-    return _act(control.retire_skill, int(body["skill_id"]), str(body.get("reason") or ""))
+    return _act(control.retire_skill, _num(body, "skill_id", int), str(body.get("reason") or ""))
 
 
 # ── M5: dropping, and talking back to Notion ─────────────────────────────────
@@ -2265,7 +2292,7 @@ def act_retire_skill(body: dict = Body(...),
 def act_drop(body: dict = Body(...), x_colony: str | None = Header(None)) -> dict[str, Any]:
     """Take a story off the board. `notion_status` optionally says so upward too."""
     _guard(x_colony)
-    return _act(control.drop_story, int(body["story_id"]),
+    return _act(control.drop_story, _num(body, "story_id", int),
                 reason=str(body.get("reason") or ""),
                 notion_status=(body.get("notion_status") or None))
 
@@ -2273,7 +2300,7 @@ def act_drop(body: dict = Body(...), x_colony: str | None = Header(None)) -> dic
 @app.post("/api/act/restore")
 def act_restore(body: dict = Body(...), x_colony: str | None = Header(None)) -> dict[str, Any]:
     _guard(x_colony)
-    return _act(control.restore_story, int(body["story_id"]))
+    return _act(control.restore_story, _num(body, "story_id", int))
 
 
 @app.post("/api/act/notion")
@@ -2282,7 +2309,7 @@ def act_notion(body: dict = Body(...), x_colony: str | None = Header(None)) -> d
     _guard(x_colony)
     kind = str(body.get("kind") or "comment")
     payload = {k: body[k] for k in ("status", "text", "item", "checked") if k in body}
-    return _act(control.queue_notion, story_id=int(body["story_id"]), kind=kind,
+    return _act(control.queue_notion, story_id=_num(body, "story_id", int), kind=kind,
                 payload=payload)
 
 
@@ -2291,14 +2318,14 @@ def act_notion_write(body: dict = Body(...),
                      x_colony: str | None = Header(None)) -> dict[str, Any]:
     """The switch for the whole upward direction. Off holds the queue, never drops it."""
     _guard(x_colony)
-    return _act(control.set_notion_write, bool(body["on"]))
+    return _act(control.set_notion_write, bool(_need(body, "on")))
 
 
 @app.post("/api/act/reask")
 def act_reask(body: dict = Body(...), x_colony: str | None = Header(None)) -> dict[str, Any]:
     """Send a stale question back to Ordis rather than answer the wrong question."""
     _guard(x_colony)
-    return _act(control.reask, int(body["escalation_id"]))
+    return _act(control.reask, _num(body, "escalation_id", int))
 
 
 @app.get("/api/outbox")
