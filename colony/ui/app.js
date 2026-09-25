@@ -4391,6 +4391,7 @@ function paintThemeColor() {
 }
 
 if (saved) document.documentElement.dataset.theme = saved;
+else delete document.documentElement.dataset.theme;   // boot.js may have set a retired one
 $("theme").value = saved;
 $("theme").onchange = (e) => {
   const v = e.target.value;
