@@ -104,7 +104,7 @@ def class_stats(conn: sqlite3.Connection) -> dict[tuple[str, str], dict]:
         # A run killed over budget still produced its answer (§10.2) — it is a
         # success that cost too much, and excluding it would hide the very runs
         # a shortcut skill would most help.
-        if row["status"] in ("ok", "killed-over-budget"):
+        if row["status"] in ("ok", "over-budget"):
             stat["ok"].append(row["run_id"])
             if row["tokens"]:
                 stat["tokens"].append(row["tokens"])
@@ -181,8 +181,8 @@ def detect(conn: sqlite3.Connection) -> list[dict]:
         # 2. Failed, then succeeded. The recovery path is the lesson — it is the
         #    part no transcript of the successful run alone would ever show.
         for ticket_id, runs in stat["tickets"].items():
-            bad = [r for r in runs if r["status"] not in ("ok", "killed-over-budget")]
-            good = [r for r in runs if r["status"] in ("ok", "killed-over-budget")]
+            bad = [r for r in runs if r["status"] not in ("ok", "over-budget")]
+            good = [r for r in runs if r["status"] in ("ok", "over-budget")]
             if bad and good and max(r["run_id"] for r in good) > min(r["run_id"] for r in bad):
                 hit = _propose(
                     conn,
@@ -357,7 +357,7 @@ def draft(conn: sqlite3.Connection, skill_id: int, terms: dict) -> dict:
            "tokens": result.chargeable_tokens, "raw_tokens": result.total_tokens,
            "verdict": None}
 
-    if result.status not in ("ok", "killed-over-budget"):
+    if result.status != "ok":
         conn.execute("UPDATE tickets SET status='blocked', findings=? WHERE id=?",
                      (result.error or result.status, ticket_id))
         out["verdict"] = f"run {result.status}"

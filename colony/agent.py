@@ -270,7 +270,7 @@ def run_ticket(
     # billing fact, not a failure of the work.
     result.over_budget = bool(max_tokens and result.chargeable_tokens > max_tokens)
     if result.over_budget and result.status == "ok":
-        status = "killed-over-budget"
+        status = "over-budget"
 
     conn.execute(
         """
