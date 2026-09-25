@@ -48,9 +48,13 @@ FORBIDDEN = [
     (re.compile(r"\bgit\s+commit\b", re.I), "the colony never commits — you commit"),
     (re.compile(r"\bgit\s+(reset|checkout|restore|clean)\b.*(--hard|-f\b|-fd)", re.I),
      "that throws away working-tree changes"),
-    (re.compile(r"\bgit\s+branch\s+-D\b|--force-with-lease|--force\b|(?<!\w)-f(?=\s|$)", re.I),
+    # Scoped to git. A lone `-f` means "follow" to tail, "file" to grep and
+    # docker compose, and refusing those made the rule noise.
+    (re.compile(r"\bgit\s+branch\s+-D\b|\bgit\b.*(--force\b|--force-with-lease|\s-f(?=\s|$))", re.I),
      "a forced git operation rewrites history"),
-    (re.compile(r"\brm\s+-rf\b|\bRemove-Item\b.*-Recurse.*-Force", re.I),
+    (re.compile(r"\brm\s+(-\w*r\w*f|-\w*f\w*r|-[rR]\s+-f|-f\s+-[rR]|--recursive\s+--force|--force\s+--recursive)\b"
+                r"|\bRemove-Item\b.*-Recurse.*-Force|\bRemove-Item\b.*-Force.*-Recurse"
+                r"|\brmdir\s+/s\b|\brd\s+/s\b", re.I),
      "a recursive force delete"),
     (re.compile(r"\|\s*(sh|bash|iex|Invoke-Expression)\b", re.I),
      "piping a download into a shell"),
@@ -205,7 +209,7 @@ def transcript(result: dict, expect: str = "") -> str:
 # Counts of zero are how a passing test suite reports itself. Blanking them
 # before the scan below is the difference between reading "0 failed" as a pass
 # and reading it as the word "failed".
-_ZERO_COUNT = re.compile(r"\b0 (failed|failures|errors?|warnings?|skipped)\b", re.I)
+_ZERO_COUNT = re.compile(r"\b(0|no) (failed|failures|errors?|warnings?|skipped)\b", re.I)
 
 # Exit 0 is a weak claim. `py -m apply.main auto` printed "Notion query failed
 # (ConnectionError)" and returned 0, and the colony wrote that down as a clean
@@ -228,9 +232,11 @@ SUSPECT = [
      "it counted zero of the thing it was supposed to touch"),
     (re.compile(r"\bfail(ed|ure|ures|s)?\b", re.I),
      "the output says something failed"),
-    (re.compile(r"\b\w*(error|exception)s?\b", re.I),
-     "the output names an error"),
-    (re.compile(r"\bnot set\b|\bmissing\b", re.I),
+    # An error as a program reports one, `ValueError: ...` or `error: ...`,
+    # rather than any line that mentions the word.
+    (re.compile(r"(?m)(?:^|\s)(?:\w*(?:Error|Exception)|error|ERROR|FATAL|fatal)\s*:"),
+     "the output reports an error"),
+    (re.compile(r"\bnot set\b|\b(?:is|are|was|were) missing\b|\bmissing\s*:", re.I),
      "the output says something it needed was not there"),
     (re.compile(r"\bcould not\b|\bunable to\b|\brefused\b|\bdenied\b", re.I),
      "the output says it could not do something"),
