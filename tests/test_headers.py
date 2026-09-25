@@ -7,7 +7,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from colony import attachments, server
+from colony import attachments
+from colony.web import pages, stories
 
 
 class TestAttachmentHeaders(unittest.TestCase):
@@ -21,7 +22,7 @@ class TestAttachmentHeaders(unittest.TestCase):
 
     def serve(self, name: str, body: bytes = b"x"):
         (self.root / name).write_bytes(body)
-        return server.attachment(name)
+        return stories.attachment(name)
 
     def test_png_renders_inline_but_sandboxed(self):
         resp = self.serve("abc-shot.png")
@@ -49,7 +50,7 @@ def _get(path: str, etag: str | None = None):
 
 class TestPageCsp(unittest.TestCase):
     def test_index_sends_a_policy_without_inline_script(self):
-        resp = server.index(_get("/"))
+        resp = pages.index(_get("/"))
         csp = resp.headers["content-security-policy"]
         self.assertIn("script-src 'self'", csp)
         self.assertNotIn("unsafe-inline';", csp.split("script-src")[1].split(";")[0] + ";")
@@ -58,32 +59,32 @@ class TestPageCsp(unittest.TestCase):
 
 class TestAssetCaching(unittest.TestCase):
     def test_an_unchanged_file_is_a_304(self):
-        first = server.module_js("main.js", _get("/js/main.js"))
+        first = pages.module_js("main.js", _get("/js/main.js"))
         self.assertEqual(first.status_code, 200)
         self.assertEqual(first.headers["cache-control"], "no-cache")
-        again = server.module_js("main.js", _get("/js/main.js", first.headers["etag"]))
+        again = pages.module_js("main.js", _get("/js/main.js", first.headers["etag"]))
         self.assertEqual(again.status_code, 304)
         self.assertEqual(again.body, b"")
 
     def test_the_theme_boot_script_is_served_and_loaded_in_head(self):
-        resp = server.boot_js(_get("/boot.js"))
+        resp = pages.boot_js(_get("/boot.js"))
         self.assertIn(b"colony-theme", resp.body)
-        page = server.index(_get("/")).body.decode()
+        page = pages.index(_get("/")).body.decode()
         self.assertLess(page.index('src="boot.js"'), page.index('href="app.css"') + 40)
         self.assertLess(page.index('src="boot.js"'), page.index('src="js/main.js"'))
 
     def test_only_a_bare_module_name_is_served(self):
         for name in ("..%2Fserver.py", "Main.js", "main.css", "missing.js"):
             with self.subTest(name=name):
-                with self.assertRaises(server.HTTPException):
-                    server.module_js(name, _get("/js/" + name))
+                with self.assertRaises(pages.HTTPException):
+                    pages.module_js(name, _get("/js/" + name))
 
     def test_the_page_loads_the_entry_module(self):
-        page = server.index(_get("/")).body.decode()
+        page = pages.index(_get("/")).body.decode()
         self.assertIn('<script type="module" src="js/main.js">', page)
 
     def test_a_stale_etag_gets_the_file(self):
-        resp = server.app_css(_get("/app.css", '"old"'))
+        resp = pages.app_css(_get("/app.css", '"old"'))
         self.assertEqual(resp.status_code, 200)
         self.assertTrue(resp.body)
 

@@ -259,17 +259,18 @@ class ConsoleIsDeskOnly(unittest.TestCase):
     MINE = frozenset({"10.0.0.57", "100.126.11.89"})
 
     def setUp(self):
-        from colony import net, server
-        self.server = server
-        self.addCleanup(setattr, server, "CONSOLE_REMOTE", server.CONSOLE_REMOTE)
-        server.CONSOLE_REMOTE = False
+        from colony import net
+        from colony.web import console as routes
+        self.routes = routes
+        self.addCleanup(setattr, routes, "CONSOLE_REMOTE", routes.CONSOLE_REMOTE)
+        routes.CONSOLE_REMOTE = False
         self.addCleanup(setattr, net, "local_addresses", net.local_addresses)
         net.local_addresses = lambda: self.MINE
 
     def test_loopback_is_allowed(self):
         for host in ("127.0.0.1", "::1", "localhost"):
             with self.subTest(host=host):
-                self.server._desk_only(self.Req(host))       # does not raise
+                self.routes._desk_only(self.Req(host))       # does not raise
 
     def test_this_machines_own_network_address_is_the_desk(self):
         """The logon task binds one network address, so the window uses it too.
@@ -280,7 +281,7 @@ class ConsoleIsDeskOnly(unittest.TestCase):
         """
         for host in sorted(self.MINE):
             with self.subTest(host=host):
-                self.server._desk_only(self.Req(host))       # does not raise
+                self.routes._desk_only(self.Req(host))       # does not raise
 
     def test_another_device_is_refused_with_a_reason_a_person_can_act_on(self):
         # Addresses in the same ranges as the two above, and deliberately close
@@ -290,24 +291,24 @@ class ConsoleIsDeskOnly(unittest.TestCase):
             with self.subTest(host=host):
                 self.assertNotIn(host, self.MINE)
                 with self.assertRaises(HTTPException) as caught:
-                    self.server._desk_only(self.Req(host))
+                    self.routes._desk_only(self.Req(host))
                 self.assertEqual(caught.exception.status_code, 403)
                 self.assertIn("desktop", caught.exception.detail)
 
     def test_an_unknown_peer_fails_closed(self):
         """No client on the scope must not read as "must be local, then"."""
         with self.assertRaises(HTTPException):
-            self.server._desk_only(self.Req(None))
+            self.routes._desk_only(self.Req(None))
 
     def test_the_escape_hatch_lifts_it(self):
-        self.server.CONSOLE_REMOTE = True
-        self.server._desk_only(self.Req("10.0.0.58"))        # does not raise
+        self.routes.CONSOLE_REMOTE = True
+        self.routes._desk_only(self.Req("10.0.0.58"))        # does not raise
 
     def test_every_console_write_route_is_behind_it(self):
         """A fifth console route added later must not quietly skip the guard."""
         import inspect
         for name in ("console_send", "console_clear", "console_options", "console_cwd"):
-            fn = getattr(self.server, name)
+            fn = getattr(self.routes, name)
             src = inspect.getsource(fn)
             with self.subTest(route=name):
                 self.assertIn("_desk_only(request)", src)
@@ -329,19 +330,19 @@ class TheSwitchIsAsymmetric(unittest.TestCase):
             self.client = type("C", (), {"host": host})() if host is not None else None
 
     def setUp(self):
-        from colony import server
-        self.server = server
+        from colony.web import console as routes
+        self.routes = routes
         self.dir = tempfile.TemporaryDirectory()
         self.addCleanup(self.dir.cleanup)
         self.env = Path(self.dir.name) / ".env"
         # A stand-in for the real file, holding the thing that must survive.
         self.env.write_text("NOTION_TOKEN=ntn_pretend\n", encoding="utf-8")
 
-        self.addCleanup(setattr, server, "CONSOLE_REMOTE", server.CONSOLE_REMOTE)
-        server.CONSOLE_REMOTE = False
+        self.addCleanup(setattr, routes, "CONSOLE_REMOTE", routes.CONSOLE_REMOTE)
+        routes.CONSOLE_REMOTE = False
         self.written = []
 
-        # Captured before the patch: `server.db` *is* `colony.db`, so patching
+        # Captured before the patch: `routes.db` *is* `colony.db`, so patching
         # the attribute and then looking it up again is a call to the stub.
         real_set = db.set_env_value
 
@@ -349,41 +350,41 @@ class TheSwitchIsAsymmetric(unittest.TestCase):
             self.written.append((key, value))
             return real_set(key, value, self.env, comment)
 
-        patch = mock.patch.object(server.db, "set_env_value", fake_set)
+        patch = mock.patch.object(routes.db, "set_env_value", fake_set)
         patch.start()
         self.addCleanup(patch.stop)
         # The route writes a ledger note; none of these tests are about that.
-        patch = mock.patch.object(server, "_rw", lambda: sqlite3.connect(":memory:"))
+        patch = mock.patch.object(routes, "_rw", lambda: sqlite3.connect(":memory:"))
         patch.start()
         self.addCleanup(patch.stop)
-        patch = mock.patch.object(server.control, "_record",
+        patch = mock.patch.object(routes.control, "_record",
                                   lambda *a, **k: None)
         patch.start()
         self.addCleanup(patch.stop)
 
     def call(self, host, on):
-        return self.server.act_console_remote(self.Req(host), {"on": on}, "1")
+        return self.routes.act_console_remote(self.Req(host), {"on": on}, "1")
 
     def test_turning_it_on_from_the_lan_is_refused(self):
         with self.assertRaises(HTTPException) as caught:
             self.call("192.168.1.9", True)
         self.assertEqual(caught.exception.status_code, 403)
-        self.assertFalse(self.server.CONSOLE_REMOTE)
+        self.assertFalse(self.routes.CONSOLE_REMOTE)
         self.assertEqual(self.written, [])          # and `.env` was not touched
 
     def test_turning_it_on_at_the_desk_works_and_is_written_down(self):
         out = self.call("127.0.0.1", True)
         self.assertTrue(out["remote"])
-        self.assertTrue(self.server.CONSOLE_REMOTE)
+        self.assertTrue(self.routes.CONSOLE_REMOTE)
         self.assertIn("COLONY_CONSOLE_REMOTE=1",
                       self.env.read_text(encoding="utf-8"))
 
     def test_turning_it_off_from_the_lan_is_allowed(self):
         """Tightening is always safe, and is wanted exactly when you are away."""
-        self.server.CONSOLE_REMOTE = True
+        self.routes.CONSOLE_REMOTE = True
         out = self.call("192.168.1.9", False)
         self.assertFalse(out["remote"])
-        self.assertFalse(self.server.CONSOLE_REMOTE)
+        self.assertFalse(self.routes.CONSOLE_REMOTE)
         self.assertIn("COLONY_CONSOLE_REMOTE=0",
                       self.env.read_text(encoding="utf-8"))
 
@@ -404,11 +405,11 @@ class TheSwitchIsAsymmetric(unittest.TestCase):
         """Otherwise the process and the file disagree about what is allowed."""
         def boom(*a, **k):
             raise OSError("disk full")
-        with mock.patch.object(self.server.db, "set_env_value", boom):
+        with mock.patch.object(self.routes.db, "set_env_value", boom):
             with self.assertRaises(HTTPException) as caught:
                 self.call("127.0.0.1", True)
         self.assertEqual(caught.exception.status_code, 500)
-        self.assertFalse(self.server.CONSOLE_REMOTE)
+        self.assertFalse(self.routes.CONSOLE_REMOTE)
 
 
 if __name__ == "__main__":

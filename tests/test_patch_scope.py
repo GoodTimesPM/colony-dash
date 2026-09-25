@@ -7,7 +7,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from colony import server, worktree
+from colony import worktree
+from colony.web import reads
 
 PATCH = """diff --git a/app/one.py b/app/one.py
 index 1111111..2222222 100644
@@ -73,7 +74,7 @@ class TestApplyRefusesOutOfScope(unittest.TestCase):
 
 class TestDiffstat(unittest.TestCase):
     def test_marks_outside_files(self):
-        stat = server._diffstat(PATCH, ["app"])
+        stat = reads._diffstat(PATCH, ["app"])
         self.assertEqual(stat["total"]["files"], 5)
         self.assertEqual(stat["total"]["outside"], 1)
         self.assertEqual([f["path"] for f in stat["files"] if f["outside"]], ["other/gone.py"])
