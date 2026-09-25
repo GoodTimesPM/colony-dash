@@ -16,7 +16,6 @@ The task holds no secret; the token stays in `.env`.
 from __future__ import annotations
 
 import getpass
-from pathlib import Path
 
 from . import access, db, net, shortcut
 from .schedule import PROJECT_ROOT, _ps, _run_ps
