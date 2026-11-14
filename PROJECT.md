@@ -59,4 +59,4 @@ Tests: `.venv/Scripts/python.exe -m unittest discover -s tests -t .` from `colon
 
 ## Security and UI audit, 2026-11-14
 
-Login redirect refuses `/\` and control characters (eab49b6). Headings, links and buttons in sentence case (0cd0915). **TODO:** restart the server to load the fix. The server listens on the LAN over plain HTTP; bind to 127.0.0.1 and use Tailscale for the phone. Full report: [SECURITY-AUDIT.md](../SECURITY-AUDIT.md).
+Login redirect refuses `/\` and control characters (eab49b6). Headings, links and buttons in sentence case (0cd0915). Server restarted on the fix. `--host auto` now binds the tailnet only and waits up to two minutes for Tailscale at logon; a LAN bind needs the address passed by hand (d1a402c). Full report: [SECURITY-AUDIT.md](../SECURITY-AUDIT.md).
