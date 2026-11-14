@@ -27,10 +27,20 @@ class TestChoosingAnAddress(unittest.TestCase):
             self.assertEqual(net.tailnet(), "100.94.3.11")
             self.assertEqual(net.auto(), ("100.94.3.11", "tailnet"))
 
-    def test_a_private_lan_address_is_the_fallback(self):
+    def test_a_private_lan_address_is_not_chosen_on_its_own(self):
+        """The wifi carries the token in clear; a LAN bind must be asked for."""
         for value in ("192.168.1.40", "10.0.0.57", "172.16.4.9"):
             with self.subTest(value=value), with_addresses("127.0.0.1", value):
-                self.assertEqual(net.auto(), (value, "lan"))
+                with self.assertRaises(net.NoAddress):
+                    net.auto()
+
+    def test_auto_waits_for_tailscale_to_come_up(self):
+        answers = iter([["10.0.0.57"], ["10.0.0.57"], ["10.0.0.57", "100.94.3.11"]])
+        with mock.patch.object(net, "_candidates", lambda: next(answers)),                 mock.patch.object(net.time, "sleep", lambda s: None):
+            self.assertEqual(net.auto(wait_s=60), ("100.94.3.11", "tailnet"))
+
+    def test_a_lan_address_given_by_hand_still_binds(self):
+        self.assertEqual(net.resolve("10.0.0.57"), ("10.0.0.57", "given"))
 
     def test_the_tailnet_range_is_not_mistaken_for_a_lan(self):
         """100.64/10 is private but it is not RFC 1918, and it is labelled."""
@@ -58,8 +68,8 @@ class TestChoosingAnAddress(unittest.TestCase):
                 net.auto()
 
     def test_garbage_is_skipped_rather_than_raised_on(self):
-        with with_addresses("", "not-an-address", "10.0.0.57"):
-            self.assertEqual(net.auto(), ("10.0.0.57", "lan"))
+        with with_addresses("", "not-an-address", "100.94.3.11"):
+            self.assertEqual(net.auto(), ("100.94.3.11", "tailnet"))
 
     def test_the_refusal_says_what_to_do(self):
         with with_addresses("203.0.113.7"):

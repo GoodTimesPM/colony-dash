@@ -226,7 +226,8 @@ def cmd_dash(conn: sqlite3.Connection, args) -> int:
     from . import access, desktop, net
 
     try:
-        host, kind = net.resolve(args.host)
+        # The logon task can start before Tailscale; give it two minutes.
+        host, kind = net.resolve(args.host, wait_s=120 if args.serve else 0)
         # Checked here too so the refusal prints in this terminal, not the
         # server log.
         access.check(host)

@@ -1,12 +1,9 @@
 """Which address on this machine a phone can reach, resolved at every launch so
 the logon task never holds a stale literal.
 
-`--host auto` accepts, in order:
-
-  * a tailnet address (`100.64.0.0/10`), where the token is a second lock;
-  * a private LAN address (RFC 1918), announced as such because a laptop
-    cannot tell home wifi from a coffee shop's;
-  * nothing else. If neither exists, `auto()` raises rather than guess.
+`--host auto` accepts a tailnet address (`100.64.0.0/10`), where the token is
+a second lock, and nothing else. A LAN address must be passed by hand. If there
+is no tailnet, `auto()` raises rather than guess.
 
 `0.0.0.0` must be spelled out; "every interface" is a decision, not a
 discovery.
@@ -122,33 +119,42 @@ def is_this_machine(host: str) -> bool:
     return host in local_addresses()
 
 
-def auto() -> tuple[str, str]:
-    """The address to bind and its kind, e.g. `("100.1.2.3", "tailnet")`.
-    Raises `NoAddress` rather than returning a public address.
+def auto(wait_s: float = 0.0) -> tuple[str, str]:
+    """The tailnet address to bind: `("100.1.2.3", "tailnet")`.
+
+    Tailnet only. A LAN address used to be the fallback, and at logon, when
+    Tailscale had not come up yet, that fallback won: the server sat on the
+    home wifi over plain HTTP with the token crossing it unencrypted. A LAN
+    bind now has to be asked for by address with `--host`.
+
+    `wait_s` polls for Tailscale that long before giving up, for the logon
+    task that starts before Tailscale does. Raises `NoAddress` after that.
     """
-    address = tailnet()
-    if address:
-        return address, "tailnet"
-    address = lan()
-    if address:
-        return address, "lan"
+    deadline = time.monotonic() + wait_s
+    while True:
+        address = tailnet()
+        if address:
+            return address, "tailnet"
+        if time.monotonic() >= deadline:
+            break
+        time.sleep(2)
     raise NoAddress(
-        "no tailnet or private LAN address on this machine, so there is "
-        "nothing safe to bind.\n\n"
-        "Either connect to a network, Tailscale is the one worth having, "
-        "since it works off your home wifi too, or pass --host with the "
-        "address you mean."
+        "no tailnet address on this machine, so there is nothing safe to "
+        "bind for the phone.\n\n"
+        "Start Tailscale and run this again. To use the home wifi instead, "
+        "pass --host with this machine's LAN address; the token then crosses "
+        "the wifi unencrypted."
     )
 
 
-def resolve(host: str | None) -> tuple[str, str]:
+def resolve(host: str | None, wait_s: float = 0.0) -> tuple[str, str]:
     """Turn `--host` into an address and a label. Anything but `auto` passes
     through; `access.check` still decides whether the bind is allowed.
     """
     if host is None:
         return "127.0.0.1", "loopback"
     if host.strip().lower() == "auto":
-        return auto()
+        return auto(wait_s)
     host = host.strip()
     if host in ("0.0.0.0", "::"):
         return host, "every interface"
