@@ -56,3 +56,7 @@ Tests: `.venv/Scripts/python.exe -m unittest discover -s tests -t .` from `colon
       restates the code.
 - [ ] The manual (`colony/ui/js/manual.js`) is a frozen snapshot from 2026-08-22. Rewrite
       it from the code once the workflow settles, rather than patching it line by line.
+
+## Security and UI audit, 2026-11-14
+
+Login redirect refuses `/\` and control characters (eab49b6). Headings, links and buttons in sentence case (0cd0915). **TODO:** restart the server to load the fix. The server listens on the LAN over plain HTTP; bind to 127.0.0.1 and use Tailscale for the phone. Full report: [SECURITY-AUDIT.md](../SECURITY-AUDIT.md).
