@@ -407,3 +407,33 @@ class TestSameHost(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestLoginRedirect(unittest.TestCase):
+    """After a good token, the login only ever sends the browser back here."""
+
+    def _login(self, next_path: str):
+        import asyncio
+        import urllib.parse
+
+        from starlette.requests import Request
+
+        body = urllib.parse.urlencode({"token": "s3cret", "next": next_path}).encode()
+
+        async def receive():
+            return {"type": "http.request", "body": body, "more_body": False}
+
+        request = Request({
+            "type": "http", "http_version": "1.1", "method": "POST", "scheme": "http",
+            "path": "/login", "raw_path": b"/login", "root_path": "", "query_string": b"",
+            "headers": [], "server": ("127.0.0.1", 8787), "client": ("127.0.0.1", 1),
+            "app": server.app,
+        }, receive)
+        with with_token("s3cret"):
+            return asyncio.run(server.login(request))
+
+    def test_only_paths_on_this_server(self):
+        self.assertEqual(self._login("/stories?x=1").headers["location"], "/stories?x=1")
+        for bad in ("//evil.example", "/\evil.example", "https://evil.example", "/\r\nX: 1"):
+            with self.subTest(next=bad):
+                self.assertEqual(self._login(bad).headers["location"], "/")

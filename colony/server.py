@@ -204,7 +204,9 @@ async def login(request: Request) -> Response:
     form = urllib.parse.parse_qs(raw, keep_blank_values=True)
     supplied = (form.get("token") or [""])[0]
     next_path = (form.get("next") or ["/"])[0]
-    if not next_path.startswith("/") or next_path.startswith("//"):
+    # Browsers read a backslash as a slash, so "/\evil.com" leaves too.
+    if (not next_path.startswith("/") or next_path[1:2] in ("/", "\\")
+            or any(c in next_path for c in "\r\n\t")):
         next_path = "/"          # never bounce off this server
     if not access.matches(supplied):
         return _login_page(error="that is not the token", next_path=next_path)
