@@ -374,7 +374,7 @@ export function renderMacros(c) {
 
   // HALT. Deliberately the biggest control on the page.
   const halt = el("div", "macro");
-  const btn = el("button", "big" + (c.halted ? " resume" : ""), c.halted ? "resume" : "halt");
+  const btn = el("button", "big" + (c.halted ? " resume" : ""), c.halted ? "Resume" : "Halt");
   btn.onclick = () => {
     if (c.halted) { act("halt", { on: false }); return; }
     confirmThen("Halt all production? The pulse keeps beating and logging. It just stops spending.",

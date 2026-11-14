@@ -81,8 +81,7 @@ LOGIN_PAGE = """<!doctype html>
          background: #0B0F14; color: #DEE5EC; padding: 24px;
          font: 15px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
   form { width: min(320px, 100%); display: flex; flex-direction: column; gap: 12px; }
-  h1 { margin: 0; font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
-       font-size: 13px; letter-spacing: .16em; text-transform: uppercase; }
+  h1 { margin: 0; font-size: 17px; font-weight: 650; }
   p { margin: 0; color: #6B7885; font-size: 13px; }
   input, button { font: inherit; border-radius: 6px; padding: 11px 12px;
                   border: 1px solid #2A3441; background: #121820; color: inherit; }

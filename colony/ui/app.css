@@ -434,8 +434,7 @@ header.bar {
   background: var(--panel);
 }
 header.bar h1 {
-  margin: 0; font-family: var(--mono); font-size: var(--step-0);
-  font-weight: 600; letter-spacing: .16em; text-transform: uppercase;
+  margin: 0; font-size: var(--step-0); font-weight: 650; letter-spacing: -.005em;
 }
 header.bar .goal {
   flex: 1; min-width: 0; color: var(--ink-soft);
@@ -449,8 +448,7 @@ header.bar .goal {
 .viewmenu { position: relative; align-self: center; }
 .viewmenu > summary {
   list-style: none; cursor: pointer; padding: 4px 9px; border-radius: 5px;
-  font-family: var(--mono); font-size: var(--step--1);
-  letter-spacing: .1em; text-transform: uppercase; color: var(--ink-dim);
+  font-size: var(--step--1); color: var(--ink-dim);
   border: 1px solid var(--rule);
 }
 .viewmenu > summary::-webkit-details-marker { display: none; }
@@ -480,9 +478,10 @@ body.dense .story, body.dense .pulse { padding-top: 3px; padding-bottom: 3px; }
 
 .link {
   background: none; border: 0; padding: 4px 8px; cursor: pointer;
-  color: var(--ink-dim); font-family: var(--mono); font-size: var(--step--1);
-  letter-spacing: .1em; text-transform: uppercase; border-radius: 5px;
+  color: var(--ink-dim); font-size: var(--step--1); border-radius: 5px;
 }
+/* Labels are written lowercase in the markup and the scripts; capitalize once here. */
+.link::first-letter, .viewmenu > summary::first-letter, button.act::first-letter { text-transform: uppercase; }
 .link:hover { color: var(--ink); background: var(--panel-sunk); }
 .link[aria-pressed="true"] { color: var(--ink); background: var(--panel-sunk); }
 .link:focus-visible { outline: 2px solid var(--violet); outline-offset: 1px; }
@@ -554,8 +553,7 @@ body.halted .halt-banner { display: flex; }
 .strip-row > * { min-width: 0; }
 .strip { padding: 0; }
 .strip h2 {
-  margin: 0 0 9px; font-family: var(--mono); font-size: var(--step--1); font-weight: 600;
-  letter-spacing: .16em; text-transform: uppercase; color: var(--amber);
+  margin: 0 0 9px; font-size: var(--step-0); font-weight: 650; color: var(--amber);
   display: flex; align-items: center; gap: 9px;
 }
 .strip h2 .count { color: var(--ink-soft); letter-spacing: 0; }
@@ -696,7 +694,7 @@ body.halted .halt-banner { display: flex; }
 }
 
 button.act {
-  font-family: var(--mono); font-size: var(--step--1); letter-spacing: .06em; text-transform: uppercase;
+  font-size: var(--step--1); font-weight: 550;
   padding: 5px 10px; border-radius: 5px; cursor: pointer;
   border: 1px solid var(--rule); background: var(--panel); color: var(--ink-soft);
 }
@@ -804,8 +802,7 @@ section.panel {
 }
 .panel > h2 {
   margin: 0; padding: 10px 13px 9px;
-  font-family: var(--mono); font-size: var(--step--1); font-weight: 600;
-  letter-spacing: .16em; text-transform: uppercase; color: var(--section-hue, var(--ink-dim));
+  font-size: var(--step-0); font-weight: 650; color: var(--section-hue, var(--ink-dim));
   border-bottom: 1px solid var(--rule-soft);
   box-shadow: inset 3px 0 0 var(--section-hue, transparent);
   display: flex; align-items: center; gap: 8px;
@@ -1084,8 +1081,7 @@ button.persona.hired .nm { color: var(--mint); }
 .macro-rule { border: 0; border-top: 1px solid var(--rule-soft); margin: 3px 0; }
 button.big {
   width: 100%; padding: 11px; border-radius: 7px; cursor: pointer;
-  font-family: var(--mono); font-size: var(--step-1); font-weight: 600;
-  letter-spacing: .18em; text-transform: uppercase;
+  font-size: var(--step-1); font-weight: 650;
   border: 2px solid var(--coral); background: var(--coral-ground); color: var(--coral);
 }
 button.big:hover { background: var(--coral); color: var(--panel); }
